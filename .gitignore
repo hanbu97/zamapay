@@ -1,0 +1,36 @@
+node_modules
+.next
+dist
+coverage
+playwright-report
+test-results
+target
+.env
+.env.local
+*.log
+*.tsbuildinfo
+
+# Local tool/runtime state
+.playwright-mcp/
+tmp/
+.omx/logs/
+.omx/state/
+.omx/metrics.json
+
+# Reference checkouts are read-only inputs, not this product source.
+refs/
+
+# Browser QA evidence generated during local iteration.
+/*.png
+/*snapshot*.md
+/mermer-*.md
+/cardforge-*.md
+/sepolia-faucet-*.md
+/zama-*.md
+/*console*.txt
+
+# Contract build/runtime output. Generated ABI snapshots live under /generated.
+contracts/artifacts/
+contracts/cache/
+contracts/.hardhat-home/
+contracts/fhevmTemp/

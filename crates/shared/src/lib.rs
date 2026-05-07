@@ -1,0 +1,519 @@
+pub mod contracts;
+
+use std::collections::BTreeMap;
+
+use chrono::{DateTime, Utc};
+use domain::{
+    FinalityStatus, FulfillmentStatus, OperatorSettlementEvent, PaymentTruth, SettlementSnapshot,
+    WebhookDeliveryOutcome, WebhookDeliverySnapshot, WebhookDeliveryStatus,
+};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+pub use contracts::{
+    AddressManifest, ContractAddresses, contract_manifest, local_dev_contract_manifest,
+};
+
+pub const DEFAULT_FINALITY_THRESHOLD: u64 = 2;
+
+fn default_finality_threshold() -> u64 {
+    DEFAULT_FINALITY_THRESHOLD
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NonceRequest {
+    pub address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NonceResponse {
+    pub nonce: String,
+    pub message: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyRequest {
+    pub address: String,
+    pub nonce: String,
+    pub message: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateInvoiceRequest {
+    pub title: String,
+    pub amount_label: String,
+    pub amount_minor_units: u64,
+    pub note: String,
+    pub external_ref: Option<String>,
+    pub chain_invoice_id: Option<u64>,
+    pub chain_tx_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectEnvironmentKind {
+    LocalDev,
+    Sepolia,
+}
+
+impl ProjectEnvironmentKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::LocalDev => "local-dev",
+            Self::Sepolia => "sepolia",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectStatus {
+    Active,
+    Disabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InvoiceAuthorityMode {
+    PlatformHostedSigner,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckoutSessionStatus {
+    Created,
+    Open,
+    Paid,
+    Expired,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentProject {
+    pub project_id: String,
+    pub name: String,
+    pub owner_wallet: String,
+    pub default_environment: ProjectEnvironmentKind,
+    pub status: ProjectStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentProjectEnvironment {
+    pub environment_id: String,
+    pub project_id: String,
+    pub environment: ProjectEnvironmentKind,
+    pub chain_id: Option<u64>,
+    pub settlement_contract: Option<String>,
+    pub token_contract: Option<String>,
+    pub invoice_authority_id: String,
+    pub status: ProjectStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectInvoiceAuthority {
+    pub authority_id: String,
+    pub project_id: String,
+    pub environment: ProjectEnvironmentKind,
+    pub mode: InvoiceAuthorityMode,
+    pub signer_address: String,
+    pub key_ref: String,
+    pub merchant_registered: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectApiKey {
+    pub key_id: String,
+    pub project_id: String,
+    pub environment: ProjectEnvironmentKind,
+    pub label: String,
+    pub prefix: String,
+    pub created_at: DateTime<Utc>,
+    pub last_used_at: Option<DateTime<Utc>>,
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWebhookEndpoint {
+    pub endpoint_id: String,
+    pub project_id: String,
+    pub environment: ProjectEnvironmentKind,
+    pub url: String,
+    pub enabled: bool,
+    pub secret_preview: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutSession {
+    pub checkout_session_id: String,
+    pub project_id: String,
+    pub environment: ProjectEnvironmentKind,
+    pub merchant_order_id: String,
+    pub idempotency_key: String,
+    pub invoice_id: String,
+    pub chain_invoice_id: u64,
+    pub chain_tx_hash: String,
+    pub checkout_url: String,
+    pub title: String,
+    pub amount_label: String,
+    pub amount_minor_units: u64,
+    pub note: String,
+    pub success_url: Option<String>,
+    pub cancel_url: Option<String>,
+    pub metadata: BTreeMap<String, String>,
+    pub status: CheckoutSessionStatus,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookEventRecord {
+    pub event_id: String,
+    pub project_id: String,
+    pub environment: ProjectEnvironmentKind,
+    pub event_type: String,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub payload: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookDeliveryRecord {
+    pub delivery_id: String,
+    pub event_id: String,
+    pub endpoint_id: String,
+    pub project_id: String,
+    pub environment: ProjectEnvironmentKind,
+    pub attempt_count: u32,
+    pub status: WebhookDeliveryStatus,
+    pub signature_header: Option<String>,
+    pub http_status: Option<u16>,
+    pub response_body: Option<String>,
+    pub error: Option<String>,
+    pub next_retry_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub delivered_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePaymentProjectRequest {
+    pub name: String,
+    pub environment: Option<ProjectEnvironmentKind>,
+    pub webhook_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePaymentProjectResponse {
+    pub project: PaymentProject,
+    pub environment: PaymentProjectEnvironment,
+    pub invoice_authority: ProjectInvoiceAuthority,
+    pub webhook_endpoint: Option<ProjectWebhookEndpoint>,
+    pub webhook_secret: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectApiKeyRequest {
+    pub label: Option<String>,
+    pub environment: Option<ProjectEnvironmentKind>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectApiKeyResponse {
+    pub api_key: String,
+    pub key_record: ProjectApiKey,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigureWebhookEndpointRequest {
+    pub url: String,
+    pub environment: Option<ProjectEnvironmentKind>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigureWebhookEndpointResponse {
+    pub endpoint: ProjectWebhookEndpoint,
+    pub webhook_secret: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCheckoutSessionRequest {
+    pub merchant_order_id: String,
+    pub title: String,
+    pub amount_label: String,
+    pub amount_minor_units: u64,
+    pub note: String,
+    pub success_url: Option<String>,
+    pub cancel_url: Option<String>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDashboardSummary {
+    pub total_checkouts: u32,
+    pub open_checkouts: u32,
+    pub paid_checkouts: u32,
+    pub pending_deliveries: u32,
+    pub delivered_webhooks: u32,
+    pub failed_webhooks: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDashboardOverview {
+    pub project: PaymentProject,
+    pub environments: Vec<PaymentProjectEnvironment>,
+    pub api_keys: Vec<ProjectApiKey>,
+    pub webhook_endpoints: Vec<ProjectWebhookEndpoint>,
+    pub checkout_sessions: Vec<CheckoutSession>,
+    pub webhook_events: Vec<WebhookEventRecord>,
+    pub webhook_deliveries: Vec<WebhookDeliveryRecord>,
+    pub summary: ProjectDashboardSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentProjectionRequest {
+    pub chain_invoice_id: Option<u64>,
+    pub payment_tx_hash: String,
+    pub payer_address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentConfirmationsRequest {
+    pub confirmations: u64,
+    pub finality_threshold: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperatorSettlementEventRequest {
+    pub event: OperatorSettlementEvent,
+    pub finality_threshold: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecryptCallbackOutcome {
+    Completed,
+    FailedTimeout,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecryptCallbackRequest {
+    pub outcome: DecryptCallbackOutcome,
+    pub callback_sender: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DecryptRequestSnapshot {
+    pub request_id: String,
+    pub requested_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub callback_sender: Option<String>,
+    pub replayed_callback_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookDeliveryRequest {
+    pub outcome: WebhookDeliveryOutcome,
+    pub max_attempts: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookEventPayload {
+    pub event: String,
+    pub invoice_id: String,
+    pub chain_invoice_id: u64,
+    pub payment_tx_hash: Option<String>,
+    pub payer_address: Option<String>,
+    pub amount_minor_units: u64,
+    pub amount_label: String,
+    pub payment_truth: PaymentTruth,
+    pub finality_status: FinalityStatus,
+    pub fulfillment_status: FulfillmentStatus,
+    pub webhook_attempt_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookSignatureHeaders {
+    #[serde(rename = "x-mermer-webhook-id")]
+    pub x_mermer_webhook_id: String,
+    #[serde(rename = "x-mermer-webhook-timestamp")]
+    pub x_mermer_webhook_timestamp: String,
+    #[serde(rename = "x-mermer-webhook-signature")]
+    pub x_mermer_webhook_signature: String,
+    #[serde(rename = "x-mermer-webhook-algorithm")]
+    pub x_mermer_webhook_algorithm: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebhookDispatchResponse {
+    pub endpoint: String,
+    pub headers: WebhookSignatureHeaders,
+    pub payload: WebhookEventPayload,
+    pub canonical_body: String,
+    pub signature_base: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FulfillmentArtifact {
+    pub label: String,
+    pub secret: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FulfillmentReleaseAudit {
+    pub invoice_id: String,
+    pub job_id: String,
+    pub released_at: DateTime<Utc>,
+    pub artifact_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FulfillmentResponse {
+    pub invoice_id: String,
+    pub decision: String,
+    pub artifacts: Vec<FulfillmentArtifact>,
+    pub release: Option<FulfillmentReleaseAudit>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionUser {
+    pub address: String,
+    pub session_id: Uuid,
+    pub issued_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionResponse {
+    pub authenticated: bool,
+    pub user: Option<SessionUser>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceRecord {
+    pub invoice_id: String,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub checkout_session_id: Option<String>,
+    #[serde(default)]
+    pub environment: Option<String>,
+    #[serde(default)]
+    pub external_ref: Option<String>,
+    pub title: String,
+    pub merchant_name: String,
+    pub amount_label: String,
+    pub amount_minor_units: u64,
+    pub note: String,
+    pub chain_invoice_id: Option<u64>,
+    pub chain_tx_hash: Option<String>,
+    pub payment_tx_hash: Option<String>,
+    pub payer_address: Option<String>,
+    #[serde(default)]
+    pub finality_confirmations: u64,
+    #[serde(default = "default_finality_threshold")]
+    pub finality_threshold: u64,
+    #[serde(default)]
+    pub webhook: WebhookDeliverySnapshot,
+    #[serde(default)]
+    pub fulfillment_release: Option<FulfillmentReleaseAudit>,
+    #[serde(default)]
+    pub decrypt_request: Option<DecryptRequestSnapshot>,
+    #[serde(default)]
+    pub decrypt_pending_guard_trips: u32,
+    pub snapshot: SettlementSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardSummary {
+    pub total_invoices: u32,
+    pub paid_invoices: u32,
+    pub pending_invoices: u32,
+    pub finality_backlog: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DashboardOverview {
+    pub merchant_name: String,
+    pub merchant_address: String,
+    pub summary: DashboardSummary,
+    pub invoices: Vec<InvoiceRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexerCursor {
+    pub latest_chain_invoice_id: Option<u64>,
+    pub latest_payment_tx_hash: Option<String>,
+    pub indexed_invoices: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OperatorDiagnostics {
+    pub chain_sync_status: String,
+    pub indexer_cursor: IndexerCursor,
+    pub indexer_stalled: bool,
+    pub pending_decrypt_jobs: u32,
+    pub pending_finality_backlog: u32,
+    pub pending_webhooks: u32,
+    pub retrying_webhooks: u32,
+    pub failed_webhooks: u32,
+    pub expired_invoices: u32,
+    pub operator_auth_rejections: u32,
+    pub decrypt_pending_guard_trips: u32,
+    pub decrypt_timeouts: u32,
+    pub replay_guard_failures: u32,
+    pub reorg_exceptions: u32,
+    pub frozen_fulfillments: u32,
+    pub release_failures: u32,
+    pub operator_action_required: bool,
+    pub invoices: Vec<InvoiceRecord>,
+}

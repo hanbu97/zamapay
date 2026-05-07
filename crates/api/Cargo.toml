@@ -1,0 +1,26 @@
+[package]
+name = "api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum = { version = "0.8", features = ["macros", "json"] }
+axum-extra = { version = "0.10", features = ["cookie"] }
+chrono.workspace = true
+domain = { path = "../domain" }
+ethers-core = { version = "2", default-features = false }
+fulfillment = { path = "../fulfillment" }
+http = "1"
+indexer = { path = "../indexer" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
+shared = { path = "../shared" }
+storage = { path = "../storage" }
+tokio.workspace = true
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+uuid.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
