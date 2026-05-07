@@ -10,7 +10,7 @@
 
 从成本角度看，链上原生收款的竞争优势主要来自避免传统跨境支付和卡网络的一层费用，但一旦引入换币、法币提现或卡入金，成本会迅速上升。世界银行 Remittance Prices Worldwide 报告显示，**Q3 2025** 小额跨境汇款里，卡资金来源平均成本为 4.39%，银行账户资金来源平均成本为 8.69%；FSB 也指出零售跨境支付成本在不同地区和轨道间差异巨大，卡类支付在一些地区对商户可高于 7%。这解释了为什么链上稳定币收款可以做到 0.3%–1%，但 ramp 侧通常仍需动态报价或把部分成本传递给终端用户。citeturn20search8turn20search20
 
-基于这些公开事实，本报告的核心建议是：**默认产品不要做成“一套费率打所有场景”，而要做成“三层结构”**。底层用低费原生稳定币收款拿量；中层对账单、订阅、POS、代付等复杂场景加价；高层把 Zama 的 confidential payment 做成 premium SKU 或按场景附加费。默认 launch 费率可以考虑：原生订单/二维码 0.25%–0.40%，发票/订阅 0.40%–0.80%，批量代付 0%–0.15% + gas pass-through，ramp 走合作方 pass-through + 平台编排费，confidential checkout 额外加收 10–25 bps 或进入付费套餐。citeturn10search4turn26search14turn4search9turn5search1turn3search0turn24view0turn28search0
+基于这些公开事实，本报告的核心建议是：**默认产品不要做成“一套费率打所有场景”，而要做成“三层结构”**。底层用免费月费 + 0.5% 成功收款抽水降低接入门槛；中层对账单、订阅、POS、代付等复杂场景按工作量加价或通过付费计划降低费率；高层把 Zama 的 confidential payment 做成 premium SKU 或按场景附加费。默认 launch 费率可以考虑：Free 版 0 月费 + 0.5% 成功收款抽水，Growth 版 $99/月 + 0.25% 基础 checkout，Enterprise 从 0.20% 起谈量，批量代付 0%–0.15% + gas pass-through，ramp 走合作方 pass-through + 平台编排费，confidential checkout 额外加收 10–25 bps 或进入付费套餐。citeturn10search4turn26search14turn4search9turn5search1turn3search0turn24view0turn28search0
 
 ## 研究范围与假设
 
@@ -97,9 +97,9 @@
 
 | 策略方案 | 建议费率 | 适用场景 | 收入与竞争力 | 合规风险 | 适合上线阶段 |
 |---|---|---|---|---|---|
-| 低费率吸引流量 | 原生链上收款 0.15%–0.25%，不收月费；提现/gas pass-through | 静态码、动态订单、基础 invoice | 竞争力极强，可直接对标 Infini / Cryptomus / NOWPayments；但 ARPU 低，必须依赖大盘量与后续 upsell | 低到中；前提是尽量不碰代收转付和法币换汇 | 上线初期，用来快速拿 merchant 数 |
+| 免费版吸引流量 | Free 版 0 月费，成功收款抽水 0.5%；提现/gas pass-through | 静态码、动态订单、基础 invoice | 接入阻力最低，和 0.3%–0.5% 竞品在同一公开价格带；收入只随真实支付发生 | 低到中；前提是尽量不碰代收转付和法币换汇 | 上线初期，用来快速拿 merchant 数 |
 | 按场景分层收费 | POS / 静态码 0.15%–0.30%；订单 checkout 0.25%–0.45%；invoice / subscription 0.40%–0.80%；batch payout 0%–0.15% + gas | 面向不同业务流程定价 | 单位经济更健康；也更符合商户“复杂功能付更高价”的心理预期 | 中；复杂场景越多，合规和风控越重 | 成长期，适合做清晰 SKU |
-| 混合模型 | 交易费 0.20%–0.40% + 月费套餐 $29 / $99 / $499；Confidential Checkout 额外 +10–25 bps 或仅在高阶套餐开放 | 有技术集成能力和经营规模的商户 | 最抗周期，既有流量价也有 SaaS 收入；可把 Zama 保密能力做 premium | 中到高；需要把 selective disclosure、审批和审计做扎实 | 最推荐，适合做长期产品结构 |
+| 混合模型 | Free 版 0 月费 + 0.5% 抽水；Growth 版 $99/月 + 0.25% checkout；Enterprise 量大从 0.20% 起；Confidential Checkout 额外 +10–25 bps 或进入高阶套餐 | 有技术集成能力和经营规模的商户 | 最抗周期，既有无门槛启动价也有 SaaS 收入；可把 Zama 保密能力做 premium | 中到高；需要把 selective disclosure、审批和审计做扎实 | 最推荐，适合做长期产品结构 |
 
 如果只选一个默认路线，我更推荐 **混合模型**。原因有三点。其一，你面对的公开市场基准价已经被压在 0.3%–0.5% 左右，仅靠交易费难以覆盖商户管理、多租户账本、对账、通知、退款、风控和合规成本。其二，Zama 的价值是“高价值功能溢价”，不是“更便宜的普通通道”。其三，AllScale 已经验证了 business OS / invoice OS 能被月费定价接受，而 MoonPay / Transak 也说明重合规基础设施天然适合动态费率或 pass-through。citeturn10search4turn26search14turn4search9turn5search1turn24view0turn6search0turn8search0
 
@@ -107,7 +107,7 @@
 
 | 产品层 | 推荐默认费率 | 建议结算策略 | 说明 |
 |---|---|---|---|
-| 原生稳定币订单 / 动态二维码 | **0.30%** 默认，量大客户可降至 0.20%–0.25% | 商户平台余额即时入账；默认每小时批量外提；急速提现 gas pass-through | 用来对标 Infini 0.3%，同时低于多数 0.4%–0.5% 竞品 |
+| 原生稳定币订单 / 动态二维码 | **Free 版 0.5%**，Growth 版 0.25%，Enterprise 可降至 0.20% 起 | 商户平台余额即时入账；默认每小时批量外提；急速提现 gas pass-through | 用 0 月费降低试用阻力，用付费计划买下费率，避免早期商户先被月费挡住 |
 | 静态二维码 / POS | **0.20%–0.25%** | 终端即时回执；日终批量结算到门店主钱包 | POS 要低费，否则会被银行卡和本地 A2A 支付替代 |
 | Invoice / Billing / B2B | **0.45%–0.70%** | T+0/T+1 到商户余额；邮件、PDF、分账、退款工具作为增值能力 | 商户更看重 AR automation 和对账闭环，不只看 fee |
 | Subscription / Recurring Billing | **0.50%–0.80%** 或进月费套餐 | 余额式自动扣费；失败重试；失败后进入 grace period | 这里卖的是 billing orchestration，不是单纯收款 |
@@ -115,7 +115,7 @@
 | Fiat on/off-ramp | **合作方费率 pass-through + 0.20%–0.50% orchestration fee** | 法币按合作方规则即时/日结/周结 | 不建议自己消化 card / bank fraud 成本 |
 | Confidential Checkout by Zama | 在上述基础上**加 10–25 bps**，或仅在 Pro / Enterprise 套餐提供 | 金额默认保密；明细按权限 selective disclosure | 建议把它定价为 premium，不要免费送 |
 
-如果你想在竞争上形成明确心智，我建议用一句简单的产品定位把这套策略串起来：**“基础稳定币收款费率不高于 0.3%，但保密结算和可编程合规是高级功能，不走通道价。”** 这会比单纯喊“更低费”更有护城河。citeturn28search0turn28search3turn10search4turn26search14
+如果你想在竞争上形成明确心智，我建议用一句简单的产品定位把这套策略串起来：**“免费版不收月费，只对成功收款抽 0.5%；付费计划降低通道费率，而保密结算和可编程合规作为高级功能单独定价。”** 这会比单纯喊“更低费”更有护城河。citeturn28search0turn28search3turn10search4turn26search14
 
 ## Demo 用例与流程图
 

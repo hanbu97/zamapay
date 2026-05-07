@@ -14,6 +14,9 @@ apps/web/components
 |   `-- SettlementDecryptCard.tsx   # Merchant wallet user-decrypt client
 |-- landing/
 |   `-- LandingProductMotion.tsx    # Public homepage interactive checkout rail
+|-- marketing/
+|   |-- PublicHeader.tsx            # Public navbar with Docs menu, Pricing link, and session-aware CTA
+|   `-- PublicFooter.tsx            # Public footer with product, docs, workspace, Zama, and social placeholder links
 |-- layout/
 |   |-- AppSidebar.tsx              # shadcn sidebar shell and navigation
 |   |-- PageHeader.tsx              # Shared page title/action composition
@@ -53,6 +56,7 @@ apps/web/components
 
 - Client components are reserved for browser-owned actions: wallet signing and authenticated form submission.
 - `landing/LandingProductMotion.tsx` is the one homepage client island; it owns visual step animation and does not create payment state.
+- `marketing/PublicHeader.tsx` and `marketing/PublicFooter.tsx` are the public website chrome for home, docs, and pricing surfaces.
 - `LoginCard` detects wallet providers only after mount and after `ethereum#initialized`, keeping SSR markup stable while supporting late wallet injection.
 - Checkout payment uses the invoice read-model amount, encrypts token approval and settlement payment through the Zama relayer SDK, publicly decrypts the encrypted accept/reject handle, then finalizes the settlement contract.
 - Dashboard settlement decrypt reads the encrypted settlement handle and requires merchant wallet EIP-712 authorization before any plaintext amount appears.
