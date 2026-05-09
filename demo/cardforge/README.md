@@ -23,6 +23,14 @@ npm install
 npm run dev -- --hostname 127.0.0.1 --port 3002
 ```
 
+Optional local explorer links can be enabled for the wallet activity panel:
+
+```bash
+NEXT_PUBLIC_LOCAL_EXPLORER_URL=http://127.0.0.1:4000 npm run dev -- --hostname 127.0.0.1 --port 3002
+```
+
+When no local explorer is running, CardForge still records and displays the confirmed transaction hash.
+
 ## Boundary
 
 - `frontend/` owns catalog UI and buyer intent.

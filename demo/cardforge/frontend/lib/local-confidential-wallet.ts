@@ -19,7 +19,16 @@ export type ConfidentialWalletSnapshot = {
 
 export type TestTokenClaim = {
   amountMinorUnits: string
+  blockNumber: string
+  receiptStatus: 'success' | 'reverted'
   tokenAddress: Hex
+  txHash: Hex
+}
+
+export type LocalTransactionReceipt = {
+  blockNumber: string
+  receiptStatus: 'success' | 'reverted'
+  to: Hex | null
   txHash: Hex
 }
 
@@ -107,12 +116,34 @@ export async function claimLocalTestCusd(provider: WalletRpcProvider, address: s
     abi: confidentialTokenAbi,
     functionName: 'claimTestTokens',
   })
-  await publicClient.waitForTransactionReceipt({ hash: txHash })
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
 
   return {
     amountMinorUnits: claimAmountMinorUnits.toString(),
+    blockNumber: receipt.blockNumber.toString(),
+    receiptStatus: receipt.status,
     tokenAddress,
     txHash,
+  }
+}
+
+export async function readLocalTransactionReceipt(txHash: string): Promise<LocalTransactionReceipt | null> {
+  const receipt = await hardhatRpc<{
+    blockNumber: string
+    status: '0x0' | '0x1'
+    to: Hex | null
+    transactionHash: Hex
+  } | null>('eth_getTransactionReceipt', [txHash])
+
+  if (!receipt) {
+    return null
+  }
+
+  return {
+    blockNumber: BigInt(receipt.blockNumber).toString(),
+    receiptStatus: receipt.status === '0x1' ? 'success' : 'reverted',
+    to: receipt.to,
+    txHash: receipt.transactionHash,
   }
 }
 
