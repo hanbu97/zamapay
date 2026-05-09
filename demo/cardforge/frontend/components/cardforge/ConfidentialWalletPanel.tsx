@@ -137,12 +137,14 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
 
   const balanceLabel = wallet?.balanceLabel ?? '-- cUSDT'
   const hasWallet = Boolean(address)
+  const canConnectWallet = !isBusy
+  const canRefreshWallet = hasWallet && !isBusy
   const walletHandle = address ? shortHex(address) : 'Not connected'
 
   return (
     <Card className={cn('min-w-0', className)}>
       <CardContent className="grid gap-4 p-4 xl:p-0">
-        <section className="w-full max-w-full overflow-hidden rounded-[1.75rem] border border-[#dbe600] bg-[#f4ff00] p-4 text-black shadow-sm 2xl:p-5">
+        <section className="w-full max-w-full overflow-hidden rounded-[1.75rem] border border-[#dbe600] bg-[#f4ff00] p-4 text-black shadow-[0_22px_70px_rgb(0_0_0/0.42)] 2xl:p-5">
           <div className="flex min-w-0 items-center justify-between gap-2">
             <span className="min-w-0 truncate text-sm font-medium text-black/75">{walletHandle}</span>
             <Badge className="shrink-0 border-black/10 bg-black/10 text-black hover:bg-black/10" variant="outline">
@@ -156,8 +158,9 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
             <button
               aria-label="Refresh confidential balance"
               className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-black/5 transition-colors hover:bg-black/10 disabled:opacity-50"
-              disabled={isBusy || !address}
+              disabled={!canRefreshWallet}
               onClick={() => void refreshWallet()}
+              suppressHydrationWarning
               type="button"
             >
               <RefreshCwIcon className="size-4" />
@@ -177,8 +180,9 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
             <button
               aria-label={hasWallet ? 'Reconnect wallet' : 'Connect wallet'}
               className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-black text-[#f4ff00] shadow-sm transition-colors hover:bg-black/85 disabled:opacity-50"
-              disabled={isBusy}
+              disabled={!canConnectWallet}
               onClick={() => void connectWallet()}
+              suppressHydrationWarning
               type="button"
             >
               <PlusIcon className="size-5" />
@@ -192,11 +196,24 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
         </section>
 
         <div className="grid gap-2 2xl:grid-cols-2">
-          <Button disabled={isBusy} onClick={connectWallet} type="button">
+          <Button
+            className="border border-white/10 bg-white/[0.08] text-white hover:bg-white/[0.14]"
+            disabled={!canConnectWallet}
+            onClick={connectWallet}
+            suppressHydrationWarning
+            type="button"
+          >
             <PlugZapIcon data-icon="inline-start" />
             {hasWallet ? 'Reconnect' : 'Connect wallet'}
           </Button>
-          <Button disabled={isBusy || !address} onClick={() => void refreshWallet()} type="button" variant="outline">
+          <Button
+            className="border-white/15 bg-transparent text-white/85 hover:bg-white/[0.08] hover:text-white"
+            disabled={!canRefreshWallet}
+            onClick={() => void refreshWallet()}
+            suppressHydrationWarning
+            type="button"
+            variant="outline"
+          >
             <RefreshCwIcon data-icon="inline-start" />
             Refresh
           </Button>
