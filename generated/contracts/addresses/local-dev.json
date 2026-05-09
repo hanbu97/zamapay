@@ -4,8 +4,43 @@
   "contracts": {
     "MerchantRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-    "ConfidentialInvoiceSettlement": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
+    "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "ConfidentialInvoiceSettlement": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
   },
-  "generatedAt": "2026-05-06T14:07:03.659Z",
-  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+  "billing": {
+    "source": "PrivateSubscriptionRegistry",
+    "defaultFeeBps": 50,
+    "monthlyPeriodSeconds": 2592000,
+    "annualPeriodSeconds": 31536000,
+    "plans": [
+      {
+        "plan": "free",
+        "planCode": 1,
+        "checkoutFeeBps": 50,
+        "monthlyPriceMinorUnits": 0,
+        "annualPriceMinorUnits": 0,
+        "selfServe": true
+      },
+      {
+        "plan": "growth",
+        "planCode": 2,
+        "checkoutFeeBps": 25,
+        "monthlyPriceMinorUnits": 99000000,
+        "annualPriceMinorUnits": 990000000,
+        "selfServe": true
+      },
+      {
+        "plan": "enterprise",
+        "planCode": null,
+        "checkoutFeeBps": null,
+        "monthlyPriceMinorUnits": null,
+        "annualPriceMinorUnits": null,
+        "selfServe": false
+      }
+    ]
+  },
+  "generatedAt": "2026-05-09T01:52:20.836Z",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 }

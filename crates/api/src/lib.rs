@@ -1,10 +1,4 @@
-use std::{
-    str::FromStr,
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-};
+use std::{str::FromStr, sync::Arc};
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderValue, Method, StatusCode, header};
@@ -24,13 +18,15 @@ use shared::{
     OperatorDiagnostics, OperatorSettlementEventRequest, PaymentConfirmationsRequest,
     PaymentProjectionRequest, SessionResponse, VerifyRequest, WebhookDeliveryRequest,
     WebhookDispatchResponse, WebhookEventPayload, WebhookSignatureHeaders, contract_manifest,
-    local_dev_contract_manifest,
+    local_dev_contract_manifest, normalize_contract_environment,
 };
-use storage::{DecryptRequestProjection, InMemoryAuthStore, InMemoryPortalStore, StoredSession};
+use storage::{AuthStore, DecryptRequestProjection, PortalStore, StoredSession};
+use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
+mod billing;
 mod projects;
 
 const SESSION_COOKIE_NAME: &str = "mermer_session";
@@ -42,41 +38,44 @@ const DEFAULT_WEBHOOK_SECRET: &str = "local-webhook-dev-secret";
 const DEFAULT_WEBHOOK_ENDPOINT: &str = "https://merchant.example/webhooks/mermer-pay";
 const DEFAULT_WEBHOOK_MAX_ATTEMPTS: u32 = 3;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct AppState {
-    store: InMemoryAuthStore,
-    portal: InMemoryPortalStore,
+    store: AuthStore,
+    portal: PortalStore,
     webhook_client: reqwest::Client,
-    operator_auth_rejections: Arc<AtomicU32>,
+    operator_auth_rejections: Arc<RwLock<u32>>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
+        Self::with_portal(PortalStore::from_env().await)
+    }
+
+    pub fn with_portal(portal: PortalStore) -> Self {
         Self {
-            store: InMemoryAuthStore::default(),
-            portal: InMemoryPortalStore::from_env(),
+            store: AuthStore::default(),
+            portal,
             webhook_client: reqwest::Client::new(),
-            operator_auth_rejections: Arc::new(AtomicU32::new(0)),
+            operator_auth_rejections: Arc::new(RwLock::new(0)),
         }
     }
 
-    pub fn issue_dev_session(&self, address: &str) -> shared::SessionUser {
-        self.store.create_session(address, Utc::now()).user
+    pub async fn issue_dev_session(&self, address: &str) -> shared::SessionUser {
+        self.store.create_session(address, Utc::now()).await.user
     }
 
-    fn operator_auth_rejections(&self) -> u32 {
-        self.operator_auth_rejections.load(Ordering::Relaxed)
+    async fn operator_auth_rejections(&self) -> u32 {
+        *self.operator_auth_rejections.read().await
     }
 
-    fn record_operator_auth_rejection(&self) {
-        self.operator_auth_rejections
-            .fetch_add(1, Ordering::Relaxed);
+    async fn record_operator_auth_rejection(&self) {
+        *self.operator_auth_rejections.write().await += 1;
     }
 }
 
 pub fn app(state: AppState) -> Router {
     let cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::DELETE, Method::GET, Method::POST])
         .allow_headers([header::CONTENT_TYPE])
         .allow_credentials(true)
         .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
@@ -88,7 +87,8 @@ pub fn app(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/auth/nonce", post(issue_nonce))
         .route("/api/auth/verify", post(verify_signature))
-        .route("/api/session", get(current_session))
+        .route("/api/session", get(current_session).delete(delete_session))
+        .merge(billing::routes())
         .merge(projects::routes())
         .route("/api/contracts/local-dev", get(local_dev_contracts))
         .route("/api/contracts/{environment}", get(environment_contracts))
@@ -147,7 +147,7 @@ async fn issue_nonce(
 ) -> Result<Json<NonceResponse>, ApiError> {
     let now = Utc::now();
     let address = normalize_address(&payload.address)?;
-    let challenge = state.store.issue_challenge(&address, now);
+    let challenge = state.store.issue_challenge(&address, now).await;
 
     Ok(Json(NonceResponse {
         nonce: challenge.nonce,
@@ -166,6 +166,7 @@ async fn verify_signature(
     let challenge = state
         .store
         .find_challenge(&address)
+        .await
         .ok_or(ApiError::unauthorized("unknown auth challenge"))?;
 
     if challenge.consumed {
@@ -180,8 +181,8 @@ async fn verify_signature(
         .map_err(|_| ApiError::unauthorized("auth challenge expired"))?;
     recover_and_compare_address(&payload.message, &payload.signature, &address)?;
 
-    state.store.consume_challenge(&address);
-    let session = state.store.create_session(&address, now);
+    state.store.consume_challenge(&address).await;
+    let session = state.store.create_session(&address, now).await;
     let cookie = Cookie::build((SESSION_COOKIE_NAME, session.user.session_id.to_string()))
         .path("/")
         .http_only(true)
@@ -201,7 +202,7 @@ async fn current_session(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<Json<SessionResponse>, ApiError> {
-    let Some(session) = session_from_cookie(&state, &jar)? else {
+    let Some(session) = session_from_cookie(&state, &jar).await? else {
         return Ok(Json(SessionResponse {
             authenticated: false,
             user: None,
@@ -214,13 +215,28 @@ async fn current_session(
     }))
 }
 
+async fn delete_session(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> Result<(CookieJar, StatusCode), ApiError> {
+    if let Some(session_id) = session_id_from_cookie_lossy(&jar) {
+        state.store.delete_session(&session_id).await;
+    }
+
+    let cookie = Cookie::build(SESSION_COOKIE_NAME).path("/").build();
+    Ok((jar.remove(cookie), StatusCode::NO_CONTENT))
+}
+
 async fn dashboard_overview(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<Json<DashboardOverview>, ApiError> {
-    let session =
-        session_from_cookie(&state, &jar)?.ok_or(ApiError::unauthorized("missing session"))?;
-    Ok(Json(state.portal.dashboard_overview(&session.user.address)))
+    let session = session_from_cookie(&state, &jar)
+        .await?
+        .ok_or(ApiError::unauthorized("missing session"))?;
+    Ok(Json(
+        state.portal.dashboard_overview(&session.user.address).await,
+    ))
 }
 
 async fn local_dev_contracts() -> Result<Json<AddressManifest>, ApiError> {
@@ -243,8 +259,9 @@ async fn create_invoice(
     jar: CookieJar,
     Json(payload): Json<CreateInvoiceRequest>,
 ) -> Result<Json<InvoiceRecord>, ApiError> {
-    let _session =
-        session_from_cookie(&state, &jar)?.ok_or(ApiError::unauthorized("missing session"))?;
+    let _session = session_from_cookie(&state, &jar)
+        .await?
+        .ok_or(ApiError::unauthorized("missing session"))?;
 
     let title = payload.title.trim();
     let amount_label = payload.amount_label.trim();
@@ -260,15 +277,20 @@ async fn create_invoice(
         ));
     }
 
-    Ok(Json(state.portal.create_invoice(
-        title,
-        amount_label,
-        payload.amount_minor_units,
-        note,
-        payload.external_ref.as_deref(),
-        payload.chain_invoice_id,
-        payload.chain_tx_hash.as_deref(),
-    )))
+    Ok(Json(
+        state
+            .portal
+            .create_invoice(
+                title,
+                amount_label,
+                payload.amount_minor_units,
+                note,
+                payload.external_ref.as_deref(),
+                payload.chain_invoice_id,
+                payload.chain_tx_hash.as_deref(),
+            )
+            .await,
+    ))
 }
 
 async fn invoice_detail(
@@ -278,6 +300,7 @@ async fn invoice_detail(
     let invoice = state
         .portal
         .invoice_by_id(&invoice_id)
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
     Ok(Json(invoice))
 }
@@ -289,6 +312,7 @@ async fn invoice_fulfillment(
     let mut invoice = state
         .portal
         .invoice_by_id(&invoice_id)
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
 
     if decide(&invoice.snapshot) == FulfillmentDecision::EnqueueRelease
@@ -297,6 +321,7 @@ async fn invoice_fulfillment(
         invoice = state
             .portal
             .release_fulfillment(&invoice_id, Utc::now(), 0)
+            .await
             .ok_or(ApiError::not_found("invoice not found"))?;
     }
 
@@ -308,12 +333,14 @@ async fn request_invoice_decrypt(
     jar: CookieJar,
     Path(invoice_id): Path<String>,
 ) -> Result<Json<InvoiceRecord>, ApiError> {
-    let _session =
-        session_from_cookie(&state, &jar)?.ok_or(ApiError::unauthorized("missing session"))?;
+    let _session = session_from_cookie(&state, &jar)
+        .await?
+        .ok_or(ApiError::unauthorized("missing session"))?;
 
     match state
         .portal
         .request_invoice_decrypt(&invoice_id, Utc::now())
+        .await
     {
         Some(DecryptRequestProjection::Created(invoice)) => Ok(Json(invoice)),
         Some(DecryptRequestProjection::AlreadyPending(_)) => {
@@ -330,12 +357,13 @@ async fn operator_diagnostics(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<OperatorDiagnostics>, ApiError> {
-    require_operator_key(&state, &headers)?;
+    require_operator_key(&state, &headers).await?;
 
     Ok(Json(
         state
             .portal
-            .operator_diagnostics(state.operator_auth_rejections()),
+            .operator_diagnostics(state.operator_auth_rejections().await)
+            .await,
     ))
 }
 
@@ -345,7 +373,7 @@ async fn project_invoice_payment(
     headers: axum::http::HeaderMap,
     Json(payload): Json<PaymentProjectionRequest>,
 ) -> Result<Json<InvoiceRecord>, ApiError> {
-    require_operator_key(&state, &headers)?;
+    require_operator_key(&state, &headers).await?;
 
     let (payment_tx_hash, payer_address) = validated_payment_projection(&payload)?;
 
@@ -357,6 +385,7 @@ async fn project_invoice_payment(
             payment_tx_hash,
             payer_address,
         )
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
 
     Ok(Json(invoice))
@@ -368,12 +397,13 @@ async fn project_chain_invoice_payment(
     headers: axum::http::HeaderMap,
     Json(payload): Json<PaymentProjectionRequest>,
 ) -> Result<Json<InvoiceRecord>, ApiError> {
-    require_operator_key(&state, &headers)?;
+    require_operator_key(&state, &headers).await?;
 
     let (payment_tx_hash, payer_address) = validated_payment_projection(&payload)?;
     let invoice = state
         .portal
         .project_chain_invoice_paid(chain_invoice_id, payment_tx_hash, payer_address)
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
 
     Ok(Json(invoice))
@@ -385,11 +415,12 @@ async fn project_chain_invoice_confirmations(
     headers: axum::http::HeaderMap,
     Json(payload): Json<PaymentConfirmationsRequest>,
 ) -> Result<Json<InvoiceRecord>, ApiError> {
-    require_operator_key(&state, &headers)?;
+    require_operator_key(&state, &headers).await?;
 
     let invoice = state
         .portal
         .invoice_by_chain_invoice_id(chain_invoice_id)
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
     let finality_threshold = payload
         .finality_threshold
@@ -405,6 +436,7 @@ async fn project_chain_invoice_confirmations(
             payload.confirmations,
             finality_threshold,
         )
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
 
     if let Some(project_id) = invoice.project_id.as_deref() {
@@ -420,11 +452,12 @@ async fn project_chain_invoice_settlement_event(
     headers: axum::http::HeaderMap,
     Json(payload): Json<OperatorSettlementEventRequest>,
 ) -> Result<Json<InvoiceRecord>, ApiError> {
-    require_operator_key(&state, &headers)?;
+    require_operator_key(&state, &headers).await?;
 
     let invoice = state
         .portal
         .invoice_by_chain_invoice_id(chain_invoice_id)
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
     let finality_threshold = payload
         .finality_threshold
@@ -435,6 +468,7 @@ async fn project_chain_invoice_settlement_event(
     let invoice = state
         .portal
         .project_chain_invoice_snapshot(chain_invoice_id, projection.snapshot().clone())
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
 
     if let Some(project_id) = invoice.project_id.as_deref() {
@@ -450,12 +484,13 @@ async fn project_chain_invoice_webhook_delivery(
     headers: axum::http::HeaderMap,
     Json(payload): Json<WebhookDeliveryRequest>,
 ) -> Result<Json<InvoiceRecord>, ApiError> {
-    require_operator_key(&state, &headers)?;
+    require_operator_key(&state, &headers).await?;
 
     let max_attempts = validated_webhook_max_attempts(payload.max_attempts)?;
     let invoice = state
         .portal
         .project_chain_invoice_webhook_delivery(chain_invoice_id, payload.outcome, max_attempts)
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
 
     Ok(Json(invoice))
@@ -466,11 +501,12 @@ async fn chain_invoice_webhook_dispatch(
     Path(chain_invoice_id): Path<u64>,
     headers: axum::http::HeaderMap,
 ) -> Result<Json<WebhookDispatchResponse>, ApiError> {
-    require_operator_key(&state, &headers)?;
+    require_operator_key(&state, &headers).await?;
 
     let invoice = state
         .portal
         .invoice_by_chain_invoice_id(chain_invoice_id)
+        .await
         .ok_or(ApiError::not_found("invoice not found"))?;
 
     let secret = webhook_secret()?;
@@ -499,6 +535,7 @@ async fn project_decrypt_callback(
     let invoice = state
         .portal
         .project_decrypt_callback(&request_id, payload.outcome, callback_sender, Utc::now())
+        .await
         .ok_or(ApiError::not_found("decrypt request not found"))?;
 
     Ok(Json(invoice))
@@ -605,9 +642,13 @@ fn webhook_secret() -> Result<String, ApiError> {
 }
 
 fn contract_environment() -> String {
-    std::env::var("MERMER_CONTRACT_ENV")
+    let raw = std::env::var("MERMER_CONTRACT_ENV")
         .or_else(|_| std::env::var("NEXT_PUBLIC_CONTRACT_ENV"))
-        .unwrap_or_else(|_| "local-dev".to_string())
+        .unwrap_or_else(|_| "local-dev".to_string());
+
+    normalize_contract_environment(&raw)
+        .map(str::to_string)
+        .unwrap_or_else(|| raw.trim().to_string())
 }
 
 fn keyed_digest(secret: &str, message: &str) -> String {
@@ -653,11 +694,14 @@ fn decision_label(decision: FulfillmentDecision) -> &'static str {
     }
 }
 
-fn require_operator_key(state: &AppState, headers: &axum::http::HeaderMap) -> Result<(), ApiError> {
+async fn require_operator_key(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<(), ApiError> {
     match validate_operator_key(headers) {
         Ok(()) => Ok(()),
         Err(error) => {
-            state.record_operator_auth_rejection();
+            state.record_operator_auth_rejection().await;
             Err(error)
         }
     }
@@ -691,7 +735,7 @@ fn require_gateway_key(headers: &axum::http::HeaderMap) -> Result<(), ApiError> 
     Ok(())
 }
 
-fn session_from_cookie(
+async fn session_from_cookie(
     state: &AppState,
     jar: &CookieJar,
 ) -> Result<Option<StoredSession>, ApiError> {
@@ -701,11 +745,16 @@ fn session_from_cookie(
 
     let session_id = Uuid::parse_str(raw_session_cookie.value())
         .map_err(|_| ApiError::unauthorized("invalid session"))?;
-    let Some(session) = state.store.find_session(&session_id) else {
+    let Some(session) = state.store.find_session(&session_id).await else {
         return Ok(None);
     };
 
     Ok(Some(session))
+}
+
+fn session_id_from_cookie_lossy(jar: &CookieJar) -> Option<Uuid> {
+    jar.get(SESSION_COOKIE_NAME)
+        .and_then(|cookie| Uuid::parse_str(cookie.value()).ok())
 }
 
 fn recover_and_compare_address(
@@ -751,6 +800,13 @@ impl ApiError {
     fn unauthorized(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
+            message: message.into(),
+        }
+    }
+
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
             message: message.into(),
         }
     }

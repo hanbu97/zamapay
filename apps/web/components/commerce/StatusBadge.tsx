@@ -9,6 +9,9 @@ const positiveStatuses = new Set([
   'released',
   'delivered',
   'completed',
+  'enabled',
+  'active',
+  'open',
 ])
 const dangerStatuses = new Set([
   'failed',
@@ -19,6 +22,8 @@ const dangerStatuses = new Set([
   'release_failed',
   'frozen_for_manual_intervention',
   'dead_letter',
+  'revoked',
+  'disabled',
 ])
 
 export function StatusBadge({ value }: { value: string }) {

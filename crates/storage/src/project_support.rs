@@ -4,7 +4,8 @@ use domain::WebhookDeliveryStatus;
 use serde::{Deserialize, Serialize};
 use shared::{
     CheckoutSession, CheckoutSessionStatus, PaymentProjectEnvironment, ProjectApiKey,
-    ProjectDashboardSummary, ProjectEnvironmentKind, ProjectStatus, WebhookDeliveryRecord,
+    ProjectDashboardSummary, ProjectEnvironmentKind, ProjectStatus, ProjectWithdrawalRecord,
+    WebhookDeliveryRecord,
 };
 
 pub(crate) const DEFAULT_DELIVERY_MAX_ATTEMPTS: u32 = 3;
@@ -57,7 +58,22 @@ pub(crate) fn project_environment(
 pub(crate) fn project_summary(
     sessions: &[CheckoutSession],
     deliveries: &[WebhookDeliveryRecord],
+    withdrawals: &[ProjectWithdrawalRecord],
 ) -> ProjectDashboardSummary {
+    let paid_sessions = sessions
+        .iter()
+        .filter(|session| session.status == CheckoutSessionStatus::Paid);
+    let billing = paid_sessions.fold(BillingTotals::default(), |mut totals, session| {
+        totals.gross += session.billing.gross_amount_minor_units;
+        totals.platform_fee += session.billing.platform_fee_minor_units;
+        totals.merchant_net += session.billing.merchant_net_minor_units;
+        totals
+    });
+    let withdrawn = withdrawals
+        .iter()
+        .map(|withdrawal| withdrawal.amount_minor_units)
+        .sum::<u64>();
+
     ProjectDashboardSummary {
         total_checkouts: sessions.len() as u32,
         open_checkouts: sessions
@@ -68,6 +84,11 @@ pub(crate) fn project_summary(
             .iter()
             .filter(|session| session.status == CheckoutSessionStatus::Paid)
             .count() as u32,
+        gross_volume_minor_units: billing.gross,
+        platform_fee_minor_units: billing.platform_fee,
+        merchant_net_minor_units: billing.merchant_net,
+        withdrawn_minor_units: withdrawn,
+        withdrawable_minor_units: billing.merchant_net.saturating_sub(withdrawn),
         pending_deliveries: deliveries
             .iter()
             .filter(|delivery| {
@@ -86,6 +107,13 @@ pub(crate) fn project_summary(
             .filter(|delivery| delivery.status == WebhookDeliveryStatus::DeadLetter)
             .count() as u32,
     }
+}
+
+#[derive(Default)]
+struct BillingTotals {
+    gross: u64,
+    platform_fee: u64,
+    merchant_net: u64,
 }
 
 pub(crate) fn signer_address(environment: &ProjectEnvironmentKind) -> String {

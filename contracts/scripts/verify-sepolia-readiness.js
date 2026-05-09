@@ -5,7 +5,13 @@ const { isPublicHardhatAddress } = require('./public-hardhat-keys')
 
 const API_BASE_URL = process.env.MERMER_API_BASE_URL ?? 'http://127.0.0.1:8080'
 const EXPECTED_CHAIN_ID = 11155111n
-const CONTRACT_NAMES = ['MerchantRegistry', 'ConfidentialUSDMock', 'ConfidentialInvoiceSettlement']
+const CONTRACT_NAMES = [
+  'MerchantRegistry',
+  'ConfidentialUSDMock',
+  'SubscriptionPass',
+  'PrivateSubscriptionRegistry',
+  'ConfidentialInvoiceSettlement',
+]
 const DEFAULT_OPERATOR_KEY = 'local-operator-dev-key'
 const DEFAULT_WEBHOOK_SECRET = 'local-webhook-dev-secret'
 const DEFAULT_GATEWAY_CALLBACK_KEY = 'local-zama-gateway-dev-key'

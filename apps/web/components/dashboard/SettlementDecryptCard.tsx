@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react'
 import { EyeIcon, LockKeyholeIcon } from 'lucide-react'
 import { createPublicClient, createWalletClient, custom, getAddress, type Hex } from 'viem'
-import { sepolia } from 'viem/chains'
 import { StatusBadge } from '@/components/commerce/StatusBadge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -14,8 +13,9 @@ import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import type { InvoiceRecord } from '@/lib/api'
 import { confidentialInvoiceSettlementAbi } from '@/lib/contracts'
+import { contractEnvironmentForChainId, sepoliaContractEnvironment } from '@/lib/contract-environment'
 import { userDecryptSettlementAmount } from '@/lib/fhevm'
-import { ensureEthereumProvider, ensureWalletChain, sepoliaWalletChain } from '@/lib/wallet'
+import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
 type SettlementDecryptCardProps = {
   invoices: InvoiceRecord[]
@@ -56,7 +56,7 @@ export function SettlementDecryptCard({
   const [status, setStatus] = useState('Merchant wallet authorization is required before plaintext appears.')
 
   const selectedInvoice = decryptableInvoices.find((invoice) => invoice.invoiceId === selectedInvoiceId) ?? null
-  const canDecrypt = manifestChainId === sepolia.id && Boolean(settlementAddress) && selectedInvoice !== null
+  const canDecrypt = contractEnvironmentForChainId(manifestChainId) === 'sepolia' && Boolean(settlementAddress) && selectedInvoice !== null
 
   async function handleDecrypt() {
     setError(null)
@@ -70,12 +70,13 @@ export function SettlementDecryptCard({
 
       const provider = ensureEthereumProvider()
       const settlement = ensureHexAddress(settlementAddress, 'ConfidentialInvoiceSettlement')
+      const decryptEnvironment = sepoliaContractEnvironment
 
       setStatus('Switching wallet to Zama Sepolia...')
-      await ensureWalletChain(provider, sepoliaWalletChain)
+      await ensureWalletChain(provider, decryptEnvironment.walletChain)
 
-      const walletClient = createWalletClient({ chain: sepolia, transport: custom(provider) })
-      const publicClient = createPublicClient({ chain: sepolia, transport: custom(provider) })
+      const walletClient = createWalletClient({ chain: decryptEnvironment.chain, transport: custom(provider) })
+      const publicClient = createPublicClient({ chain: decryptEnvironment.chain, transport: custom(provider) })
       const [selectedAddress] = await walletClient.requestAddresses()
       const merchantAddress = getAddress(selectedAddress)
 
@@ -162,7 +163,7 @@ export function SettlementDecryptCard({
           </Alert>
         ) : null}
 
-        {manifestChainId !== sepolia.id ? (
+        {contractEnvironmentForChainId(manifestChainId) !== 'sepolia' ? (
           <Alert>
             <AlertTitle>Sepolia relayer required</AlertTitle>
             <AlertDescription>

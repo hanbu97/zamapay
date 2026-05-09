@@ -6,43 +6,43 @@ Bring up a stable local chain, deploy the Mermer contracts, refresh `generated/*
 
 ## Steps
 
-1. Start a persistent local chain:
+1. Start local Postgres:
+
+```bash
+docker compose up -d postgres
+```
+
+2. Start a persistent local chain:
 
 ```bash
 npm --workspace contracts run node
 ```
 
-2. In another terminal, deploy contracts onto `localhost` and refresh generated clients:
+3. In another terminal, deploy contracts onto `localhost` and refresh generated clients:
 
 ```bash
 npm --workspace contracts run deploy:localhost
 ```
 
-3. Confirm the generated manifest now contains non-null addresses:
+4. Confirm the generated manifest now contains non-null addresses:
 
 ```bash
 cat generated/contracts/addresses/local-dev.json
 ```
 
-4. Start the Rust API:
+5. Start the Rust API:
 
 ```bash
-cargo run -p api
+DATABASE_URL=postgres://mermer:mermer@127.0.0.1:5432/mermer cargo run -p api
 ```
 
-Use file-backed portal state when you want created checkouts and projections to survive restart:
-
-```bash
-MERMER_PORTAL_STORE_PATH=tmp/mermer-portal-store.json cargo run -p api
-```
-
-5. Start the web app:
+6. Start the web app:
 
 ```bash
 npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 ```
 
-6. Smoke the shared truth surface:
+7. Smoke the shared truth surface:
 
 ```bash
 curl http://127.0.0.1:8080/api/contracts/local-dev
@@ -52,13 +52,13 @@ curl -I http://127.0.0.1:3002
 curl http://127.0.0.1:8080/api/invoices/demo-card-001
 ```
 
-7. Smoke a full merchant-owned invoice creation and settlement path:
+8. Smoke a full merchant-owned invoice creation and settlement path:
 
 ```bash
 npm --workspace contracts run smoke:local-invoice
 ```
 
-8. Run the full local readiness gate after Hardhat, Rust API, and Next web are all running:
+9. Run the full local readiness gate after Hardhat, Rust API, and Next web are all running:
 
 ```bash
 npm run verify:local
@@ -68,7 +68,8 @@ npm run verify:local
 
 - `deploy:local` uses Hardhat's ephemeral network and is useful for fast validation, but its addresses die with the process.
 - `deploy:localhost` is the stable path for real end-to-end local integration.
-- `MERMER_PORTAL_STORE_PATH` persists merchant invoices and operator projections as JSON for restart-safe demos; auth sessions stay process-local.
+- `DATABASE_URL` persists projects, API keys, checkout sessions, invoices, operator projections, webhook outbox state, subscriptions, and withdrawal read models in normalized Postgres tables; auth sessions stay process-local.
+- `MERMER_PORTAL_STATE_KEY` is only for isolated local verification namespaces; normal local development uses the default `portal` row.
 - `NEXT_PUBLIC_CONTRACT_ENV=local-dev` is the default frontend manifest selector.
 - `demo/cardforge` is the independent card issuing merchant example. It starts from Mermer Pay project config and calls the configured Mermer Pay API/checkout URLs.
 - Browser-created platform checkouts ask the injected wallet to switch or add chain `31337` before writing merchant registry or settlement transactions.

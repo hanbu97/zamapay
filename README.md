@@ -15,6 +15,7 @@ Run these in separate terminals from the repo root.
 
 ```bash
 npm install
+docker compose up -d postgres
 npm --workspace contracts run node
 ```
 
@@ -27,7 +28,7 @@ cargo run -p api
 npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 ```
 
-Set `MERMER_PORTAL_STORE_PATH=tmp/mermer-portal-store.json` before starting the API when you want created invoices and payment projections to survive an API restart.
+Set `DATABASE_URL=postgres://mermer:mermer@127.0.0.1:5432/mermer` before starting the API. Projects, API keys, checkout sessions, payment projections, subscriptions, webhook state, and withdrawal read models use normalized Postgres tables as the single portal source of truth.
 
 Open:
 

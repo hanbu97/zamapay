@@ -9,7 +9,7 @@ async fn main() {
         .await
         .expect("failed to bind API listener");
 
-    axum::serve(listener, app(AppState::new()))
+    axum::serve(listener, app(AppState::new().await))
         .await
         .expect("API server failed");
 }

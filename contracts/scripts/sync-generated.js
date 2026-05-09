@@ -11,6 +11,14 @@ const CONTRACTS = [
     artifactPath: 'artifacts/contracts/ConfidentialUSDMock.sol/ConfidentialUSDMock.json',
   },
   {
+    name: 'SubscriptionPass',
+    artifactPath: 'artifacts/contracts/SubscriptionPass.sol/SubscriptionPass.json',
+  },
+  {
+    name: 'PrivateSubscriptionRegistry',
+    artifactPath: 'artifacts/contracts/PrivateSubscriptionRegistry.sol/PrivateSubscriptionRegistry.json',
+  },
+  {
     name: 'ConfidentialInvoiceSettlement',
     artifactPath: 'artifacts/contracts/ConfidentialInvoiceSettlement.sol/ConfidentialInvoiceSettlement.json',
   },
@@ -32,7 +40,16 @@ function defaultManifest() {
     contracts: {
       MerchantRegistry: null,
       ConfidentialUSDMock: null,
+      SubscriptionPass: null,
+      PrivateSubscriptionRegistry: null,
       ConfidentialInvoiceSettlement: null,
+    },
+    billing: {
+      source: null,
+      defaultFeeBps: null,
+      monthlyPeriodSeconds: null,
+      annualPeriodSeconds: null,
+      plans: [],
     },
     generatedAt: new Date().toISOString(),
   }
@@ -77,6 +94,20 @@ function readExistingManifests(projectRoot) {
   )
 }
 
+function normalizeManifestContracts(manifest) {
+  return {
+    ...manifest,
+    contracts: Object.fromEntries(CONTRACTS.map(({ name }) => [name, manifest.contracts?.[name] ?? null])),
+    billing: {
+      source: manifest.billing?.source ?? null,
+      defaultFeeBps: manifest.billing?.defaultFeeBps ?? null,
+      monthlyPeriodSeconds: manifest.billing?.monthlyPeriodSeconds ?? null,
+      annualPeriodSeconds: manifest.billing?.annualPeriodSeconds ?? null,
+      plans: Array.isArray(manifest.billing?.plans) ? manifest.billing.plans : [],
+    },
+  }
+}
+
 function rustConstName(fileName) {
   return fileName
     .replace(/\.json$/, '')
@@ -105,15 +136,22 @@ function writeGeneratedClients(projectRoot, artifacts, manifest) {
     [manifestFileName(manifest)]: manifest,
   }
 
-  for (const [fileName, addressManifest] of Object.entries(manifests)) {
+  const normalizedManifests = Object.fromEntries(
+    Object.entries(manifests).map(([fileName, addressManifest]) => [
+      fileName,
+      normalizeManifestContracts(addressManifest),
+    ]),
+  )
+
+  for (const [fileName, addressManifest] of Object.entries(normalizedManifests)) {
     fs.writeFileSync(path.join(addressDir, fileName), `${JSON.stringify(addressManifest, null, 2)}\n`)
   }
 
-  const manifestEntriesSource = Object.entries(manifests)
+  const manifestEntriesSource = Object.entries(normalizedManifests)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([fileName, addressManifest]) => `  ${JSON.stringify(fileName.replace(/\.json$/, ''))}: ${JSON.stringify(addressManifest, null, 2)},`)
     .join('\n')
-  const manifestConstSource = Object.keys(manifests)
+  const manifestConstSource = Object.keys(normalizedManifests)
     .sort()
     .map((fileName) => {
       const key = fileName.replace(/\.json$/, '')
@@ -121,7 +159,7 @@ function writeGeneratedClients(projectRoot, artifacts, manifest) {
     })
     .join('\n')
 
-  const tsSource = `export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'ConfidentialInvoiceSettlement'] as const
+  const tsSource = `export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'ConfidentialInvoiceSettlement'] as const
 
 export type ContractName = (typeof contractNames)[number]
 
@@ -129,17 +167,36 @@ export type AddressManifest = {
   network: string
   chainId: number | null
   contracts: Record<ContractName, \`0x\${string}\` | null>
+  billing: {
+    source: string | null
+    defaultFeeBps: number | null
+    monthlyPeriodSeconds: number | null
+    annualPeriodSeconds: number | null
+    plans: Array<{
+      plan: 'free' | 'growth' | 'enterprise'
+      planCode: number | null
+      checkoutFeeBps: number | null
+      monthlyPriceMinorUnits: number | null
+      annualPriceMinorUnits: number | null
+      selfServe: boolean
+    }>
+  }
   generatedAt: string
   deployer?: \`0x\${string}\` | null
+  platformFeeWallet?: \`0x\${string}\` | null
 }
 
 export const merchantRegistryAbi = ${JSON.stringify(artifacts.MerchantRegistry.abi, null, 2)} as const
 export const confidentialUsdMockAbi = ${JSON.stringify(artifacts.ConfidentialUSDMock.abi, null, 2)} as const
+export const subscriptionPassAbi = ${JSON.stringify(artifacts.SubscriptionPass.abi, null, 2)} as const
+export const privateSubscriptionRegistryAbi = ${JSON.stringify(artifacts.PrivateSubscriptionRegistry.abi, null, 2)} as const
 export const confidentialInvoiceSettlementAbi = ${JSON.stringify(artifacts.ConfidentialInvoiceSettlement.abi, null, 2)} as const
 
 export const abis = {
   MerchantRegistry: merchantRegistryAbi,
   ConfidentialUSDMock: confidentialUsdMockAbi,
+  SubscriptionPass: subscriptionPassAbi,
+  PrivateSubscriptionRegistry: privateSubscriptionRegistryAbi,
   ConfidentialInvoiceSettlement: confidentialInvoiceSettlementAbi,
 } as const
 
@@ -152,7 +209,7 @@ ${manifestConstSource}
 
   fs.writeFileSync(path.join(tsClientDir, 'contracts.ts'), tsSource)
 
-  const manifestRustSource = Object.entries(manifests)
+  const manifestRustSource = Object.entries(normalizedManifests)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([fileName, addressManifest]) => {
       return `pub const ${rustConstName(fileName)}_MANIFEST_JSON: &str = r#"
@@ -162,7 +219,7 @@ ${JSON.stringify(addressManifest, null, 2)}
     .join('\n\n')
 
   const rustSource = `pub const ADDRESS_MANIFESTS_JSON: &str = r#"
-${JSON.stringify(Object.fromEntries(Object.entries(manifests).map(([fileName, addressManifest]) => [fileName.replace(/\.json$/, ''), addressManifest])), null, 2)}
+${JSON.stringify(Object.fromEntries(Object.entries(normalizedManifests).map(([fileName, addressManifest]) => [fileName.replace(/\.json$/, ''), addressManifest])), null, 2)}
 "#;
 
 ${manifestRustSource}
@@ -173,6 +230,14 @@ ${JSON.stringify(artifacts.MerchantRegistry.abi, null, 2)}
 
 pub const CONFIDENTIAL_USD_MOCK_ABI_JSON: &str = r#"
 ${JSON.stringify(artifacts.ConfidentialUSDMock.abi, null, 2)}
+"#;
+
+pub const SUBSCRIPTION_PASS_ABI_JSON: &str = r#"
+${JSON.stringify(artifacts.SubscriptionPass.abi, null, 2)}
+"#;
+
+pub const PRIVATE_SUBSCRIPTION_REGISTRY_ABI_JSON: &str = r#"
+${JSON.stringify(artifacts.PrivateSubscriptionRegistry.abi, null, 2)}
 "#;
 
 pub const CONFIDENTIAL_INVOICE_SETTLEMENT_ABI_JSON: &str = r#"

@@ -68,6 +68,25 @@ function invoicePaidEvent(settlement, receipt) {
   throw new Error('InvoicePaid event not found in PAYMENT_TX_HASH receipt.')
 }
 
+function invoicePaymentSplitEvent(settlement, receipt, chainInvoiceId) {
+  for (const log of receipt.logs) {
+    try {
+      const parsed = settlement.interface.parseLog(log)
+
+      if (parsed?.name === 'InvoicePaymentSplit' && Number(parsed.args.invoiceId) === chainInvoiceId) {
+        return {
+          settledAmountHandle: parsed.args.settledAmountHandle,
+          platformFeeAmountHandle: parsed.args.platformFeeAmountHandle,
+        }
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
 async function main() {
   if (!PAYMENT_TX_HASH?.startsWith('0x')) {
     throw new Error('PAYMENT_TX_HASH=0x... is required. Use the finalizePayment transaction hash.')
@@ -89,6 +108,7 @@ async function main() {
 
   const settlement = await hre.ethers.getContractAt('ConfidentialInvoiceSettlement', settlementAddress)
   const paid = invoicePaidEvent(settlement, receipt)
+  const split = invoicePaymentSplitEvent(settlement, receipt, paid.chainInvoiceId)
   const projected = await postJson(
     `/api/operator/chain-invoices/${paid.chainInvoiceId}/payment-projection`,
     {
@@ -111,6 +131,8 @@ async function main() {
         chainId: Number(network.chainId),
         paymentTxHash: PAYMENT_TX_HASH,
         chainInvoiceId: paid.chainInvoiceId,
+        settledAmountHandle: split?.settledAmountHandle ?? null,
+        platformFeeAmountHandle: split?.platformFeeAmountHandle ?? null,
         payerAddress: paid.payerAddress,
         merchantAddress: paid.merchantAddress,
         projectedInvoiceId: projected.invoiceId,

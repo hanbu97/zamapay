@@ -4,9 +4,9 @@ import {
   Code2Icon,
   CreditCardIcon,
   HomeIcon,
-  KeyRoundIcon,
 } from 'lucide-react'
-import { CreateCheckoutButton } from '@/components/cardforge/CreateCheckoutButton'
+import { CardForgeFulfillmentPanel, CreateCheckoutButton } from '@/components/cardforge/CreateCheckoutButton'
+import { ConfidentialWalletPanel } from '@/components/cardforge/ConfidentialWalletPanel'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,7 +25,7 @@ export default function CardForgePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 xl:mr-[420px]">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4 md:px-8">
           <a className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'min-w-0 justify-start')} href="/">
             <HomeIcon data-icon="inline-start" />
@@ -42,7 +42,7 @@ export default function CardForgePage() {
         </div>
       </header>
 
-      <main className="px-4 py-5 md:px-8 md:py-8">
+      <main className="min-h-[calc(100vh-3.5rem)] px-4 py-5 md:px-8 md:py-8 xl:mr-[420px]">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
           <header className="flex flex-col gap-4 border-b pb-5">
             <div className="flex flex-col gap-2">
@@ -79,18 +79,7 @@ export default function CardForgePage() {
 
                 <Separator />
 
-                <div className="grid gap-3">
-                  {codes.map((code) => (
-                    <div className="flex items-start gap-3 rounded-lg border px-3 py-3" key={code}>
-                      <KeyRoundIcon className="mt-0.5" />
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium">{code}</div>
-                        <div className="text-sm text-muted-foreground">Locked until Mermer Pay callback releases it.</div>
-                      </div>
-                      <Badge variant="secondary">Locked</Badge>
-                    </div>
-                  ))}
-                </div>
+                <CardForgeFulfillmentPanel codes={codes} config={config} />
               </CardContent>
             </Card>
 
@@ -128,11 +117,17 @@ export default function CardForgePage() {
                   </pre>
                 </CardContent>
               </Card>
-
             </div>
           </section>
         </div>
       </main>
+
+      <aside className="px-4 pb-6 md:px-8 xl:fixed xl:right-0 xl:top-0 xl:z-30 xl:flex xl:h-screen xl:w-[420px] xl:flex-col xl:overflow-y-auto xl:border-l xl:bg-background xl:px-5 xl:py-6">
+        <ConfidentialWalletPanel
+          className="xl:h-full xl:rounded-none xl:border-0 xl:bg-transparent xl:shadow-none"
+          config={config}
+        />
+      </aside>
     </div>
   )
 }

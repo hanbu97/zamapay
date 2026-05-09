@@ -1,6 +1,5 @@
 const fs = require('fs')
 const net = require('net')
-const os = require('os')
 const path = require('path')
 const { spawn } = require('child_process')
 
@@ -91,6 +90,10 @@ function spawnService(name, command, args, options) {
 }
 
 async function ensureApi() {
+  if (!process.env.MERMER_API_BASE_URL) {
+    return spawnIsolatedApi()
+  }
+
   try {
     const response = await fetch(`${apiBaseUrl}/health`)
     const projects = response.ok ? await fetch(`${apiBaseUrl}/api/projects`) : null
@@ -99,19 +102,24 @@ async function ensureApi() {
     }
   } catch {}
 
+  return spawnIsolatedApi()
+}
+
+async function spawnIsolatedApi() {
   const port = await getFreePort()
   apiBaseUrl = `http://127.0.0.1:${port}`
-  const storePath = path.join(os.tmpdir(), `mermer-project-loop-${Date.now()}.json`)
+  const stateKey = `merchant-project-loop-${Date.now()}`
   spawnService('mermer-api', 'cargo', ['run', '-p', 'api'], {
     cwd: ROOT,
     env: {
+      DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://mermer:mermer@127.0.0.1:5432/mermer',
       MERMER_API_BIND: `127.0.0.1:${port}`,
-      MERMER_PORTAL_STORE_PATH: storePath,
+      MERMER_PORTAL_STATE_KEY: stateKey,
       MERMER_WEBHOOK_SECRET: `loop-root-secret-${Date.now()}`,
     },
   })
   await text(`${apiBaseUrl}/health`)
-  return { spawned: true, storePath }
+  return { spawned: true, stateKey }
 }
 
 async function startCardForge(config) {
@@ -162,7 +170,10 @@ async function login() {
     ? response.headers.getSetCookie()[0]
     : response.headers.get('set-cookie')
   assert(setCookie?.startsWith('mermer_session='), 'login did not return mermer_session')
-  return setCookie.split(';')[0]
+  return {
+    address: account.address,
+    cookie: setCookie.split(';')[0],
+  }
 }
 
 async function createProject(cookie, webhookUrl) {
@@ -196,7 +207,7 @@ async function createApiKey(cookie, projectId) {
   return created.apiKey
 }
 
-async function createCardForgeCheckout(cardForgeUrl) {
+async function createCardForgeCheckout(cardForgeUrl, expectedBilling) {
   const checkout = await json(`${cardForgeUrl}/api/orders/checkout`, {
     method: 'POST',
     headers: {
@@ -205,7 +216,41 @@ async function createCardForgeCheckout(cardForgeUrl) {
   })
   assert(checkout.checkoutUrl?.includes('/checkout/'), 'CardForge checkout did not return hosted checkout URL')
   assert(checkout.chainInvoiceId > 0, 'CardForge checkout did not return chain invoice id')
+  assert(checkout.billing?.plan === expectedBilling.plan, `${expectedBilling.plan} checkout did not use expected billing plan`)
+  assert(checkout.billing?.feeBps === expectedBilling.feeBps, `${expectedBilling.plan} checkout fee bps is wrong`)
+  assert(
+    checkout.billing?.platformFeeMinorUnits === expectedBilling.platformFeeMinorUnits,
+    `${expectedBilling.plan} checkout fee quote is wrong`,
+  )
+  assert(
+    checkout.billing?.merchantNetMinorUnits === expectedBilling.merchantNetMinorUnits,
+    `${expectedBilling.plan} checkout net quote is wrong`,
+  )
   return checkout
+}
+
+async function projectGrowthEntitlement(ownerWallet) {
+  const entropy = BigInt(Date.now())
+  const projected = await json(`${apiBaseUrl}/api/operator/subscription-entitlements/${ownerWallet}/projection`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-operator-key': OPERATOR_KEY,
+    },
+    body: JSON.stringify({
+      plan: 'growth',
+      billingCycle: 'monthly',
+      passId: `pass_growth_${entropy.toString(16)}`,
+      entitlementVersion: Number(entropy % 1_000_000n) + 1,
+      entitlementTxHash: `0x${(entropy + 1n).toString(16).padStart(64, '0')}`,
+      subscriptionCheckHandle: `0x${(entropy + 2n).toString(16).padStart(64, '0')}`,
+    }),
+  })
+
+  assert(projected.subscription?.plan === 'growth', 'subscription projection did not anchor Growth')
+  assert(projected.subscription?.entitlementStatus === 'anchored', 'subscription projection is not anchored')
+  assert(projected.payments?.[0]?.amountMinorUnits === 99000000, 'Growth subscription payment amount is wrong')
+  return projected
 }
 
 async function projectPayment(chainInvoiceId) {
@@ -243,11 +288,11 @@ function stopServices() {
 
 async function main() {
   const api = await ensureApi()
-  const cookie = await login()
+  const loginSession = await login()
   const cardForgePort = await getFreePort()
   const webhookUrl = `http://127.0.0.1:${cardForgePort}/api/mermer-pay/webhook`
-  const project = await createProject(cookie, webhookUrl)
-  const apiKey = await createApiKey(cookie, project.project.projectId)
+  const project = await createProject(loginSession.cookie, webhookUrl)
+  const apiKey = await createApiKey(loginSession.cookie, project.project.projectId)
   const cardForgeUrl = await startCardForge({
     apiKey,
     projectId: project.project.projectId,
@@ -255,25 +300,48 @@ async function main() {
     port: cardForgePort,
   })
 
-  const checkout = await createCardForgeCheckout(cardForgeUrl)
-  await projectPayment(checkout.chainInvoiceId)
+  const freeCheckout = await createCardForgeCheckout(cardForgeUrl, {
+    feeBps: 50,
+    merchantNetMinorUnits: 119400000,
+    plan: 'free',
+    platformFeeMinorUnits: 600000,
+  })
+  await projectPayment(freeCheckout.chainInvoiceId)
+
+  await projectGrowthEntitlement(loginSession.address)
+
+  const growthCheckout = await createCardForgeCheckout(cardForgeUrl, {
+    feeBps: 25,
+    merchantNetMinorUnits: 119700000,
+    plan: 'growth',
+    platformFeeMinorUnits: 300000,
+  })
+  await projectPayment(growthCheckout.chainInvoiceId)
 
   const webhooks = await json(`${cardForgeUrl}/api/mermer-pay/webhooks`)
-  assert(webhooks.receivedEventCount === 1, `CardForge expected one webhook, got ${webhooks.receivedEventCount}`)
+  assert(webhooks.receivedEventCount === 2, `CardForge expected two webhooks, got ${webhooks.receivedEventCount}`)
 
   const overview = await json(`${apiBaseUrl}/api/projects/${project.project.projectId}`, {
-    headers: { cookie },
+    headers: { cookie: loginSession.cookie },
   })
-  assert(overview.summary.totalCheckouts === 1, 'dashboard total checkout count is wrong')
-  assert(overview.summary.paidCheckouts === 1, 'dashboard paid checkout count is wrong')
-  assert(overview.summary.deliveredWebhooks === 1, 'dashboard delivered webhook count is wrong')
+  assert(overview.summary.totalCheckouts === 2, 'dashboard total checkout count is wrong')
+  assert(overview.summary.paidCheckouts === 2, 'dashboard paid checkout count is wrong')
+  assert(overview.summary.grossVolumeMinorUnits === 240000000, 'dashboard gross volume is wrong')
+  assert(overview.summary.platformFeeMinorUnits === 900000, 'dashboard fee total is wrong')
+  assert(overview.summary.merchantNetMinorUnits === 239100000, 'dashboard net total is wrong')
+  assert(overview.summary.deliveredWebhooks === 2, 'dashboard delivered webhook count is wrong')
 
   console.log(JSON.stringify({
     ok: true,
     apiSpawned: api.spawned,
     cardForgeUrl,
-    checkoutSessionId: checkout.checkoutSessionId,
-    chainInvoiceId: checkout.chainInvoiceId,
+    freeCheckoutSessionId: freeCheckout.checkoutSessionId,
+    growthCheckoutSessionId: growthCheckout.checkoutSessionId,
+    freeChainInvoiceId: freeCheckout.chainInvoiceId,
+    growthChainInvoiceId: growthCheckout.chainInvoiceId,
+    grossVolumeMinorUnits: overview.summary.grossVolumeMinorUnits,
+    merchantNetMinorUnits: overview.summary.merchantNetMinorUnits,
+    platformFeeMinorUnits: overview.summary.platformFeeMinorUnits,
     projectId: project.project.projectId,
     webhookDeliveries: overview.webhookDeliveries.map((delivery) => ({
       attemptCount: delivery.attemptCount,

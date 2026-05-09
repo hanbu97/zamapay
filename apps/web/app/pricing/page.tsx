@@ -15,6 +15,13 @@ import { ButtonGroup } from "@/components/ui/button-group"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { getOptionalSession } from "@/lib/api"
+import { contractEnvironmentConfig, publicContractEnvironment } from "@/lib/contract-environment"
+
+const billingTerms = contractEnvironmentConfig(publicContractEnvironment()).manifest?.billing
+const freeFee = formatFee("free")
+const growthFee = formatFee("growth")
+const enterpriseFee = formatFee("enterprise", "Custom")
+const growthMonthlyPrice = formatPlanPrice("growth")
 
 export const metadata = {
   description: "Mermer Pay pricing for hosted crypto checkout, merchant billing workflows, and Zama confidential settlement.",
@@ -25,7 +32,7 @@ const tiers = [
   {
     badge: "Free",
     description: "Start without a monthly fee.",
-    fee: "0.50%",
+    fee: freeFee,
     features: ["No monthly fee", "Hosted checkout", "Project API key", "Signed webhooks"],
     name: "Free",
     price: "$0",
@@ -34,16 +41,16 @@ const tiers = [
   {
     badge: "Recommended",
     description: "Lower rate for active merchants.",
-    fee: "0.25%",
+    fee: growthFee,
     features: ["Lower checkout fee", "Billing workflows", "Webhook diagnostics", "Confidential add-on at +15 bps"],
     name: "Growth",
-    price: "$99",
+    price: growthMonthlyPrice,
     support: "Priority integration support",
   },
   {
     badge: "Scale",
     description: "Custom terms for volume and compliance.",
-    fee: "from 0.20%",
+    fee: enterpriseFee,
     features: ["Volume pricing", "Dedicated settlement policy", "Confidential checkout package", "Custom compliance review"],
     name: "Enterprise",
     price: "Custom",
@@ -53,13 +60,13 @@ const tiers = [
 
 const feeRows = [
   {
-    fee: "0.50% Free / 0.25% Growth",
+    fee: `${freeFee} Free / ${growthFee} Growth`,
     note: "Free has no monthly fee; paid plans lower the rate.",
     product: "Hosted checkout / dynamic QR",
     settlement: "Instant balance; hourly withdrawal",
   },
   {
-    fee: "0.50% Free / 0.25% Growth",
+    fee: `${freeFee} Free / ${growthFee} Growth`,
     note: "Store volume can buy down the plan rate.",
     product: "Static QR / POS",
     settlement: "Instant receipt; daily settlement",
@@ -102,6 +109,28 @@ const policyItems = [
   "Confidential checkout is priced as a premium capability.",
 ]
 
+function planTerms(plan: "free" | "growth" | "enterprise") {
+  return billingTerms?.plans.find((terms) => terms.plan === plan)
+}
+
+function formatFee(plan: "free" | "growth" | "enterprise", fallback = "Contract required") {
+  const feeBps = planTerms(plan)?.checkoutFeeBps
+  if (feeBps === null || feeBps === undefined) {
+    return fallback
+  }
+
+  return `${(feeBps / 100).toFixed(2)}%`
+}
+
+function formatPlanPrice(plan: "free" | "growth" | "enterprise") {
+  const monthlyPrice = planTerms(plan)?.monthlyPriceMinorUnits
+  if (monthlyPrice === null || monthlyPrice === undefined) {
+    return "Custom"
+  }
+
+  return `$${(monthlyPrice / 1_000000).toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+}
+
 export default async function PricingPage() {
   const session = await getOptionalSession((await cookies()).toString())
   const isAuthenticated = Boolean(session.authenticated && session.user)
@@ -123,7 +152,7 @@ export default async function PricingPage() {
                 Low-fee checkout. Premium confidential settlement.
               </h1>
               <p className="max-w-2xl text-base leading-7 text-muted-foreground md:text-lg md:leading-8">
-                Start free at 0.50% per successful checkout. Upgrade to reduce the rate and unlock heavier billing,
+                Start free at {freeFee} per successful checkout. Upgrade to reduce the rate and unlock heavier billing,
                 payout, and confidential settlement workflows.
               </p>
             </div>
@@ -143,15 +172,15 @@ export default async function PricingPage() {
               <Badge className="w-fit" variant="outline">
                 Free default
               </Badge>
-              <CardTitle className="text-2xl">Start free with a 0.50% take rate.</CardTitle>
+              <CardTitle className="text-2xl">Start free with a {freeFee} take rate.</CardTitle>
               <CardDescription>
                 No monthly fee until the merchant has volume. Paid plans buy down the checkout rate.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 sm:grid-cols-3">
-                <Metric label="Free checkout" value="0.50%" />
-                <Metric label="Growth checkout" value="0.25%" />
+                <Metric label="Free checkout" value={freeFee} />
+                <Metric label="Growth checkout" value={growthFee} />
                 <Metric label="Confidential add-on" value="+15 bps" />
               </div>
               <div className="mt-4 grid gap-2">
@@ -274,7 +303,7 @@ export default async function PricingPage() {
       <section className="border-t">
         <div className="mx-auto flex w-full max-w-7xl flex-col items-start justify-between gap-5 px-4 py-10 md:flex-row md:items-center md:px-8">
           <div>
-            <h2 className="text-2xl font-semibold tracking-normal">Start free at 0.50% per successful checkout.</h2>
+            <h2 className="text-2xl font-semibold tracking-normal">Start free at {freeFee} per successful checkout.</h2>
             <p className="mt-2 text-muted-foreground">
               Upgrade when checkout volume, webhook operations, or confidential settlement justifies a lower rate.
             </p>

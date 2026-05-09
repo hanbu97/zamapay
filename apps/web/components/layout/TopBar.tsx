@@ -1,91 +1,153 @@
 'use client'
 
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { ArrowUpRightIcon, HomeIcon, NetworkIcon, ShieldCheckIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { ButtonGroup } from '@/components/ui/button-group'
-import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from '@/components/ui/breadcrumb'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { LogOutIcon } from 'lucide-react'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
+import { Button, buttonVariants } from '@/components/ui/button'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
+import { logoutSession, type BillingPlan } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
-const pageNames: Record<string, string> = {
-  '/merchant': 'Payment projects',
-  '/dashboard': 'Payments',
-  '/login': 'Wallet login',
-  '/ops': 'Diagnostics',
+type BreadcrumbCrumb = {
+  href?: string
+  label: string
+}
+
+type SearchParamsSnapshot = Pick<URLSearchParams, 'get' | 'toString'>
+
+const projectTabLabels: Record<string, string> = {
+  diagnostics: 'Diagnostics',
+  integration: 'Integration',
+  payments: 'Payments',
+  webhooks: 'Webhooks',
+}
+
+type PlanDisplay = {
+  label: string
+  variant: 'default' | 'outline' | 'secondary'
+}
+
+const planDisplays: Record<BillingPlan, PlanDisplay> = {
+  enterprise: {
+    label: 'Enterprise',
+    variant: 'outline',
+  },
+  free: {
+    label: 'Free tier',
+    variant: 'secondary',
+  },
+  growth: {
+    label: 'Growth',
+    variant: 'default',
+  },
+}
+
+const staticBreadcrumbs: Record<string, BreadcrumbCrumb[]> = {
+  '/billing': [
+    {
+      href: '/dashboard',
+      label: 'Account',
+    },
+    {
+      label: 'Billing',
+    },
+  ],
+  '/billing/upgrade': [
+    {
+      href: '/dashboard',
+      label: 'Account',
+    },
+    {
+      href: '/billing',
+      label: 'Billing',
+    },
+    {
+      label: 'Upgrade',
+    },
+  ],
+  '/dashboard': [
+    {
+      label: 'Account',
+    },
+    {
+      label: 'Overview',
+    },
+  ],
+  '/login': [
+    {
+      label: 'Access',
+    },
+    {
+      label: 'Wallet login',
+    },
+  ],
+  '/merchant': [
+    {
+      href: '/dashboard',
+      label: 'Account',
+    },
+    {
+      label: 'Projects',
+    },
+  ],
 }
 
 type TopBarProps = {
   isAuthenticated: boolean
+  subscriptionPlan?: BillingPlan | null
+  userAddress?: string | null
 }
 
-export function TopBar({ isAuthenticated }: TopBarProps) {
+export function TopBar({ isAuthenticated, subscriptionPlan, userAddress }: TopBarProps) {
   const pathname = usePathname()
-  const pageName = currentPageName(pathname)
-  const loginHref = pathname === '/login' ? '/login' : `/login?next=${encodeURIComponent(pathname)}`
+  const searchParams = useSearchParams()
+  const crumbs = currentBreadcrumb(pathname, searchParams)
+  const currentHref = currentPath(pathname, searchParams)
+  const loginHref = pathname === '/login' ? '/login' : `/login?next=${encodeURIComponent(currentHref)}`
 
   return (
     <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <SidebarTrigger className="-ml-1" />
-      <Separator className="h-4" orientation="vertical" />
-
-      <Button className="min-w-0 shrink-0" nativeButton={false} render={<Link href="/" />} size="sm" variant="ghost">
-        <HomeIcon data-icon="inline-start" />
-        <span className="hidden sm:inline">Mermer Pay</span>
-        <span className="sm:hidden">Home</span>
-      </Button>
-      <Separator className="hidden h-4 sm:block" orientation="vertical" />
+      <Separator orientation="vertical" />
 
       <Breadcrumb className="min-w-0 flex-1 overflow-hidden">
-        <BreadcrumbList className="min-w-0 flex-nowrap">
-          <BreadcrumbItem className="min-w-0">
-            <BreadcrumbPage className="block max-w-[7.5rem] truncate sm:max-w-none">{pageName}</BreadcrumbPage>
-          </BreadcrumbItem>
+        <BreadcrumbList className="min-w-0 flex-nowrap gap-1">
+          {crumbs.map((crumb, index) => {
+            const isLast = index === crumbs.length - 1
+
+            return (
+              <Fragment key={`${crumb.label}-${index}`}>
+                {index > 0 ? <BreadcrumbSeparator /> : null}
+                <BreadcrumbItem className="min-w-0">
+                  {crumb.href && !isLast ? (
+                    <BreadcrumbLink className="block max-w-[8rem] truncate sm:max-w-none" render={<Link href={crumb.href} />}>
+                      {crumb.label}
+                    </BreadcrumbLink>
+                  ) : (
+                    <BreadcrumbPage className="block max-w-[8rem] truncate sm:max-w-none">{crumb.label}</BreadcrumbPage>
+                  )}
+                </BreadcrumbItem>
+              </Fragment>
+            )
+          })}
         </BreadcrumbList>
       </Breadcrumb>
 
       {isAuthenticated ? (
-        <ButtonGroup className="shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Button size="sm" variant="outline" />}>
-              <NetworkIcon data-icon="inline-start" />
-              Console
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Runtime surface</DropdownMenuLabel>
-                <DropdownMenuItem>
-                  <ShieldCheckIcon />
-                  Zama FHEVM rail
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <ArrowUpRightIcon />
-                  Finality-gated fulfillment
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuGroup>
-                <DropdownMenuLabel>Quick links</DropdownMenuLabel>
-                <DropdownMenuItem render={<Link href="/merchant" />}>Projects</DropdownMenuItem>
-                <DropdownMenuItem render={<Link href="/dashboard" />}>Payments</DropdownMenuItem>
-                <DropdownMenuItem render={<Link href="/ops" />}>Diagnostics</DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button nativeButton={false} render={<Link href="/dashboard" />} size="sm">
-            Dashboard
-          </Button>
-        </ButtonGroup>
+        <AccountProfile subscriptionPlan={subscriptionPlan} userAddress={userAddress} />
       ) : (
         <Button className="shrink-0" nativeButton={false} render={<Link href={loginHref} />} size="sm">
           Log in
@@ -95,10 +157,95 @@ export function TopBar({ isAuthenticated }: TopBarProps) {
   )
 }
 
-function currentPageName(pathname: string): string {
-  if (pathname.startsWith('/checkout/')) {
-    return 'Hosted checkout'
+function AccountProfile({
+  subscriptionPlan,
+  userAddress,
+}: {
+  subscriptionPlan?: BillingPlan | null
+  userAddress?: string | null
+}) {
+  const planDisplay = subscriptionPlan ? planDisplays[subscriptionPlan] : null
+  const router = useRouter()
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+
+  async function handleLogout() {
+    setIsLoggingOut(true)
+
+    try {
+      await logoutSession()
+      router.replace('/login')
+      router.refresh()
+    } catch (caught) {
+      console.error(caught)
+      setIsLoggingOut(false)
+    }
   }
 
-  return pageNames[pathname] ?? 'Merchant console'
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="Open account menu"
+        className={cn(buttonVariants({ size: 'lg', variant: 'ghost' }), 'ml-auto rounded-full px-1.5')}
+      >
+        {planDisplay ? <Badge variant={planDisplay.variant}>{planDisplay.label}</Badge> : null}
+        <Avatar>
+          <AvatarFallback>{walletInitials(userAddress)}</AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-36">
+        <DropdownMenuItem disabled={isLoggingOut} onClick={() => void handleLogout()} variant="destructive">
+          <LogOutIcon />
+          {isLoggingOut ? 'Logging out...' : 'Log out'}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function currentBreadcrumb(pathname: string, searchParams: SearchParamsSnapshot): BreadcrumbCrumb[] {
+  if (pathname.startsWith('/checkout/')) {
+    return [
+      {
+        label: 'Checkout',
+      },
+      {
+        label: 'Hosted checkout',
+      },
+    ]
+  }
+
+  if (pathname.startsWith('/merchant/')) {
+    const tab = searchParams.get('tab')
+
+    return [
+      {
+        href: '/merchant',
+        label: 'Projects',
+      },
+      {
+        label: 'Project',
+      },
+      {
+        label: tab ? (projectTabLabels[tab] ?? 'Overview') : 'Overview',
+      },
+    ]
+  }
+
+  return staticBreadcrumbs[pathname] ?? [
+    {
+      label: 'Console',
+    },
+  ]
+}
+
+function currentPath(pathname: string, searchParams: SearchParamsSnapshot) {
+  const query = searchParams.toString()
+
+  return query ? `${pathname}?${query}` : pathname
+}
+
+function walletInitials(address: string | null | undefined) {
+  const normalized = address?.replace(/^0x/i, '').trim()
+
+  return normalized ? normalized.slice(0, 2).toUpperCase() : 'MP'
 }

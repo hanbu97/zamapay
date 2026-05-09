@@ -1,3 +1,5 @@
+import { publicContractEnvironment } from './contract-environment.ts'
+
 export type NonceResponse = {
   nonce: string
   message: string
@@ -52,6 +54,7 @@ export type InvoiceRecord = {
   merchantName: string
   amountLabel: string
   amountMinorUnits: number
+  billing?: CheckoutBillingSnapshot | null
   note: string
   chainInvoiceId: number | null
   chainTxHash: string | null
@@ -100,22 +103,133 @@ export type ContractManifest = {
   chainId: number | null
   generatedAt: string
   deployer?: string | null
+  platformFeeWallet?: string | null
   contracts: {
     MerchantRegistry: string | null
     ConfidentialUSDMock: string | null
+    SubscriptionPass: string | null
+    PrivateSubscriptionRegistry: string | null
     ConfidentialInvoiceSettlement: string | null
+  }
+  billing?: {
+    source: string | null
+    defaultFeeBps: number | null
+    monthlyPeriodSeconds: number | null
+    annualPeriodSeconds: number | null
+    plans: Array<{
+      plan: BillingPlan
+      planCode: number | null
+      checkoutFeeBps: number | null
+      monthlyPriceMinorUnits: number | null
+      annualPriceMinorUnits: number | null
+      selfServe: boolean
+    }>
   }
 }
 
 export type ProjectEnvironmentKind = 'local_dev' | 'sepolia'
 export type ProjectStatus = 'active' | 'disabled'
 export type CheckoutSessionStatus = 'created' | 'open' | 'paid' | 'expired' | 'cancelled' | 'failed'
+export type BillingPlan = 'free' | 'growth' | 'enterprise'
+export type BillingCycle = 'monthly' | 'annual'
+export type BillingSubscriptionStatus = 'active' | 'past_due' | 'cancelled'
+export type BillingEntitlementStatus =
+  | 'contract_default'
+  | 'local_only'
+  | 'pending_private_proof'
+  | 'anchored'
+  | 'rejected'
+export type BillingPaymentStatus = 'succeeded' | 'pending' | 'failed'
+
+export type BillingPlanCatalogEntry = {
+  plan: BillingPlan
+  name: string
+  planCode: number | null
+  checkoutFeeBps: number | null
+  monthlyPriceMinorUnits: number | null
+  annualPriceMinorUnits: number | null
+  monthlyPriceUsd: number | null
+  annualPriceUsd: number | null
+  selfServe: boolean
+  description: string
+}
+
+export type BillingSubscription = {
+  subscriptionId: string
+  ownerWallet: string
+  plan: BillingPlan
+  billingCycle: BillingCycle
+  status: BillingSubscriptionStatus
+  passId?: string | null
+  entitlementVersion: number
+  entitlementStatus: BillingEntitlementStatus
+  entitlementTxHash?: string | null
+  subscriptionCheckHandle?: string | null
+  currentPeriodStartedAt: string
+  currentPeriodEndsAt: string
+  updatedAt: string
+}
+
+export type BillingPaymentRecord = {
+  paymentId: string
+  ownerWallet: string
+  plan: BillingPlan
+  billingCycle: BillingCycle
+  amountMinorUnits: number
+  currency: string
+  status: BillingPaymentStatus
+  chainTxHash?: string | null
+  subscriptionCheckHandle?: string | null
+  createdAt: string
+}
+
+export type BillingSubscriptionResponse = {
+  subscription: BillingSubscription
+  plans: BillingPlanCatalogEntry[]
+  payments: BillingPaymentRecord[]
+}
+
+export type BillingUpgradeIntentPayload = {
+  plan: BillingPlan
+  billingCycle?: BillingCycle
+}
+
+export type UpgradeBillingSubscriptionPayload = {
+  plan: BillingPlan
+  billingCycle?: BillingCycle
+  chainTxHash?: string | null
+  subscriptionCheckHandle?: string | null
+}
+
+export type BillingUpgradeIntentResponse = {
+  passId: string | null
+  ownerWallet: string
+  plan: BillingPlan
+  billingCycle: BillingCycle
+  planCode: number
+  priceMinorUnits: number
+  periodDays: number
+  expectedFeeBps: number
+  chargeTokenContract: string | null
+  subscriptionRegistryContract: string | null
+  treasuryWallet: string | null
+  privacyNote: string
+}
+
+export type CheckoutBillingSnapshot = {
+  plan: BillingPlan
+  feeBps: number
+  grossAmountMinorUnits: number
+  platformFeeMinorUnits: number
+  merchantNetMinorUnits: number
+}
 
 export type PaymentProject = {
   projectId: string
   name: string
   ownerWallet: string
   defaultEnvironment: ProjectEnvironmentKind
+  billingPlan: BillingPlan
   status: ProjectStatus
   createdAt: string
   updatedAt: string
@@ -178,6 +292,7 @@ export type CheckoutSession = {
   title: string
   amountLabel: string
   amountMinorUnits: number
+  billing: CheckoutBillingSnapshot
   note: string
   successUrl: string | null
   cancelUrl: string | null
@@ -216,6 +331,16 @@ export type WebhookDeliveryRecord = {
   deliveredAt: string | null
 }
 
+export type ProjectWithdrawalRecord = {
+  withdrawalId: string
+  projectId: string
+  amountMinorUnits: number
+  status: 'completed'
+  receipt: string
+  createdAt: string
+  completedAt: string
+}
+
 export type CreatePaymentProjectResponse = {
   project: PaymentProject
   environment: PaymentProjectEnvironment
@@ -242,10 +367,16 @@ export type ProjectDashboardOverview = {
   checkoutSessions: CheckoutSession[]
   webhookEvents: WebhookEventRecord[]
   webhookDeliveries: WebhookDeliveryRecord[]
+  withdrawals: ProjectWithdrawalRecord[]
   summary: {
     totalCheckouts: number
     openCheckouts: number
     paidCheckouts: number
+    grossVolumeMinorUnits: number
+    platformFeeMinorUnits: number
+    merchantNetMinorUnits: number
+    withdrawnMinorUnits: number
+    withdrawableMinorUnits: number
     pendingDeliveries: number
     deliveredWebhooks: number
     failedWebhooks: number
@@ -269,6 +400,10 @@ export type ConfigureWebhookEndpointPayload = {
   enabled?: boolean
 }
 
+export type CreateProjectWithdrawalPayload = {
+  amountMinorUnits?: number
+}
+
 export class ApiRequestError extends Error {
   readonly body: string
   readonly status: number
@@ -282,7 +417,7 @@ export class ApiRequestError extends Error {
 }
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
-const contractEnvironment = process.env.NEXT_PUBLIC_CONTRACT_ENV ?? 'local-dev'
+const contractEnvironment = publicContractEnvironment()
 
 export function isUnauthorizedApiError(error: unknown): boolean {
   return error instanceof ApiRequestError && (error.status === 401 || error.status === 403)
@@ -348,6 +483,23 @@ export async function getOptionalSession(cookieHeader: string): Promise<SessionR
   }
 }
 
+export async function logoutSession(): Promise<void> {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/session`, {
+      method: 'DELETE',
+      credentials: 'include',
+    })
+
+    if (response.ok) {
+      return
+    }
+  } catch {
+    // 本地 API 可能还是旧进程；同源兜底只清 cookie，不丢内存数据。
+  }
+
+  await clearBrowserSessionCookie()
+}
+
 export async function getDashboardOverview(cookieHeader: string): Promise<DashboardOverview> {
   const response = await fetch(`${apiBaseUrl}/api/dashboard/overview`, {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
@@ -359,6 +511,17 @@ export async function getDashboardOverview(cookieHeader: string): Promise<Dashbo
   }
 
   return response.json()
+}
+
+async function clearBrowserSessionCookie(): Promise<void> {
+  const response = await fetch('/api/auth/logout', {
+    method: 'POST',
+    credentials: 'include',
+  })
+
+  if (!response.ok) {
+    throw await apiRequestError(response, `Logout failed with ${response.status}.`)
+  }
 }
 
 export async function getContractManifest(): Promise<ContractManifest> {
@@ -414,6 +577,54 @@ export async function getPaymentProjects(cookieHeader: string): Promise<PaymentP
 
   if (!response.ok) {
     throw await apiRequestError(response, `Project list failed with ${response.status}.`)
+  }
+
+  return response.json()
+}
+
+export async function getBillingSubscription(cookieHeader: string): Promise<BillingSubscriptionResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/billing/subscription`, {
+    headers: cookieHeader ? { cookie: cookieHeader } : {},
+    credentials: 'include',
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    throw await apiRequestError(response, `Billing subscription lookup failed with ${response.status}.`)
+  }
+
+  return response.json()
+}
+
+export async function createBillingUpgradeIntent(
+  payload: BillingUpgradeIntentPayload,
+): Promise<BillingUpgradeIntentResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/billing/subscription/upgrade-intent`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw await apiRequestError(response, `Billing upgrade intent failed with ${response.status}.`)
+  }
+
+  return response.json()
+}
+
+export async function upgradeBillingSubscription(
+  payload: UpgradeBillingSubscriptionPayload,
+): Promise<BillingSubscriptionResponse> {
+  const response = await fetch(`${apiBaseUrl}/api/billing/subscription/upgrade`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw await apiRequestError(response, `Billing subscription upgrade failed with ${response.status}.`)
   }
 
   return response.json()
@@ -482,6 +693,25 @@ export async function configureProjectWebhook(
   if (!response.ok) {
     const body = await response.text()
     throw new Error(body || `Webhook configuration failed with ${response.status}.`)
+  }
+
+  return response.json()
+}
+
+export async function createProjectWithdrawal(
+  projectId: string,
+  payload: CreateProjectWithdrawalPayload = {},
+): Promise<ProjectDashboardOverview> {
+  const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/withdrawals`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    const body = await response.text()
+    throw new Error(body || `Project withdrawal failed with ${response.status}.`)
   }
 
   return response.json()

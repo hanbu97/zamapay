@@ -6,8 +6,9 @@ use axum_extra::extract::cookie::CookieJar;
 use chrono::Utc;
 use shared::{
     CheckoutSession, ConfigureWebhookEndpointRequest, CreateCheckoutSessionRequest,
-    CreatePaymentProjectRequest, CreateProjectApiKeyRequest, PaymentProject,
-    ProjectDashboardOverview, ProjectEnvironmentKind, WebhookDeliveryRecord, WebhookEventRecord,
+    CreatePaymentProjectRequest, CreateProjectApiKeyRequest, CreateProjectWithdrawalRequest,
+    PaymentProject, ProjectDashboardOverview, ProjectEnvironmentKind, WebhookDeliveryRecord,
+    WebhookEventRecord,
 };
 use storage::CheckoutSessionError;
 
@@ -57,14 +58,20 @@ pub(super) fn routes() -> Router<AppState> {
             "/api/projects/{project_id}/deliveries/{delivery_id}/resend",
             post(resend_delivery),
         )
+        .route(
+            "/api/projects/{project_id}/withdrawals",
+            post(create_withdrawal),
+        )
 }
 
 async fn list_projects(
     State(state): State<AppState>,
     jar: CookieJar,
 ) -> Result<Json<Vec<PaymentProject>>, ApiError> {
-    let session = require_session(&state, &jar)?;
-    Ok(Json(state.portal.list_projects(&session.user.address)))
+    let session = require_session(&state, &jar).await?;
+    Ok(Json(
+        state.portal.list_projects(&session.user.address).await,
+    ))
 }
 
 async fn create_project(
@@ -72,21 +79,39 @@ async fn create_project(
     jar: CookieJar,
     Json(payload): Json<CreatePaymentProjectRequest>,
 ) -> Result<Json<shared::CreatePaymentProjectResponse>, ApiError> {
-    let session = require_session(&state, &jar)?;
+    let session = require_session(&state, &jar).await?;
     let name = payload.name.trim();
     if name.is_empty() {
         return Err(ApiError::bad_request("project name is required"));
     }
 
-    let created = state.portal.create_project(
-        &session.user.address,
-        name,
-        payload
-            .environment
-            .unwrap_or(ProjectEnvironmentKind::LocalDev),
-        payload.webhook_url.as_deref(),
-        Utc::now(),
-    );
+    let now = Utc::now();
+    let subscription = state
+        .portal
+        .billing_subscription(&session.user.address, now)
+        .await;
+    let effective_plan = subscription.subscription.effective_plan();
+    if payload
+        .billing_plan
+        .is_some_and(|requested| requested != effective_plan)
+    {
+        return Err(ApiError::forbidden(
+            "project billing plan comes from the active subscription; upgrade before using a paid rate",
+        ));
+    }
+
+    let created = state
+        .portal
+        .create_project(
+            &session.user.address,
+            name,
+            payload
+                .environment
+                .unwrap_or(ProjectEnvironmentKind::LocalDev),
+            payload.webhook_url.as_deref(),
+            now,
+        )
+        .await;
 
     Ok(Json(created))
 }
@@ -96,10 +121,11 @@ async fn project_overview(
     jar: CookieJar,
     Path(project_id): Path<String>,
 ) -> Result<Json<ProjectDashboardOverview>, ApiError> {
-    let session = require_session(&state, &jar)?;
+    let session = require_session(&state, &jar).await?;
     let overview = state
         .portal
         .project_overview(&project_id)
+        .await
         .ok_or(ApiError::not_found("project not found"))?;
     require_project_owner(&overview.project, &session.user.address)?;
     Ok(Json(overview))
@@ -111,10 +137,11 @@ async fn create_project_api_key(
     Path(project_id): Path<String>,
     Json(payload): Json<CreateProjectApiKeyRequest>,
 ) -> Result<Json<shared::CreateProjectApiKeyResponse>, ApiError> {
-    let session = require_session(&state, &jar)?;
+    let session = require_session(&state, &jar).await?;
     let project = state
         .portal
         .project_by_id(&project_id)
+        .await
         .ok_or(ApiError::not_found("project not found"))?;
     require_project_owner(&project, &session.user.address)?;
     let label = payload.label.as_deref().unwrap_or("Default API key").trim();
@@ -126,6 +153,7 @@ async fn create_project_api_key(
             label,
             Utc::now(),
         )
+        .await
         .ok_or(ApiError::not_found("project not found"))?;
     Ok(Json(response))
 }
@@ -135,15 +163,17 @@ async fn revoke_project_api_key(
     jar: CookieJar,
     Path((project_id, key_id)): Path<(String, String)>,
 ) -> Result<Json<shared::ProjectApiKey>, ApiError> {
-    let session = require_session(&state, &jar)?;
+    let session = require_session(&state, &jar).await?;
     let project = state
         .portal
         .project_by_id(&project_id)
+        .await
         .ok_or(ApiError::not_found("project not found"))?;
     require_project_owner(&project, &session.user.address)?;
     let key = state
         .portal
         .revoke_project_api_key(&project_id, &key_id, Utc::now())
+        .await
         .ok_or(ApiError::not_found("api key not found"))?;
     Ok(Json(key))
 }
@@ -154,19 +184,23 @@ async fn configure_webhook_endpoint(
     Path(project_id): Path<String>,
     Json(payload): Json<ConfigureWebhookEndpointRequest>,
 ) -> Result<Json<shared::ConfigureWebhookEndpointResponse>, ApiError> {
-    let session = require_session(&state, &jar)?;
+    let session = require_session(&state, &jar).await?;
     let project = state
         .portal
         .project_by_id(&project_id)
+        .await
         .ok_or(ApiError::not_found("project not found"))?;
     require_project_owner(&project, &session.user.address)?;
     let url = validated_webhook_url(&payload.url)?;
-    let configured = state.portal.configure_webhook_endpoint(
-        &project_id,
-        payload.environment.unwrap_or(project.default_environment),
-        url,
-        Utc::now(),
-    );
+    let configured = state
+        .portal
+        .configure_webhook_endpoint(
+            &project_id,
+            payload.environment.unwrap_or(project.default_environment),
+            url,
+            Utc::now(),
+        )
+        .await;
     Ok(Json(configured))
 }
 
@@ -176,10 +210,11 @@ async fn configure_webhook_endpoint_patch(
     Path((project_id, endpoint_id)): Path<(String, String)>,
     Json(payload): Json<ConfigureWebhookEndpointRequest>,
 ) -> Result<Json<shared::ProjectWebhookEndpoint>, ApiError> {
-    let session = require_session(&state, &jar)?;
+    let session = require_session(&state, &jar).await?;
     let project = state
         .portal
         .project_by_id(&project_id)
+        .await
         .ok_or(ApiError::not_found("project not found"))?;
     require_project_owner(&project, &session.user.address)?;
     let url = validated_webhook_url(&payload.url)?;
@@ -193,6 +228,7 @@ async fn configure_webhook_endpoint_patch(
             payload.enabled.unwrap_or(true),
             Utc::now(),
         )
+        .await
         .ok_or(ApiError::not_found("webhook endpoint not found"))?;
     Ok(Json(endpoint))
 }
@@ -202,10 +238,11 @@ async fn test_webhook_endpoint(
     jar: CookieJar,
     Path((project_id, endpoint_id)): Path<(String, String)>,
 ) -> Result<Json<Vec<WebhookDeliveryRecord>>, ApiError> {
-    let session = require_session(&state, &jar)?;
+    let session = require_session(&state, &jar).await?;
     let project = state
         .portal
         .project_by_id(&project_id)
+        .await
         .ok_or(ApiError::not_found("project not found"))?;
     require_project_owner(&project, &session.user.address)?;
     let delivery = state
@@ -216,6 +253,7 @@ async fn test_webhook_endpoint(
             project.default_environment,
             Utc::now(),
         )
+        .await
         .ok_or(ApiError::not_found("webhook endpoint not found"))?;
     Ok(Json(dispatch_delivery(&state, delivery).await?))
 }
@@ -225,7 +263,7 @@ async fn list_checkout_sessions(
     jar: CookieJar,
     Path(project_id): Path<String>,
 ) -> Result<Json<Vec<CheckoutSession>>, ApiError> {
-    let overview = owned_overview(&state, &jar, &project_id)?;
+    let overview = owned_overview(&state, &jar, &project_id).await?;
     Ok(Json(overview.checkout_sessions))
 }
 
@@ -247,6 +285,7 @@ async fn create_checkout_session(
             &checkout_base_url(),
             Utc::now(),
         )
+        .await
         .map_err(checkout_error)?;
     Ok(Json(checkout))
 }
@@ -260,6 +299,7 @@ async fn checkout_session_detail(
     let checkout = state
         .portal
         .verify_checkout_session_access(&project_id, &checkout_session_id, api_key, Utc::now())
+        .await
         .map_err(checkout_error)?;
     Ok(Json(checkout))
 }
@@ -269,7 +309,7 @@ async fn list_events(
     jar: CookieJar,
     Path(project_id): Path<String>,
 ) -> Result<Json<Vec<WebhookEventRecord>>, ApiError> {
-    let overview = owned_overview(&state, &jar, &project_id)?;
+    let overview = owned_overview(&state, &jar, &project_id).await?;
     Ok(Json(overview.webhook_events))
 }
 
@@ -278,7 +318,7 @@ async fn list_deliveries(
     jar: CookieJar,
     Path(project_id): Path<String>,
 ) -> Result<Json<Vec<WebhookDeliveryRecord>>, ApiError> {
-    let overview = owned_overview(&state, &jar, &project_id)?;
+    let overview = owned_overview(&state, &jar, &project_id).await?;
     Ok(Json(overview.webhook_deliveries))
 }
 
@@ -287,19 +327,54 @@ async fn resend_delivery(
     jar: CookieJar,
     Path((project_id, delivery_id)): Path<(String, String)>,
 ) -> Result<Json<Vec<WebhookDeliveryRecord>>, ApiError> {
-    let _overview = owned_overview(&state, &jar, &project_id)?;
+    let _overview = owned_overview(&state, &jar, &project_id).await?;
     let delivery = state
         .portal
         .reschedule_webhook_delivery(&project_id, &delivery_id, Utc::now())
+        .await
         .ok_or(ApiError::not_found("webhook delivery not found"))?;
     Ok(Json(dispatch_delivery(&state, delivery).await?))
+}
+
+async fn create_withdrawal(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(project_id): Path<String>,
+    Json(payload): Json<CreateProjectWithdrawalRequest>,
+) -> Result<Json<ProjectDashboardOverview>, ApiError> {
+    let overview = owned_overview(&state, &jar, &project_id).await?;
+    let amount = payload
+        .amount_minor_units
+        .unwrap_or(overview.summary.withdrawable_minor_units);
+
+    if amount == 0 {
+        return Err(ApiError::conflict(
+            "withdraw requires a positive available merchant balance",
+        ));
+    }
+    if amount > overview.summary.withdrawable_minor_units {
+        return Err(ApiError::bad_request(
+            "withdraw amount exceeds available merchant balance",
+        ));
+    }
+
+    state
+        .portal
+        .create_project_withdrawal(&project_id, amount, Utc::now())
+        .await
+        .ok_or(ApiError::not_found("project not found"))?;
+
+    owned_overview(&state, &jar, &project_id).await.map(Json)
 }
 
 pub(super) async fn dispatch_project_deliveries(
     state: &AppState,
     project_id: &str,
 ) -> Result<Vec<WebhookDeliveryRecord>, ApiError> {
-    let deliveries = state.portal.due_webhook_deliveries(project_id, Utc::now());
+    let deliveries = state
+        .portal
+        .due_webhook_deliveries(project_id, Utc::now())
+        .await;
     let mut results = Vec::new();
     for delivery in deliveries {
         results.extend(dispatch_delivery(state, delivery).await?);
@@ -314,14 +389,17 @@ async fn dispatch_delivery(
     let event = state
         .portal
         .webhook_event_by_id(&delivery.event_id)
+        .await
         .ok_or(ApiError::not_found("webhook event not found"))?;
     let endpoint = state
         .portal
         .webhook_endpoint_by_id(&delivery.endpoint_id)
+        .await
         .ok_or(ApiError::not_found("webhook endpoint not found"))?;
     let secret = state
         .portal
         .webhook_secret_for_endpoint(&endpoint.endpoint_id)
+        .await
         .ok_or(ApiError::not_found("webhook secret not found"))?;
     let canonical_body = serde_json::to_string(&event.payload)
         .map_err(|_| ApiError::internal("failed to serialize webhook event"))?;
@@ -347,42 +425,56 @@ async fn dispatch_delivery(
         Ok(response) => {
             let status = response.status().as_u16();
             let body = response.text().await.unwrap_or_default();
-            state.portal.mark_webhook_delivery_result(
-                &delivery.delivery_id,
-                signature_header,
-                Some(status),
-                Some(truncate_body(body)),
-                None,
-                Utc::now(),
-            )
+            state
+                .portal
+                .mark_webhook_delivery_result(
+                    &delivery.delivery_id,
+                    signature_header,
+                    Some(status),
+                    Some(truncate_body(body)),
+                    None,
+                    Utc::now(),
+                )
+                .await
         }
-        Err(error) => state.portal.mark_webhook_delivery_result(
-            &delivery.delivery_id,
-            signature_header,
-            None,
-            None,
-            Some(error.to_string()),
-            Utc::now(),
-        ),
+        Err(error) => {
+            state
+                .portal
+                .mark_webhook_delivery_result(
+                    &delivery.delivery_id,
+                    signature_header,
+                    None,
+                    None,
+                    Some(error.to_string()),
+                    Utc::now(),
+                )
+                .await
+        }
     }
     .ok_or(ApiError::not_found("webhook delivery not found"))?;
 
     Ok(vec![result])
 }
 
-fn require_session(state: &AppState, jar: &CookieJar) -> Result<storage::StoredSession, ApiError> {
-    session_from_cookie(state, jar)?.ok_or(ApiError::unauthorized("missing session"))
+async fn require_session(
+    state: &AppState,
+    jar: &CookieJar,
+) -> Result<storage::StoredSession, ApiError> {
+    session_from_cookie(state, jar)
+        .await?
+        .ok_or(ApiError::unauthorized("missing session"))
 }
 
-fn owned_overview(
+async fn owned_overview(
     state: &AppState,
     jar: &CookieJar,
     project_id: &str,
 ) -> Result<ProjectDashboardOverview, ApiError> {
-    let session = require_session(state, jar)?;
+    let session = require_session(state, jar).await?;
     let overview = state
         .portal
         .project_overview(project_id)
+        .await
         .ok_or(ApiError::not_found("project not found"))?;
     require_project_owner(&overview.project, &session.user.address)?;
     Ok(overview)

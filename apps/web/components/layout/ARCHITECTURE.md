@@ -4,16 +4,17 @@
 
 ```text
 apps/web/components/layout
-|-- AppSidebar.tsx # Session-aware shadcn Sidebar navigation and workspace switcher
+|-- AppSidebar.tsx # Session-aware account/project shadcn Sidebar navigation with home brand link
 |-- PageHeader.tsx # Compact page title, description, badge, and action area
-`-- TopBar.tsx     # Session-aware sticky top bar with always-visible Home and breadcrumb
+`-- TopBar.tsx     # Session-aware sticky top bar with breadcrumbs and account logout menu
 ```
 
 ## Decisions
 
 - Layout owns navigation and product chrome; pages own only business content.
-- Sidebar sections contain Mermer Pay platform routes only; external merchant templates are not linked from platform chrome.
+- Sidebar sections mirror ownership: account scope shows Projects, Overview, and Billing; project scope shows All projects, Integration, Webhooks, Payments, and Diagnostics for the selected project.
+- The sidebar brand block is the only persistent return-to-home affordance; the top bar stays focused on current app location and account state.
 - `AppSidebar` is client-side because active-route detection, sidebar state, and session-shaped navigation are browser concerns.
 - Anonymous chrome exposes only login; dashboard, project console, and diagnostics links appear only after the server layout proves a merchant session.
-- `TopBar` keeps a Home control visible on every viewport so operators can return from merchant routes to the public website home without relying on the sidebar.
-- Operator diagnostics is authenticated navigation chrome because failure queues must be reachable after login without hiding behind merchant invoice pages.
+- `TopBar` renders location with shadcn Breadcrumb components and keeps the plan badge plus wallet avatar as a compact account menu.
+- Global operator diagnostics stay out of merchant chrome; project diagnostics remain inside the selected project where they have merchant context.

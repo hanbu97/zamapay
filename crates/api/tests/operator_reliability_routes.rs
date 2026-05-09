@@ -5,11 +5,23 @@ use serde_json::json;
 use tower::ServiceExt;
 
 use api::{AppState, app};
+use storage::PortalStore;
+use uuid::Uuid;
+
+async fn test_state() -> AppState {
+    let database_url = std::env::var("MERMER_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("set MERMER_TEST_DATABASE_URL or DATABASE_URL for API tests");
+    let state_key = format!("test-api-{}", Uuid::new_v4().simple());
+    AppState::with_portal(PortalStore::connect_with_state_key(database_url, state_key).await)
+}
 
 #[tokio::test]
 async fn operator_webhook_delivery_retries_dead_letters_and_recovers() {
-    let state = AppState::new();
-    let seeded_session = state.issue_dev_session("0x0000000000000000000000000000000000000009");
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
     let app = app(state);
 
     create_invoice(
@@ -148,8 +160,10 @@ async fn operator_webhook_delivery_retries_dead_letters_and_recovers() {
 
 #[tokio::test]
 async fn merchant_decrypt_request_rejects_duplicates_and_gateway_replay() {
-    let state = AppState::new();
-    let seeded_session = state.issue_dev_session("0x0000000000000000000000000000000000000009");
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
     let session_cookie = seeded_session.session_id.to_string();
     let app = app(state);
 

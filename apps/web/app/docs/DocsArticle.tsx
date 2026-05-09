@@ -6,12 +6,10 @@ import {
   KeyRoundIcon,
   LockKeyholeIcon,
   ReceiptTextIcon,
-  ShieldCheckIcon,
   StoreIcon,
   WebhookIcon,
 } from "lucide-react"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 import type { DocsFigureKind, DocsPage, DocsSection } from "./docs-content"
 import { docsPages } from "./docs-content"
+import { MermaidDiagram } from "./MermaidDiagram"
 
 export function DocsArticle({ page }: { page: DocsPage }) {
   const Icon = page.icon
@@ -90,9 +89,11 @@ export function DocsArticle({ page }: { page: DocsPage }) {
 }
 
 function DocsSectionBlock({ section }: { section: DocsSection }) {
+  const hasFigure = Boolean(section.figure)
+
   return (
     <section className="scroll-mt-24" id={section.id}>
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,0.88fr)_minmax(18rem,0.62fr)]">
+      <div className={hasFigure ? "grid gap-5 lg:grid-cols-[minmax(0,0.88fr)_minmax(18rem,0.62fr)]" : "grid gap-5"}>
         <div className="min-w-0">
           <h2 className="text-2xl font-semibold tracking-normal">{section.title}</h2>
           <div className="mt-3 flex flex-col gap-3 text-base leading-7 text-muted-foreground">
@@ -102,13 +103,14 @@ function DocsSectionBlock({ section }: { section: DocsSection }) {
           </div>
           {section.steps ? <StepList steps={section.steps} /> : null}
           {section.table ? <DocsTable section={section} /> : null}
+          {section.mermaid ? <MermaidDiagram chart={section.mermaid} /> : null}
           {section.code ? (
             <pre className="mt-5 max-w-full overflow-x-auto rounded-lg border bg-muted p-4 text-xs leading-6 text-muted-foreground">
               <code>{section.code}</code>
             </pre>
           ) : null}
         </div>
-        <GuideFigure kind={section.figure} />
+        {section.figure ? <GuideFigure kind={section.figure} /> : null}
       </div>
     </section>
   )
@@ -137,24 +139,42 @@ function DocsTable({ section }: { section: DocsSection }) {
     return null
   }
 
+  const table = section.table
+
   return (
     <div className="mt-5 overflow-hidden rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow>
-            {section.table.headers.map((header) => (
+            {table.headers.map((header) => (
               <TableHead key={header}>{header}</TableHead>
             ))}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {section.table.rows.map((row) => (
-            <TableRow key={row.join(":")}>
-              {row.map((cell) => (
-                <TableCell className="max-w-[22rem] whitespace-normal leading-6" key={cell}>
-                  {cell}
-                </TableCell>
-              ))}
+          {table.rows.map((row, rowIndex) => (
+            <TableRow key={`${section.id}-row-${rowIndex}`}>
+              {row.map((cell, cellIndex) => {
+                const rowSpan = getRowSpan(table.rows, rowIndex, cellIndex, table.mergeFirstColumn)
+
+                if (rowSpan === 0) {
+                  return null
+                }
+
+                return (
+                  <TableCell
+                    className={
+                      cellIndex === 0 && table.mergeFirstColumn
+                        ? "max-w-[12rem] whitespace-normal bg-muted/30 align-top font-medium leading-6 text-foreground"
+                        : "max-w-[22rem] whitespace-normal align-top leading-6"
+                    }
+                    key={`${section.id}-${rowIndex}-${cellIndex}`}
+                    rowSpan={rowSpan}
+                  >
+                    <TableCellText value={cell} />
+                  </TableCell>
+                )
+              })}
             </TableRow>
           ))}
         </TableBody>
@@ -163,19 +183,45 @@ function DocsTable({ section }: { section: DocsSection }) {
   )
 }
 
-function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
-  if (!kind) {
-    return (
-      <Alert>
-        <ShieldCheckIcon />
-        <AlertTitle>Invariant</AlertTitle>
-        <AlertDescription>
-          Checkout state belongs to Mermer Pay. Merchant apps receive a hosted URL and signed callback events.
-        </AlertDescription>
-      </Alert>
-    )
+function getRowSpan(rows: string[][], rowIndex: number, cellIndex: number, mergeFirstColumn?: boolean) {
+  if (!mergeFirstColumn || cellIndex !== 0) {
+    return undefined
   }
 
+  const value = rows[rowIndex]?.[0]
+
+  if (rowIndex > 0 && rows[rowIndex - 1]?.[0] === value) {
+    return 0
+  }
+
+  let span = 1
+
+  while (rows[rowIndex + span]?.[0] === value) {
+    span += 1
+  }
+
+  return span
+}
+
+function TableCellText({ value }: { value: string }) {
+  const lines = value.split("\n")
+
+  if (lines.length === 1) {
+    return value
+  }
+
+  return (
+    <span className="grid gap-1">
+      {lines.map((line, index) => (
+        <span className="font-mono text-xs leading-5 text-foreground/80" key={`${line}-${index}`}>
+          {line}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
   if (kind === "project-console") {
     return (
       <Card>

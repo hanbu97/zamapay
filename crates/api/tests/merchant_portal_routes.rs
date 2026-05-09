@@ -4,6 +4,16 @@ use serde_json::json;
 use tower::ServiceExt;
 
 use api::{AppState, app};
+use storage::PortalStore;
+use uuid::Uuid;
+
+async fn test_state() -> AppState {
+    let database_url = std::env::var("MERMER_TEST_DATABASE_URL")
+        .or_else(|_| std::env::var("DATABASE_URL"))
+        .expect("set MERMER_TEST_DATABASE_URL or DATABASE_URL for API tests");
+    let state_key = format!("test-api-{}", Uuid::new_v4().simple());
+    AppState::with_portal(PortalStore::connect_with_state_key(database_url, state_key).await)
+}
 
 async fn response_json(response: axum::response::Response) -> serde_json::Value {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -14,7 +24,7 @@ async fn response_json(response: axum::response::Response) -> serde_json::Value 
 
 #[tokio::test]
 async fn dashboard_overview_requires_session() {
-    let app = app(AppState::new());
+    let app = app(test_state().await);
 
     let response = app
         .oneshot(
@@ -32,7 +42,7 @@ async fn dashboard_overview_requires_session() {
 
 #[tokio::test]
 async fn public_invoice_route_returns_not_found_without_created_invoice() {
-    let app = app(AppState::new());
+    let app = app(test_state().await);
 
     let response = app
         .oneshot(
@@ -50,7 +60,7 @@ async fn public_invoice_route_returns_not_found_without_created_invoice() {
 
 #[tokio::test]
 async fn local_dev_contract_manifest_route_returns_generated_truth() {
-    let app = app(AppState::new());
+    let app = app(test_state().await);
 
     let response = app
         .clone()
@@ -97,7 +107,7 @@ async fn local_dev_contract_manifest_route_returns_generated_truth() {
 
 #[tokio::test]
 async fn unknown_contract_manifest_route_returns_not_found() {
-    let app = app(AppState::new());
+    let app = app(test_state().await);
 
     let response = app
         .oneshot(
@@ -115,7 +125,7 @@ async fn unknown_contract_manifest_route_returns_not_found() {
 
 #[tokio::test]
 async fn operator_diagnostics_requires_separate_key() {
-    let app = app(AppState::new());
+    let app = app(test_state().await);
 
     let unauthorized = app
         .clone()
@@ -171,8 +181,10 @@ async fn operator_diagnostics_requires_separate_key() {
 
 #[tokio::test]
 async fn create_invoice_requires_session_and_persists_new_record() {
-    let state = AppState::new();
-    let seeded_session = state.issue_dev_session("0x0000000000000000000000000000000000000009");
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
     let app = app(state);
 
     let unauthorized = app
@@ -254,8 +266,10 @@ async fn create_invoice_requires_session_and_persists_new_record() {
 
 #[tokio::test]
 async fn operator_payment_projection_marks_invoice_paid() {
-    let state = AppState::new();
-    let seeded_session = state.issue_dev_session("0x0000000000000000000000000000000000000009");
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
     let app = app(state);
 
     let created = app
@@ -365,8 +379,10 @@ async fn operator_payment_projection_marks_invoice_paid() {
 
 #[tokio::test]
 async fn operator_payment_projection_can_target_chain_invoice_id() {
-    let state = AppState::new();
-    let seeded_session = state.issue_dev_session("0x0000000000000000000000000000000000000009");
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
     let app = app(state);
 
     let created = app
@@ -595,8 +611,10 @@ async fn operator_payment_projection_can_target_chain_invoice_id() {
 
 #[tokio::test]
 async fn operator_settlement_event_surfaces_diagnostics() {
-    let state = AppState::new();
-    let seeded_session = state.issue_dev_session("0x0000000000000000000000000000000000000009");
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
     let app = app(state);
 
     let created = app
@@ -702,8 +720,10 @@ async fn operator_settlement_event_surfaces_diagnostics() {
 
 #[tokio::test]
 async fn project_api_key_checkout_uses_chain_invoice_authority() {
-    let state = AppState::new();
-    let seeded_session = state.issue_dev_session("0x0000000000000000000000000000000000000009");
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
     let cookie = format!("mermer_session={}", seeded_session.session_id);
     let app = app(state);
 
@@ -719,6 +739,7 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
                     json!({
                         "name": "CardForge merchant",
                         "environment": "local_dev",
+                        "billingPlan": "free",
                         "webhookUrl": "http://127.0.0.1:9/webhooks/mermer"
                     })
                     .to_string(),
@@ -730,6 +751,7 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
     assert_eq!(project.status(), StatusCode::OK);
     let project = response_json(project).await;
     let project_id = project["project"]["projectId"].as_str().unwrap();
+    assert_eq!(project["project"]["billingPlan"], "free");
     assert!(
         project["webhookSecret"]
             .as_str()
@@ -830,6 +852,11 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
     );
     assert_eq!(checkout["invoiceId"], checkout_session_id);
     assert!(chain_invoice_id > 0);
+    assert_eq!(checkout["billing"]["plan"], "free");
+    assert_eq!(checkout["billing"]["feeBps"], 50);
+    assert_eq!(checkout["billing"]["grossAmountMinorUnits"], 120000000);
+    assert_eq!(checkout["billing"]["platformFeeMinorUnits"], 600000);
+    assert_eq!(checkout["billing"]["merchantNetMinorUnits"], 119400000);
 
     let detail = app
         .clone()
@@ -846,12 +873,17 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
         .await
         .unwrap();
     assert_eq!(detail.status(), StatusCode::OK);
+    let detail = response_json(detail).await;
+    assert_eq!(detail["billing"]["platformFeeMinorUnits"], 600000);
+    assert_eq!(detail["billing"]["merchantNetMinorUnits"], 119400000);
 }
 
 #[tokio::test]
 async fn project_operator_projection_creates_project_outbox_records() {
-    let state = AppState::new();
-    let seeded_session = state.issue_dev_session("0x0000000000000000000000000000000000000009");
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
     let cookie = format!("mermer_session={}", seeded_session.session_id);
     let app = app(state);
 
@@ -987,6 +1019,9 @@ async fn project_operator_projection_creates_project_outbox_records() {
     let overview = response_json(overview).await;
     assert_eq!(overview["summary"]["totalCheckouts"], 1);
     assert_eq!(overview["summary"]["paidCheckouts"], 1);
+    assert_eq!(overview["summary"]["grossVolumeMinorUnits"], 120000000);
+    assert_eq!(overview["summary"]["platformFeeMinorUnits"], 600000);
+    assert_eq!(overview["summary"]["merchantNetMinorUnits"], 119400000);
     assert_eq!(overview["webhookEvents"].as_array().unwrap().len(), 1);
     assert_eq!(overview["webhookDeliveries"].as_array().unwrap().len(), 1);
     assert!(

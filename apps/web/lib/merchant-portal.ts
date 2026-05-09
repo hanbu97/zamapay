@@ -1,8 +1,10 @@
 import {
   ApiRequestError,
+  getBillingSubscription,
   getPaymentProjects,
   getProjectOverview,
   isUnauthorizedApiError,
+  type BillingSubscriptionResponse,
   type PaymentProject,
   type ProjectDashboardOverview,
 } from './api.ts'
@@ -29,6 +31,17 @@ export async function loadMerchantProjects(cookieHeader: string): Promise<Mercha
     }
   } catch (error) {
     return portalFailure(error, 'Payment project list')
+  }
+}
+
+export async function loadMerchantBilling(cookieHeader: string): Promise<MerchantPortalResult<BillingSubscriptionResponse>> {
+  try {
+    return {
+      data: await getBillingSubscription(cookieHeader),
+      status: 'ready',
+    }
+  } catch (error) {
+    return portalFailure(error, 'Billing subscription')
   }
 }
 

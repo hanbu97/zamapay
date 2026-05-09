@@ -11,6 +11,7 @@ apps/web/components/ui
 |-- button-group.tsx  # Grouped commands
 |-- button.tsx        # Commands and links
 |-- card.tsx          # Bounded information surfaces
+|-- dialog.tsx        # Modal confirmation and one-time reveal surfaces
 |-- dropdown-menu.tsx # Menus and workspace actions
 |-- empty.tsx         # Empty states
 |-- field.tsx         # Form layout
@@ -35,5 +36,6 @@ apps/web/components/ui
 ## Decisions
 
 - This directory is generated and updated through `npx shadcn@latest`; manual changes should stay minimal and preserve registry compatibility.
-- Primitive files own appearance, state attributes, focus behavior, and accessibility defaults. They do not import merchant payment APIs.
+- Primitive files own appearance, state attributes, focus behavior, modal focus traps, and accessibility defaults. They do not import merchant payment APIs.
+- `card.tsx` and `dialog.tsx` consume the Mermer spacing tokens from `app/globals.css`, so dense merchant pages and one-time secret dialogs share one rhythm.
 - The folder intentionally exceeds the normal eight-file preference because shadcn update compatibility is the stronger constraint here.

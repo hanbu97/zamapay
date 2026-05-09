@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { loginCookie } from './support/auth.ts'
-import { API_BASE_URL, operatorHeaders, postJson, readJson, readText, WEB_BASE_URL } from './support/http.ts'
+import { API_BASE_URL, operatorHeaders, postJson, readJson } from './support/http.ts'
 
 type InvoiceRecord = {
   decryptPendingGuardTrips?: number
@@ -221,21 +221,4 @@ test('operator-failure-drills e2e projects incidents and renders them in ops', a
   atLeastOneMore(after.decryptPendingGuardTrips, before.decryptPendingGuardTrips, 'decrypt pending guard trips')
   atLeastOneMore(after.operatorAuthRejections, before.operatorAuthRejections, 'operator auth rejections')
   assert.equal(after.operatorActionRequired, true)
-
-  const ops = await readText(`${WEB_BASE_URL}/ops`)
-  assert.match(ops, /Manual action required/)
-  assert.match(ops, /Indexer stalled/)
-  assert.match(ops, /Indexer cursor/)
-  assert.match(ops, /2\/2/)
-  assert.match(ops, /Failed webhooks/)
-  assert.match(ops, /Expired invoices/)
-  assert.match(ops, /Decrypt timeouts/)
-  assert.match(ops, /Replay guard failures/)
-  assert.match(ops, /Operator auth rejections/)
-  assert.match(ops, /Reorg exceptions/)
-  assert.match(ops, /Frozen fulfillments/)
-  assert.match(ops, new RegExp(incidentRef))
-  assert.match(ops, new RegExp(replayRef))
-  assert.match(ops, new RegExp(expiredRef))
-  assert.match(ops, new RegExp(rollbackRef))
 })

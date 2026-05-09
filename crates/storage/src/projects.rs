@@ -2,10 +2,11 @@ use chrono::{DateTime, Utc};
 use domain::{FinalityStatus, FulfillmentStatus, PaymentTruth, WebhookDeliveryStatus};
 use serde_json::json;
 use shared::{
-    CheckoutSession, CheckoutSessionStatus, ConfigureWebhookEndpointResponse,
-    CreateCheckoutSessionRequest, CreatePaymentProjectResponse, CreateProjectApiKeyResponse,
-    PaymentProject, PaymentProjectEnvironment, ProjectApiKey, ProjectDashboardOverview,
-    ProjectEnvironmentKind, ProjectInvoiceAuthority, ProjectStatus, ProjectWebhookEndpoint,
+    CheckoutBillingSnapshot, CheckoutSession, CheckoutSessionStatus,
+    ConfigureWebhookEndpointResponse, CreateCheckoutSessionRequest, CreatePaymentProjectResponse,
+    CreateProjectApiKeyResponse, PaymentProject, PaymentProjectEnvironment, ProjectApiKey,
+    ProjectDashboardOverview, ProjectEnvironmentKind, ProjectInvoiceAuthority, ProjectStatus,
+    ProjectWebhookEndpoint, ProjectWithdrawalRecord, ProjectWithdrawalStatus,
     WebhookDeliveryRecord, WebhookEventRecord,
 };
 use uuid::Uuid;
@@ -16,21 +17,21 @@ use crate::project_support::{
     project_summary, secret_preview, signer_address, signer_key_ref, webhook_secret,
 };
 
-use super::InMemoryPortalStore;
+use super::PortalStore;
 use crate::invoice_seed::seeded_invoice;
 
-impl InMemoryPortalStore {
-    pub fn list_projects(&self, owner_wallet: &str) -> Vec<PaymentProject> {
+impl PortalStore {
+    pub async fn list_projects(&self, owner_wallet: &str) -> Vec<PaymentProject> {
         self.projects
             .read()
-            .expect("project store lock poisoned")
+            .await
             .values()
             .filter(|project| project.owner_wallet.eq_ignore_ascii_case(owner_wallet))
             .cloned()
             .collect()
     }
 
-    pub fn create_project(
+    pub async fn create_project(
         &self,
         owner_wallet: &str,
         name: &str,
@@ -41,11 +42,15 @@ impl InMemoryPortalStore {
         let project_id = format!("proj_{}", Uuid::new_v4().simple());
         let environment_id = format!("env_{}", Uuid::new_v4().simple());
         let authority_id = format!("auth_{}", Uuid::new_v4().simple());
+        let billing_plan = self
+            .effective_billing_plan_for_owner(owner_wallet, now)
+            .await;
         let project = PaymentProject {
             project_id: project_id.clone(),
             name: name.to_string(),
             owner_wallet: owner_wallet.to_string(),
             default_environment: environment.clone(),
+            billing_plan,
             status: ProjectStatus::Active,
             created_at: now,
             updated_at: now,
@@ -69,24 +74,32 @@ impl InMemoryPortalStore {
 
         self.projects
             .write()
-            .expect("project store lock poisoned")
+            .await
             .insert(project_id.clone(), project.clone());
         self.environments
             .write()
-            .expect("project environment store lock poisoned")
+            .await
             .insert(environment_id, environment_record.clone());
         self.invoice_authorities
             .write()
-            .expect("invoice authority store lock poisoned")
+            .await
             .insert(authority_id, authority.clone());
 
-        let (webhook_endpoint, webhook_secret) = webhook_url
+        let (webhook_endpoint, webhook_secret) = match webhook_url
             .filter(|url| !url.trim().is_empty())
-            .map(|url| self.configure_webhook_endpoint(&project_id, environment.clone(), url, now))
-            .map(|configured| (Some(configured.endpoint), configured.webhook_secret))
-            .unwrap_or((None, None));
+        {
+            Some(url) => {
+                let configured = build_webhook_endpoint(&project_id, environment.clone(), url, now);
+                self.webhook_endpoints.write().await.insert(
+                    configured.endpoint.endpoint_id.clone(),
+                    configured.endpoint.clone(),
+                );
+                (Some(configured.endpoint), configured.webhook_secret)
+            }
+            None => (None, None),
+        };
 
-        self.persist();
+        self.persist().await;
 
         CreatePaymentProjectResponse {
             project,
@@ -97,23 +110,20 @@ impl InMemoryPortalStore {
         }
     }
 
-    pub fn project_by_id(&self, project_id: &str) -> Option<PaymentProject> {
-        self.projects
-            .read()
-            .expect("project store lock poisoned")
-            .get(project_id)
-            .cloned()
+    pub async fn project_by_id(&self, project_id: &str) -> Option<PaymentProject> {
+        self.projects.read().await.get(project_id).cloned()
     }
 
-    pub fn project_overview(&self, project_id: &str) -> Option<ProjectDashboardOverview> {
-        let project = self.project_by_id(project_id)?;
-        let environments = self.environments_by_project(project_id);
-        let api_keys = self.api_keys_by_project(project_id);
-        let webhook_endpoints = self.webhook_endpoints_by_project(project_id);
-        let checkout_sessions = self.checkout_sessions_by_project(project_id);
-        let webhook_events = self.webhook_events_by_project(project_id);
-        let webhook_deliveries = self.webhook_deliveries_by_project(project_id);
-        let summary = project_summary(&checkout_sessions, &webhook_deliveries);
+    pub async fn project_overview(&self, project_id: &str) -> Option<ProjectDashboardOverview> {
+        let project = self.project_by_id(project_id).await?;
+        let environments = self.environments_by_project(project_id).await;
+        let api_keys = self.api_keys_by_project(project_id).await;
+        let webhook_endpoints = self.webhook_endpoints_by_project(project_id).await;
+        let checkout_sessions = self.checkout_sessions_by_project(project_id).await;
+        let webhook_events = self.webhook_events_by_project(project_id).await;
+        let webhook_deliveries = self.webhook_deliveries_by_project(project_id).await;
+        let withdrawals = self.project_withdrawals_by_project(project_id).await;
+        let summary = project_summary(&checkout_sessions, &webhook_deliveries, &withdrawals);
 
         Some(ProjectDashboardOverview {
             project,
@@ -123,18 +133,19 @@ impl InMemoryPortalStore {
             checkout_sessions,
             webhook_events,
             webhook_deliveries,
+            withdrawals,
             summary,
         })
     }
 
-    pub fn create_project_api_key(
+    pub async fn create_project_api_key(
         &self,
         project_id: &str,
         environment: ProjectEnvironmentKind,
         label: &str,
         now: DateTime<Utc>,
     ) -> Option<CreateProjectApiKeyResponse> {
-        self.project_by_id(project_id)?;
+        self.project_by_id(project_id).await?;
 
         let api_key = format!("mmp_test_{}", Uuid::new_v4().simple());
         let key_id = format!("key_{}", Uuid::new_v4().simple());
@@ -150,17 +161,14 @@ impl InMemoryPortalStore {
             revoked_at: None,
         };
 
-        self.api_keys
-            .write()
-            .expect("api key store lock poisoned")
-            .insert(
-                key_id,
-                StoredProjectApiKey {
-                    record: key_record.clone(),
-                    secret_hash: hash_secret(&api_key),
-                },
-            );
-        self.persist();
+        self.api_keys.write().await.insert(
+            key_id,
+            StoredProjectApiKey {
+                record: key_record.clone(),
+                secret_hash: hash_secret(&api_key),
+            },
+        );
+        self.persist().await;
 
         Some(CreateProjectApiKeyResponse {
             api_key,
@@ -168,13 +176,13 @@ impl InMemoryPortalStore {
         })
     }
 
-    pub fn revoke_project_api_key(
+    pub async fn revoke_project_api_key(
         &self,
         project_id: &str,
         key_id: &str,
         now: DateTime<Utc>,
     ) -> Option<ProjectApiKey> {
-        let mut keys = self.api_keys.write().expect("api key store lock poisoned");
+        let mut keys = self.api_keys.write().await;
         let stored = keys.get_mut(key_id)?;
         if stored.record.project_id != project_id {
             return None;
@@ -182,43 +190,59 @@ impl InMemoryPortalStore {
         stored.record.revoked_at = Some(now);
         let record = stored.record.clone();
         drop(keys);
-        self.persist();
+        self.persist().await;
         Some(record)
     }
 
-    pub fn configure_webhook_endpoint(
+    pub async fn create_project_withdrawal(
+        &self,
+        project_id: &str,
+        amount_minor_units: u64,
+        now: DateTime<Utc>,
+    ) -> Option<ProjectWithdrawalRecord> {
+        self.project_by_id(project_id).await?;
+        if amount_minor_units == 0 {
+            return None;
+        }
+
+        let withdrawal_id = format!("wd_{}", Uuid::new_v4().simple());
+        let withdrawal = ProjectWithdrawalRecord {
+            withdrawal_id: withdrawal_id.clone(),
+            project_id: project_id.to_string(),
+            amount_minor_units,
+            status: ProjectWithdrawalStatus::Completed,
+            receipt: format!("local-settlement-{withdrawal_id}"),
+            created_at: now,
+            completed_at: now,
+        };
+        self.project_withdrawals
+            .write()
+            .await
+            .insert(withdrawal_id, withdrawal.clone());
+        self.persist().await;
+
+        Some(withdrawal)
+    }
+
+    pub async fn configure_webhook_endpoint(
         &self,
         project_id: &str,
         environment: ProjectEnvironmentKind,
         url: &str,
         now: DateTime<Utc>,
     ) -> ConfigureWebhookEndpointResponse {
-        let endpoint_id = format!("we_{}", Uuid::new_v4().simple());
-        let webhook_secret = webhook_secret(project_id, &endpoint_id);
-        let endpoint = ProjectWebhookEndpoint {
-            endpoint_id: endpoint_id.clone(),
-            project_id: project_id.to_string(),
-            environment,
-            url: url.to_string(),
-            enabled: true,
-            secret_preview: secret_preview(&webhook_secret),
-            created_at: now,
-            updated_at: now,
-        };
+        let configured = build_webhook_endpoint(project_id, environment, url, now);
 
-        self.webhook_endpoints
-            .write()
-            .expect("webhook endpoint store lock poisoned")
-            .insert(endpoint_id, endpoint.clone());
-        self.persist();
+        self.webhook_endpoints.write().await.insert(
+            configured.endpoint.endpoint_id.clone(),
+            configured.endpoint.clone(),
+        );
+        self.persist().await;
 
-        ConfigureWebhookEndpointResponse {
-            endpoint,
-            webhook_secret: Some(webhook_secret),
-        }
+        configured
     }
 
-    pub fn update_webhook_endpoint(
+    pub async fn update_webhook_endpoint(
         &self,
         project_id: &str,
         endpoint_id: &str,
@@ -227,10 +251,7 @@ impl InMemoryPortalStore {
         enabled: bool,
         now: DateTime<Utc>,
     ) -> Option<ProjectWebhookEndpoint> {
-        let mut endpoints = self
-            .webhook_endpoints
-            .write()
-            .expect("webhook endpoint store lock poisoned");
+        let mut endpoints = self.webhook_endpoints.write().await;
         let endpoint = endpoints.get_mut(endpoint_id)?;
         if endpoint.project_id != project_id {
             return None;
@@ -242,11 +263,11 @@ impl InMemoryPortalStore {
         endpoint.updated_at = now;
         let endpoint = endpoint.clone();
         drop(endpoints);
-        self.persist();
+        self.persist().await;
         Some(endpoint)
     }
 
-    pub fn create_checkout_session(
+    pub async fn create_checkout_session(
         &self,
         project_id: &str,
         api_key: &str,
@@ -257,18 +278,21 @@ impl InMemoryPortalStore {
     ) -> Result<CheckoutSession, CheckoutSessionError> {
         let api_key = self
             .verify_project_api_key(project_id, api_key, now)
+            .await
             .ok_or(CheckoutSessionError::Unauthorized)?;
         let environment = api_key.environment;
         let idempotency_scope = format!("{project_id}:{}:{idempotency_key}", environment.as_str());
-        if let Some(existing_id) = self
-            .idempotency_keys
-            .read()
-            .expect("idempotency store lock poisoned")
-            .get(&idempotency_scope)
-            .cloned()
-        {
+        let existing_id = {
+            self.idempotency_keys
+                .read()
+                .await
+                .get(&idempotency_scope)
+                .cloned()
+        };
+        if let Some(existing_id) = existing_id {
             return self
                 .checkout_session_by_id(&existing_id)
+                .await
                 .ok_or(CheckoutSessionError::NotFound);
         }
 
@@ -278,14 +302,27 @@ impl InMemoryPortalStore {
         {
             return Err(CheckoutSessionError::InvalidRequest);
         }
+        let project = self
+            .project_by_id(project_id)
+            .await
+            .ok_or(CheckoutSessionError::NotFound)?;
+        let (plan, fee_bps) = self
+            .checkout_fee_bps_for_project(&project, environment, now)
+            .await
+            .ok_or(CheckoutSessionError::Locked)?;
+        let billing =
+            CheckoutBillingSnapshot::from_gross_amount(plan, fee_bps, payload.amount_minor_units)
+                .filter(|snapshot| snapshot.merchant_net_minor_units > 0)
+                .ok_or(CheckoutSessionError::InvalidRequest)?;
 
         let environment_record = self
             .environment_for_project(project_id, &environment)
+            .await
             .ok_or(CheckoutSessionError::Locked)?;
         let authority = self
             .invoice_authorities
             .read()
-            .expect("invoice authority store lock poisoned")
+            .await
             .get(&environment_record.invoice_authority_id)
             .cloned()
             .ok_or(CheckoutSessionError::Locked)?;
@@ -294,8 +331,17 @@ impl InMemoryPortalStore {
         }
 
         let checkout_session_id = format!("cs_{}", Uuid::new_v4().simple());
-        let chain_invoice_id = self.next_chain_invoice_id();
-        let chain_tx_hash = local_chain_tx_hash(chain_invoice_id);
+        let (chain_invoice_id, chain_tx_hash) =
+            match (payload.chain_invoice_id, payload.chain_tx_hash.clone()) {
+                (Some(invoice_id), Some(tx_hash)) if tx_hash.starts_with("0x") => {
+                    (invoice_id, tx_hash)
+                }
+                (None, None) => {
+                    let invoice_id = self.next_chain_invoice_id().await;
+                    (invoice_id, local_chain_tx_hash(invoice_id))
+                }
+                _ => return Err(CheckoutSessionError::InvalidRequest),
+            };
         let checkout_base_url = clean_base_url(checkout_base_url);
         let checkout_url = format!("{checkout_base_url}/checkout/{checkout_session_id}");
         let expires_at = now + chrono::TimeDelta::hours(1);
@@ -316,6 +362,7 @@ impl InMemoryPortalStore {
         invoice.external_ref = Some(payload.merchant_order_id.clone());
         invoice.chain_invoice_id = Some(chain_invoice_id);
         invoice.chain_tx_hash = Some(chain_tx_hash.clone());
+        invoice.billing = Some(billing.clone());
         invoice.snapshot.invoice_id = chain_invoice_id;
 
         let session = CheckoutSession {
@@ -331,6 +378,7 @@ impl InMemoryPortalStore {
             title: payload.title,
             amount_label: payload.amount_label,
             amount_minor_units: payload.amount_minor_units,
+            billing,
             note: payload.note,
             success_url: payload.success_url,
             cancel_url: payload.cancel_url,
@@ -343,30 +391,33 @@ impl InMemoryPortalStore {
 
         self.invoices
             .write()
-            .expect("portal store lock poisoned")
+            .await
             .insert(checkout_session_id.clone(), invoice);
         self.checkout_sessions
             .write()
-            .expect("checkout session store lock poisoned")
+            .await
             .insert(checkout_session_id.clone(), session.clone());
         self.idempotency_keys
             .write()
-            .expect("idempotency store lock poisoned")
+            .await
             .insert(idempotency_scope, checkout_session_id);
-        self.persist();
+        self.persist().await;
 
         Ok(session)
     }
 
-    pub fn checkout_session_by_id(&self, checkout_session_id: &str) -> Option<CheckoutSession> {
+    pub async fn checkout_session_by_id(
+        &self,
+        checkout_session_id: &str,
+    ) -> Option<CheckoutSession> {
         self.checkout_sessions
             .read()
-            .expect("checkout session store lock poisoned")
+            .await
             .get(checkout_session_id)
             .cloned()
     }
 
-    pub fn verify_checkout_session_access(
+    pub async fn verify_checkout_session_access(
         &self,
         project_id: &str,
         checkout_session_id: &str,
@@ -375,9 +426,11 @@ impl InMemoryPortalStore {
     ) -> Result<CheckoutSession, CheckoutSessionError> {
         let key = self
             .verify_project_api_key(project_id, api_key, now)
+            .await
             .ok_or(CheckoutSessionError::Unauthorized)?;
         let checkout = self
             .checkout_session_by_id(checkout_session_id)
+            .await
             .ok_or(CheckoutSessionError::NotFound)?;
         if checkout.project_id != project_id
             || checkout.environment.as_str() != key.environment.as_str()
@@ -388,14 +441,14 @@ impl InMemoryPortalStore {
         Ok(checkout)
     }
 
-    pub fn due_webhook_deliveries(
+    pub async fn due_webhook_deliveries(
         &self,
         project_id: &str,
         now: DateTime<Utc>,
     ) -> Vec<WebhookDeliveryRecord> {
         self.webhook_deliveries
             .read()
-            .expect("webhook delivery store lock poisoned")
+            .await
             .values()
             .filter(|delivery| delivery.project_id == project_id)
             .filter(|delivery| {
@@ -409,40 +462,36 @@ impl InMemoryPortalStore {
             .collect()
     }
 
-    pub fn webhook_event_by_id(&self, event_id: &str) -> Option<WebhookEventRecord> {
-        self.webhook_events
-            .read()
-            .expect("webhook event store lock poisoned")
-            .get(event_id)
-            .cloned()
+    pub async fn webhook_event_by_id(&self, event_id: &str) -> Option<WebhookEventRecord> {
+        self.webhook_events.read().await.get(event_id).cloned()
     }
 
-    pub fn webhook_endpoint_by_id(&self, endpoint_id: &str) -> Option<ProjectWebhookEndpoint> {
+    pub async fn webhook_endpoint_by_id(
+        &self,
+        endpoint_id: &str,
+    ) -> Option<ProjectWebhookEndpoint> {
         self.webhook_endpoints
             .read()
-            .expect("webhook endpoint store lock poisoned")
+            .await
             .get(endpoint_id)
             .cloned()
     }
 
-    pub fn webhook_delivery_by_id(&self, delivery_id: &str) -> Option<WebhookDeliveryRecord> {
+    pub async fn webhook_delivery_by_id(&self, delivery_id: &str) -> Option<WebhookDeliveryRecord> {
         self.webhook_deliveries
             .read()
-            .expect("webhook delivery store lock poisoned")
+            .await
             .get(delivery_id)
             .cloned()
     }
 
-    pub fn reschedule_webhook_delivery(
+    pub async fn reschedule_webhook_delivery(
         &self,
         project_id: &str,
         delivery_id: &str,
         now: DateTime<Utc>,
     ) -> Option<WebhookDeliveryRecord> {
-        let mut deliveries = self
-            .webhook_deliveries
-            .write()
-            .expect("webhook delivery store lock poisoned");
+        let mut deliveries = self.webhook_deliveries.write().await;
         let delivery = deliveries.get_mut(delivery_id)?;
         if delivery.project_id != project_id {
             return None;
@@ -451,16 +500,16 @@ impl InMemoryPortalStore {
         delivery.next_retry_at = Some(now);
         let delivery = delivery.clone();
         drop(deliveries);
-        self.persist();
+        self.persist().await;
         Some(delivery)
     }
 
-    pub fn webhook_secret_for_endpoint(&self, endpoint_id: &str) -> Option<String> {
-        let endpoint = self.webhook_endpoint_by_id(endpoint_id)?;
+    pub async fn webhook_secret_for_endpoint(&self, endpoint_id: &str) -> Option<String> {
+        let endpoint = self.webhook_endpoint_by_id(endpoint_id).await?;
         Some(webhook_secret(&endpoint.project_id, endpoint_id))
     }
 
-    pub fn mark_webhook_delivery_result(
+    pub async fn mark_webhook_delivery_result(
         &self,
         delivery_id: &str,
         signature_header: String,
@@ -469,10 +518,7 @@ impl InMemoryPortalStore {
         error: Option<String>,
         now: DateTime<Utc>,
     ) -> Option<WebhookDeliveryRecord> {
-        let mut deliveries = self
-            .webhook_deliveries
-            .write()
-            .expect("webhook delivery store lock poisoned");
+        let mut deliveries = self.webhook_deliveries.write().await;
         let delivery = deliveries.get_mut(delivery_id)?;
         delivery.signature_header = Some(signature_header);
         delivery.http_status = http_status;
@@ -495,20 +541,21 @@ impl InMemoryPortalStore {
 
         let delivery = delivery.clone();
         drop(deliveries);
-        self.persist();
+        self.persist().await;
         Some(delivery)
     }
 
-    pub fn create_test_webhook_delivery(
+    pub async fn create_test_webhook_delivery(
         &self,
         project_id: &str,
         endpoint_id: &str,
         environment: ProjectEnvironmentKind,
         now: DateTime<Utc>,
     ) -> Option<WebhookDeliveryRecord> {
-        self.project_by_id(project_id)?;
+        self.project_by_id(project_id).await?;
         let endpoint = self
             .webhook_endpoints_by_project(project_id)
+            .await
             .into_iter()
             .find(|endpoint| {
                 endpoint.endpoint_id == endpoint_id
@@ -549,17 +596,17 @@ impl InMemoryPortalStore {
         };
         self.webhook_events
             .write()
-            .expect("webhook event store lock poisoned")
+            .await
             .insert(event.event_id.clone(), event);
         self.webhook_deliveries
             .write()
-            .expect("webhook delivery store lock poisoned")
+            .await
             .insert(delivery_id, delivery.clone());
-        self.persist();
+        self.persist().await;
         Some(delivery)
     }
 
-    pub(crate) fn enqueue_webhook_event_if_ready(&self, invoice: &shared::InvoiceRecord) {
+    pub(crate) async fn enqueue_webhook_event_if_ready(&self, invoice: &shared::InvoiceRecord) {
         if !invoice.snapshot.is_fulfillment_ready() {
             return;
         }
@@ -576,7 +623,7 @@ impl InMemoryPortalStore {
         if self
             .webhook_events
             .read()
-            .expect("webhook event store lock poisoned")
+            .await
             .values()
             .any(|event| event.subject_id == subject_key)
         {
@@ -600,6 +647,7 @@ impl InMemoryPortalStore {
                 "chainInvoiceId": invoice.chain_invoice_id,
                 "amountMinorUnits": invoice.amount_minor_units,
                 "amountLabel": invoice.amount_label,
+                "billing": invoice.billing,
                 "paymentTruth": invoice.snapshot.payment_truth,
                 "finalityStatus": invoice.snapshot.finality_status,
                 "fulfillmentStatus": invoice.snapshot.fulfillment_status,
@@ -609,10 +657,10 @@ impl InMemoryPortalStore {
 
         self.webhook_events
             .write()
-            .expect("webhook event store lock poisoned")
+            .await
             .insert(event_id.clone(), event);
 
-        for endpoint in self.webhook_endpoints_by_project(project_id) {
+        for endpoint in self.webhook_endpoints_by_project(project_id).await {
             if !endpoint.enabled || endpoint.environment.as_str() != environment.as_str() {
                 continue;
             }
@@ -636,24 +684,19 @@ impl InMemoryPortalStore {
             };
             self.webhook_deliveries
                 .write()
-                .expect("webhook delivery store lock poisoned")
+                .await
                 .insert(delivery_id, delivery);
         }
 
         if let Some(session_id) = invoice.checkout_session_id.as_deref() {
-            if let Some(session) = self
-                .checkout_sessions
-                .write()
-                .expect("checkout session store lock poisoned")
-                .get_mut(session_id)
-            {
+            if let Some(session) = self.checkout_sessions.write().await.get_mut(session_id) {
                 session.status = CheckoutSessionStatus::Paid;
                 session.updated_at = now;
             }
         }
     }
 
-    fn verify_project_api_key(
+    async fn verify_project_api_key(
         &self,
         project_id: &str,
         api_key: &str,
@@ -661,7 +704,7 @@ impl InMemoryPortalStore {
     ) -> Option<ProjectApiKey> {
         let prefix = api_key.chars().take(18).collect::<String>();
         let secret_hash = hash_secret(api_key);
-        let mut keys = self.api_keys.write().expect("api key store lock poisoned");
+        let mut keys = self.api_keys.write().await;
         let stored = keys.values_mut().find(|stored| {
             stored.record.project_id == project_id
                 && stored.record.prefix == prefix
@@ -672,83 +715,119 @@ impl InMemoryPortalStore {
         Some(stored.record.clone())
     }
 
-    fn api_keys_by_project(&self, project_id: &str) -> Vec<ProjectApiKey> {
+    async fn api_keys_by_project(&self, project_id: &str) -> Vec<ProjectApiKey> {
         self.api_keys
             .read()
-            .expect("api key store lock poisoned")
+            .await
             .values()
             .filter(|stored| stored.record.project_id == project_id)
             .map(|stored| stored.record.clone())
             .collect()
     }
 
-    fn webhook_endpoints_by_project(&self, project_id: &str) -> Vec<ProjectWebhookEndpoint> {
+    async fn webhook_endpoints_by_project(&self, project_id: &str) -> Vec<ProjectWebhookEndpoint> {
         self.webhook_endpoints
             .read()
-            .expect("webhook endpoint store lock poisoned")
+            .await
             .values()
             .filter(|endpoint| endpoint.project_id == project_id)
             .cloned()
             .collect()
     }
 
-    fn checkout_sessions_by_project(&self, project_id: &str) -> Vec<CheckoutSession> {
+    async fn checkout_sessions_by_project(&self, project_id: &str) -> Vec<CheckoutSession> {
         self.checkout_sessions
             .read()
-            .expect("checkout session store lock poisoned")
+            .await
             .values()
             .filter(|session| session.project_id == project_id)
             .cloned()
             .collect()
     }
 
-    fn webhook_events_by_project(&self, project_id: &str) -> Vec<WebhookEventRecord> {
+    async fn webhook_events_by_project(&self, project_id: &str) -> Vec<WebhookEventRecord> {
         self.webhook_events
             .read()
-            .expect("webhook event store lock poisoned")
+            .await
             .values()
             .filter(|event| event.project_id == project_id)
             .cloned()
             .collect()
     }
 
-    fn webhook_deliveries_by_project(&self, project_id: &str) -> Vec<WebhookDeliveryRecord> {
+    async fn webhook_deliveries_by_project(&self, project_id: &str) -> Vec<WebhookDeliveryRecord> {
         self.webhook_deliveries
             .read()
-            .expect("webhook delivery store lock poisoned")
+            .await
             .values()
             .filter(|delivery| delivery.project_id == project_id)
             .cloned()
             .collect()
     }
 
-    fn environments_by_project(&self, project_id: &str) -> Vec<PaymentProjectEnvironment> {
+    async fn project_withdrawals_by_project(
+        &self,
+        project_id: &str,
+    ) -> Vec<ProjectWithdrawalRecord> {
+        self.project_withdrawals
+            .read()
+            .await
+            .values()
+            .filter(|withdrawal| withdrawal.project_id == project_id)
+            .cloned()
+            .collect()
+    }
+
+    async fn environments_by_project(&self, project_id: &str) -> Vec<PaymentProjectEnvironment> {
         self.environments
             .read()
-            .expect("project environment store lock poisoned")
+            .await
             .values()
             .filter(|environment| environment.project_id == project_id)
             .cloned()
             .collect()
     }
 
-    fn environment_for_project(
+    async fn environment_for_project(
         &self,
         project_id: &str,
         kind: &ProjectEnvironmentKind,
     ) -> Option<PaymentProjectEnvironment> {
         self.environments_by_project(project_id)
+            .await
             .into_iter()
             .find(|environment| environment.environment.as_str() == kind.as_str())
     }
 
-    fn next_chain_invoice_id(&self) -> u64 {
-        let mut next = self
-            .next_chain_invoice_id
-            .write()
-            .expect("portal chain invoice counter lock poisoned");
+    async fn next_chain_invoice_id(&self) -> u64 {
+        let mut next = self.next_chain_invoice_id.write().await;
         let value = *next;
         *next += 1;
         value
+    }
+}
+
+fn build_webhook_endpoint(
+    project_id: &str,
+    environment: ProjectEnvironmentKind,
+    url: &str,
+    now: DateTime<Utc>,
+) -> ConfigureWebhookEndpointResponse {
+    let endpoint_id = format!("we_{}", Uuid::new_v4().simple());
+    let webhook_secret = webhook_secret(project_id, &endpoint_id);
+    let endpoint = ProjectWebhookEndpoint {
+        endpoint_id,
+        project_id: project_id.to_string(),
+        environment,
+        url: url.to_string(),
+        enabled: true,
+        secret_preview: secret_preview(&webhook_secret),
+        created_at: now,
+        updated_at: now,
+    };
+
+    ConfigureWebhookEndpointResponse {
+        endpoint,
+        webhook_secret: Some(webhook_secret),
     }
 }

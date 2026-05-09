@@ -24,6 +24,7 @@ pub(crate) fn seeded_invoice(
         merchant_name: merchant_name.to_string(),
         amount_label: amount_label.to_string(),
         amount_minor_units,
+        billing: None,
         note: note.to_string(),
         chain_invoice_id: None,
         chain_tx_hash: None,

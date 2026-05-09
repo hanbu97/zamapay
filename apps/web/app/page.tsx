@@ -84,7 +84,6 @@ export default async function SiteHomePage() {
   const session = await getOptionalSession((await cookies()).toString())
   const isAuthenticated = Boolean(session.authenticated && session.user)
   const consoleHref = isAuthenticated ? "/merchant" : "/login?next=/merchant"
-  const opsHref = isAuthenticated ? "/ops" : "/login?next=/ops"
 
   return (
     <main className="min-h-screen overflow-hidden bg-background text-foreground">
@@ -207,13 +206,6 @@ export default async function SiteHomePage() {
             Merchant products integrate through a compact backend contract. Mermer Pay keeps checkout, private
             settlement, and webhook truth outside the product codebase.
           </p>
-          <ButtonGroup className="w-fit flex-wrap">
-            {isAuthenticated ? (
-              <Button nativeButton={false} render={<Link href={opsHref} />} size="lg" variant="outline">
-                View ops
-              </Button>
-            ) : null}
-          </ButtonGroup>
         </div>
 
         <Card>

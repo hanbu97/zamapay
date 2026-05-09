@@ -6,7 +6,7 @@
 crates
 |-- api/           # Axum entrypoint, cookies, CORS, session boundary
 |-- domain/        # Pure auth rules plus payment/finality/decrypt/fulfillment state vocabulary
-|-- storage/       # In-memory auth plus optional file-backed merchant portal read models
+|-- storage/       # Async process-local auth plus Postgres-backed merchant portal read models
 |-- indexer/       # Payment truth projection, finality transitions, and reorg exceptions
 |-- fulfillment/   # Finality-gated exactly-once release decisions
 `-- shared/        # Shared API DTOs, typed ids, and invoice/dashboard transport shapes
@@ -18,4 +18,5 @@ crates
 - `shared` carries transport shapes only; it must not become chain-schema duplication later.
 - `indexer` and `fulfillment` exist now to avoid a second structural migration in Phase 2.
 - operator diagnostics must stay on a separate auth boundary from merchant sessions.
-- portal invoice persistence is file-backed for the hackathon demo when `MERMER_PORTAL_STORE_PATH` is set; production database work stays behind the storage crate boundary.
+- portal state is backed by normalized Postgres tables through `DATABASE_URL`; local Docker Postgres and hosted Postgres/Supabase use the same storage boundary.
+- storage and API boundaries are async end-to-end; SeaORM is awaited directly and no synchronous runtime bridge owns database work.

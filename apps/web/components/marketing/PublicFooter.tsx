@@ -53,7 +53,6 @@ export function PublicFooter({ isAuthenticated }: PublicFooterProps) {
     ? [
         { href: "/merchant", label: "Merchant console" },
         { href: "/dashboard", label: "Dashboard" },
-        { href: "/ops", label: "Ops diagnostics" },
       ]
     : [{ href: "/login?next=/merchant", label: "Log in" }]
 

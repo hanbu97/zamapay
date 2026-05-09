@@ -1,33 +1,22 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
+  ArrowLeftIcon,
   Building2Icon,
-  ChevronsUpDownIcon,
+  BellRingIcon,
   GaugeIcon,
+  KeyRoundIcon,
   LayoutDashboardIcon,
-  LockKeyholeIcon,
   LogInIcon,
-  ShieldCheckIcon,
-  WalletCardsIcon,
+  ReceiptTextIcon,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -37,10 +26,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  SidebarSeparator,
 } from '@/components/ui/sidebar'
 
 type NavItem = {
+  activeTab?: string
   badge?: string
   href: string
   icon: LucideIcon
@@ -54,33 +43,22 @@ type NavSection = {
 
 const authenticatedNavSections: NavSection[] = [
   {
-    label: 'Payment platform',
+    label: 'Account',
     items: [
+      {
+        href: '/dashboard',
+        icon: LayoutDashboardIcon,
+        title: 'Overview',
+      },
       {
         href: '/merchant',
         icon: Building2Icon,
         title: 'Projects',
       },
       {
-        badge: 'Live',
-        href: '/dashboard',
-        icon: LayoutDashboardIcon,
-        title: 'Payments',
-      },
-    ],
-  },
-  {
-    label: 'Operations',
-    items: [
-      {
-        href: '/ops',
-        icon: GaugeIcon,
-        title: 'Diagnostics',
-      },
-      {
-        href: '/login',
-        icon: LogInIcon,
-        title: 'Wallet login',
+        href: '/billing',
+        icon: ReceiptTextIcon,
+        title: 'Billing',
       },
     ],
   },
@@ -105,52 +83,28 @@ type AppSidebarProps = {
 
 export function AppSidebar({ isAuthenticated }: AppSidebarProps) {
   const pathname = usePathname()
-  const navSections = isAuthenticated ? authenticatedNavSections : anonymousNavSections
+  const searchParams = useSearchParams()
+  const projectId = currentProjectId(pathname)
+  const navSections = isAuthenticated
+    ? projectId
+      ? projectNavSections(projectId)
+      : authenticatedNavSections
+    : anonymousNavSections
 
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuButton
-                    className="data-open:bg-sidebar-accent data-open:text-sidebar-accent-foreground"
-                    size="lg"
-                  />
-                }
-              >
-                <Avatar className="size-8 rounded-lg">
-                  <AvatarFallback className="rounded-lg font-semibold">MP</AvatarFallback>
-                </Avatar>
-                <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">Mermer Pay</span>
-                  <span className="truncate text-xs text-muted-foreground">Payment workspace</span>
-                </span>
-                <ChevronsUpDownIcon className="ml-auto" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-(--anchor-width)">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-                  <DropdownMenuItem>
-                    <ShieldCheckIcon />
-                    Zama Sepolia rail
-                    <Badge className="ml-auto" variant="secondary">
-                      active
-                    </Badge>
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>Mode</DropdownMenuLabel>
-                  <DropdownMenuItem>
-                    <LockKeyholeIcon />
-                    Confidential settlement
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <SidebarMenuButton render={<Link href="/" />} size="lg" tooltip="Back to home">
+              <Avatar className="size-8 rounded-lg">
+                <AvatarFallback className="rounded-lg font-semibold">MP</AvatarFallback>
+              </Avatar>
+              <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
+                <span className="truncate font-semibold">Mermer Pay</span>
+                <span className="truncate text-xs text-muted-foreground">Back to home</span>
+              </span>
+            </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
@@ -167,7 +121,7 @@ export function AppSidebar({ isAuthenticated }: AppSidebarProps) {
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
-                        isActive={isActivePath(pathname, item.href)}
+                        isActive={isActivePath(pathname, item, searchParams)}
                         render={<Link href={item.href} />}
                         tooltip={item.title}
                       >
@@ -184,30 +138,81 @@ export function AppSidebar({ isAuthenticated }: AppSidebarProps) {
         ))}
       </SidebarContent>
 
-      <SidebarSeparator />
-
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              render={<Link href={isAuthenticated ? '/dashboard' : '/login'} />}
-              tooltip={isAuthenticated ? 'Payments dashboard' : 'Log in'}
-            >
-              {isAuthenticated ? <LayoutDashboardIcon /> : <WalletCardsIcon />}
-              <span>{isAuthenticated ? 'Payments dashboard' : 'Log in'}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   )
 }
 
-function isActivePath(pathname: string, href: string): boolean {
-  if (href.startsWith('/checkout/')) {
+function projectNavSections(projectId: string): NavSection[] {
+  const baseHref = `/merchant/${projectId}`
+
+  return [
+    {
+      label: 'Project',
+      items: [
+        {
+          href: '/merchant',
+          icon: ArrowLeftIcon,
+          title: 'All projects',
+        },
+        {
+          href: baseHref,
+          icon: LayoutDashboardIcon,
+          title: 'Overview',
+        },
+        {
+          activeTab: 'integration',
+          href: `${baseHref}?tab=integration`,
+          icon: KeyRoundIcon,
+          title: 'Integration',
+        },
+        {
+          activeTab: 'webhooks',
+          href: `${baseHref}?tab=webhooks`,
+          icon: BellRingIcon,
+          title: 'Webhooks',
+        },
+        {
+          activeTab: 'payments',
+          href: `${baseHref}?tab=payments`,
+          icon: ReceiptTextIcon,
+          title: 'Payments',
+        },
+        {
+          activeTab: 'diagnostics',
+          href: `${baseHref}?tab=diagnostics`,
+          icon: GaugeIcon,
+          title: 'Diagnostics',
+        },
+      ],
+    },
+  ]
+}
+
+function currentProjectId(pathname: string) {
+  const match = /^\/merchant\/([^/?#]+)/.exec(pathname)
+
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+function isActivePath(pathname: string, item: NavItem, searchParams: URLSearchParams): boolean {
+  const hrefPath = item.href.split(/[?#]/)[0]
+
+  if (item.href.includes('#')) {
+    return false
+  }
+
+  if (hrefPath.startsWith('/checkout/')) {
     return pathname.startsWith('/checkout/')
   }
 
-  return pathname === href || pathname.startsWith(`${href}/`)
+  if (item.activeTab) {
+    return pathname === hrefPath && searchParams.get('tab') === item.activeTab
+  }
+
+  if (pathname !== hrefPath) {
+    return pathname.startsWith(`${hrefPath}/`) && hrefPath !== '/merchant'
+  }
+
+  return !searchParams.get('tab') || item.href.includes('#')
 }

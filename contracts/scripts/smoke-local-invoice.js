@@ -80,6 +80,25 @@ function invoicePaidEvent(settlement, receipt) {
   throw new Error('InvoicePaid event not found')
 }
 
+function invoicePaymentSplitEvent(settlement, receipt) {
+  for (const log of receipt.logs) {
+    try {
+      const parsed = settlement.interface.parseLog(log)
+      if (parsed?.name === 'InvoicePaymentSplit') {
+        return {
+          chainInvoiceId: Number(parsed.args.invoiceId),
+          settledAmountHandle: parsed.args.settledAmountHandle,
+          platformFeeAmountHandle: parsed.args.platformFeeAmountHandle,
+        }
+      }
+    } catch {
+      continue
+    }
+  }
+
+  throw new Error('InvoicePaymentSplit event not found')
+}
+
 function invoicePaymentSubmittedEvent(settlement, receipt) {
   for (const log of receipt.logs) {
     try {
@@ -109,15 +128,19 @@ async function main() {
   const registryAddress = manifest.contracts.MerchantRegistry
   const tokenAddress = manifest.contracts.ConfidentialUSDMock
   const settlementAddress = manifest.contracts.ConfidentialInvoiceSettlement
+  const subscriptionRegistryAddress = manifest.contracts.PrivateSubscriptionRegistry
 
-  if (!registryAddress || !tokenAddress || !settlementAddress) {
+  if (!registryAddress || !tokenAddress || !settlementAddress || !subscriptionRegistryAddress) {
     throw new Error('local-dev manifest does not contain deployed contract addresses')
   }
 
   const registry = await ethers.getContractAt('MerchantRegistry', registryAddress)
   const token = await ethers.getContractAt('ConfidentialUSDMock', tokenAddress)
   const settlement = await ethers.getContractAt('ConfidentialInvoiceSettlement', settlementAddress)
+  const subscriptionRegistry = await ethers.getContractAt('PrivateSubscriptionRegistry', subscriptionRegistryAddress)
   const amountDue = 120000000n
+  const platformFee = (amountDue * 50n + 9999n) / 10000n
+  const merchantNetAmount = amountDue - platformFee
 
   if (!(await registry.isMerchant(merchantAddress))) {
     await (await registry.registerMerchant(merchantAddress, 'Mermer Demo Merchant')).wait()
@@ -160,6 +183,7 @@ async function main() {
 
   await hre.fhevm.initializeCLIApi()
   await hre.fhevm.assertCoprocessorInitialized(settlement, 'ConfidentialInvoiceSettlement')
+  await hre.fhevm.assertCoprocessorInitialized(subscriptionRegistry, 'PrivateSubscriptionRegistry')
   await hre.fhevm.assertCoprocessorInitialized(token, 'ConfidentialUSDMock')
 
   const approvalInput = hre.fhevm.createEncryptedInput(tokenAddress, buyerAddress)
@@ -194,9 +218,17 @@ async function main() {
   )
   const finalizeReceipt = await finalizeTx.wait()
   const paidEvent = invoicePaidEvent(settlement, finalizeReceipt)
+  const splitEvent = invoicePaymentSplitEvent(settlement, finalizeReceipt)
 
   if (paidEvent.chainInvoiceId !== chainInvoiceId) {
     throw new Error(`InvoicePaid id mismatch: expected ${chainInvoiceId}, got ${paidEvent.chainInvoiceId}`)
+  }
+  if (
+    splitEvent.chainInvoiceId !== chainInvoiceId ||
+    splitEvent.settledAmountHandle === ethers.ZeroHash ||
+    splitEvent.platformFeeAmountHandle === ethers.ZeroHash
+  ) {
+    throw new Error('InvoicePaymentSplit did not expose confidential split handles')
   }
 
   const paid = await postJson(
@@ -223,6 +255,10 @@ async function main() {
         externalRef,
         chainInvoiceId,
         chainTxHash: createTx.hash,
+        platformFeeMinorUnits: Number(platformFee),
+        merchantNetMinorUnits: Number(merchantNetAmount),
+        settledAmountHandle: splitEvent.settledAmountHandle,
+        platformFeeAmountHandle: splitEvent.platformFeeAmountHandle,
         paymentSubmissionTxHash: payTx.hash,
         paymentTxHash: finalizeTx.hash,
         paymentTruth: paid.json.snapshot.paymentTruth,

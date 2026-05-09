@@ -131,7 +131,7 @@ async function runWalletLoginProof() {
   const dashboardHtml = await text(`${WEB_BASE_URL}/dashboard`, {
     headers: { cookie: sessionCookie },
   })
-  assert(dashboardHtml.includes('Merchant dashboard'), 'dashboard did not render after wallet login')
+  assert(dashboardHtml.includes('Overview'), 'dashboard did not render after wallet login')
   assert(
     dashboardHtml.toLowerCase().includes(account.address.toLowerCase()),
     'dashboard did not render the signed-in wallet address',
@@ -218,8 +218,13 @@ async function main() {
   checks.push(await check('Payment platform boundary', async () => {
     const html = await text(`${WEB_BASE_URL}/`)
     assert(html.includes('Private checkout infrastructure'), 'homepage does not render public payment platform copy')
-    const forbiddenExternalTemplate = ['Card', 'Forge'].join('')
-    assert(!html.includes(forbiddenExternalTemplate), 'homepage must not expose external template project names')
+    for (const forbidden of [
+      'CardForge prepaid card bundle',
+      'Three CardForge demo codes',
+      'Card issuing demo storefront',
+    ]) {
+      assert(!html.includes(forbidden), `homepage must not expose merchant-template copy: ${forbidden}`)
+    }
     return 'loaded'
   }))
   checks.push(await check('wallet login and protected dashboard', async () => runWalletLoginProof()))
@@ -234,8 +239,8 @@ async function main() {
   checks.push(await check('checkout platform page', async () => {
     const html = await text(`${WEB_BASE_URL}/checkout/${smoke.detail.externalRef}`)
     assert(html.includes('Finality depth'), 'checkout page did not render finality depth')
-    assert(html.includes('Release gate'), 'checkout page did not render release gate')
-    assert(html.includes('Webhook'), 'checkout page did not render webhook status')
+    assert(html.includes('Project backend'), 'checkout page did not render backend release step')
+    assert(html.includes('Payment status'), 'checkout page did not render payment status')
     assert(!html.includes('MER-'), 'checkout page must not render merchant-template artifacts')
     assert(!html.includes('Release job'), 'checkout page must not render fulfillment implementation artifacts')
     return smoke.detail.externalRef

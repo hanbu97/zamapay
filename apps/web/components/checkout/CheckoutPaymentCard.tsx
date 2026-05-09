@@ -1,20 +1,24 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CreditCardIcon, LockKeyholeIcon } from 'lucide-react'
+import { CheckCircle2Icon, CreditCardIcon, LockKeyholeIcon, ShieldCheckIcon } from 'lucide-react'
 import { createPublicClient, createWalletClient, custom, getAddress, parseEventLogs } from 'viem'
-import { sepolia } from 'viem/chains'
-import { StatusBadge } from '@/components/commerce/StatusBadge'
+import { StatusStepper, type StatusStepperItem } from '@/components/commerce/StatusStepper'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
-import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table'
 import { confidentialInvoiceSettlementAbi, confidentialUsdMockAbi } from '@/lib/contracts'
-import { encryptPaymentAmount, publicDecryptPaymentCheck } from '@/lib/fhevm'
-import { ensureEthereumProvider, ensureWalletChain, sepoliaWalletChain } from '@/lib/wallet'
+import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib/contract-environment'
+import {
+  encryptPaymentAmount,
+  publicDecryptPaymentCheck,
+  type EncryptedPaymentInput,
+  type PublicPaymentCheckProof,
+} from '@/lib/fhevm'
+import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
 type HexAddress = `0x${string}`
 
@@ -22,14 +26,26 @@ type CheckoutPaymentCardProps = {
   amountLabel: string
   amountMinorUnits: number
   chainInvoiceId: number | null
-  finalityConfirmations: number
   finalityStatus: string
-  finalityThreshold: number
+  invoiceId: string
   manifestChainId: number | null
+  merchantName: string
   paymentTruth: string
   settlementAddress: string | null
+  title: string
   tokenAddress: string | null
 }
+
+type PaymentStep = 'approval' | 'finalize' | 'invoice' | 'project' | 'submit'
+
+const paymentStepOrder: Record<PaymentStep, number> = {
+  invoice: 1,
+  approval: 2,
+  submit: 3,
+  finalize: 4,
+  project: 5,
+}
+const localConfidentialTxGas = 16_000_000n
 
 function ensureHexAddress(address: string | null, label: string): HexAddress {
   if (!address?.startsWith('0x')) {
@@ -41,6 +57,16 @@ function ensureHexAddress(address: string | null, label: string): HexAddress {
 
 function readableError(caught: unknown): string {
   return caught instanceof Error ? caught.message : 'Confidential payment failed.'
+}
+
+function isPaymentComplete(paymentTruth: string, finalityStatus: string) {
+  return paymentTruth === 'paid' || finalityStatus === 'finality_safe'
+}
+
+function initialPaymentStatus(paymentTruth: string, finalityStatus: string) {
+  return isPaymentComplete(paymentTruth, finalityStatus)
+    ? 'Payment already verified. Project backend can fulfill this order.'
+    : 'Connect a buyer wallet to submit the encrypted payment.'
 }
 
 function parseProjectionError(text: string): string {
@@ -65,38 +91,113 @@ async function projectFinalizedPayment(paymentTxHash: HexAddress) {
   }
 }
 
+type LocalConfidentialPaymentInputs = {
+  approval: EncryptedPaymentInput
+  balanceMinorUnits: string
+  chainInvoiceId: number
+  payment: EncryptedPaymentInput
+  settlementAddress: HexAddress
+  tokenAddress: HexAddress
+}
+
+async function createLocalConfidentialPaymentInputs(input: {
+  amountMinorUnits: number
+  chainInvoiceId: number
+  payerAddress: HexAddress
+}): Promise<LocalConfidentialPaymentInputs> {
+  const response = await fetch('/api/dev/local-confidential-payment/inputs', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const text = await response.text()
+
+  if (!response.ok) {
+    throw new Error(parseProjectionError(text) || `Local encrypted input creation failed with ${response.status}.`)
+  }
+
+  return JSON.parse(text) as LocalConfidentialPaymentInputs
+}
+
+async function publicDecryptLocalPaymentCheck(paymentCheckHandle: HexAddress): Promise<PublicPaymentCheckProof> {
+  const response = await fetch('/api/dev/local-confidential-payment/decrypt', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ paymentCheckHandle }),
+  })
+  const text = await response.text()
+
+  if (!response.ok) {
+    throw new Error(parseProjectionError(text) || `Local payment decrypt failed with ${response.status}.`)
+  }
+
+  return JSON.parse(text) as PublicPaymentCheckProof
+}
+
 export function CheckoutPaymentCard({
   amountLabel,
   amountMinorUnits,
   chainInvoiceId,
-  finalityConfirmations,
   finalityStatus,
-  finalityThreshold,
+  invoiceId,
   manifestChainId,
+  merchantName,
   paymentTruth,
   settlementAddress,
+  title,
   tokenAddress,
 }: CheckoutPaymentCardProps) {
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [finalizeHash, setFinalizeHash] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
+  const [paymentStep, setPaymentStep] = useState<PaymentStep>('approval')
   const [paymentHash, setPaymentHash] = useState<string | null>(null)
-  const [status, setStatus] = useState('Connect a buyer wallet to submit the encrypted payment.')
+  const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus))
 
-  const isSepoliaManifest = manifestChainId === sepolia.id
+  const manifestEnvironment = contractEnvironmentForChainId(manifestChainId)
+  const isSepoliaManifest = manifestEnvironment === 'sepolia'
+  const isLocalDevManifest = manifestEnvironment === 'local-dev'
+  const isPaid = isPaymentComplete(paymentTruth, finalityStatus)
   const isPayable = paymentTruth === 'pending_payment' && chainInvoiceId !== null
-  const canPay = isPayable && isSepoliaManifest && Boolean(settlementAddress) && Boolean(tokenAddress)
+  const canPayOnSepolia = isPayable && isSepoliaManifest && Boolean(settlementAddress) && Boolean(tokenAddress)
+  const canPayOnLocalDev = isPayable && isLocalDevManifest && Boolean(settlementAddress) && Boolean(tokenAddress)
+  const canPay = canPayOnSepolia || canPayOnLocalDev
+  const paymentReadyLabel = canPayOnLocalDev ? 'Local-dev ready' : 'Sepolia ready'
+  const paymentWaitingLabel = isLocalDevManifest ? 'Awaiting invoice' : 'Awaiting manifest'
+  const paymentBadgeLabel = isPaid ? 'Payment verified' : canPay ? paymentReadyLabel : paymentWaitingLabel
+  const paymentSteps = getPaymentSteps({
+    canPay,
+    chainInvoiceId,
+    error,
+    finalizeHash,
+    finalityStatus,
+    isBusy,
+    paymentHash,
+    paymentStep,
+    paymentTruth,
+    useLocalConfidentialPayment: isLocalDevManifest,
+  })
+
+  useEffect(() => {
+    if (!isPaymentComplete(paymentTruth, finalityStatus)) {
+      return
+    }
+
+    setError(null)
+    setStatus(initialPaymentStatus(paymentTruth, finalityStatus))
+  }, [finalityStatus, paymentTruth])
 
   async function handlePayment() {
     setIsBusy(true)
     setError(null)
     setFinalizeHash(null)
     setPaymentHash(null)
+    setPaymentStep('approval')
 
     try {
       if (!canPay || chainInvoiceId === null) {
-        throw new Error('This checkout needs a Sepolia contract manifest before browser payment is enabled.')
+        throw new Error('This checkout is not ready for browser payment.')
       }
 
       if (amountMinorUnits <= 0) {
@@ -105,17 +206,118 @@ export function CheckoutPaymentCard({
 
       const amount = BigInt(amountMinorUnits)
       const provider = ensureEthereumProvider()
+
+      if (canPayOnLocalDev) {
+        const paymentEnvironment = contractEnvironmentConfigs['local-dev']
+        const settlement = ensureHexAddress(settlementAddress, 'ConfidentialInvoiceSettlement')
+        const token = ensureHexAddress(tokenAddress, 'ConfidentialUSDMock')
+
+        setStatus('Switching wallet to Hardhat Local...')
+        await ensureWalletChain(provider, paymentEnvironment.walletChain)
+
+        const walletClient = createWalletClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
+        const publicClient = createPublicClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
+        const [selectedAddress] = await walletClient.requestAddresses()
+        const payerAddress = getAddress(selectedAddress)
+
+        setPaymentStep('approval')
+        setStatus('Creating local FHEVM encrypted payment inputs...')
+        const encrypted = await createLocalConfidentialPaymentInputs({
+          amountMinorUnits,
+          chainInvoiceId,
+          payerAddress,
+        })
+        if (getAddress(encrypted.tokenAddress) !== getAddress(token) || getAddress(encrypted.settlementAddress) !== getAddress(settlement)) {
+          throw new Error('Local encrypted input bridge returned addresses outside the checkout manifest.')
+        }
+
+        setStatus('Approving encrypted local cUSDT allowance...')
+        const approveHash = await walletClient.writeContract({
+          address: token,
+          abi: confidentialUsdMockAbi,
+          functionName: 'approve',
+          args: [settlement, encrypted.approval.handle, encrypted.approval.inputProof],
+          account: payerAddress,
+          gas: localConfidentialTxGas,
+        })
+        await publicClient.waitForTransactionReceipt({ hash: approveHash })
+
+        setPaymentStep('submit')
+        setStatus(`Submitting encrypted ${amountLabel} payment to ConfidentialInvoiceSettlement...`)
+        const hash = await walletClient.writeContract({
+          address: settlement,
+          abi: confidentialInvoiceSettlementAbi,
+          functionName: 'payInvoice',
+          args: [BigInt(chainInvoiceId), encrypted.payment.handle, encrypted.payment.inputProof],
+          account: payerAddress,
+          gas: localConfidentialTxGas,
+        })
+        setPaymentHash(hash)
+
+        setStatus('Waiting for encrypted local payment submission...')
+        const receipt = await publicClient.waitForTransactionReceipt({ hash })
+        const submittedLogs = parseEventLogs({
+          abi: confidentialInvoiceSettlementAbi,
+          eventName: 'InvoicePaymentSubmitted',
+          logs: receipt.logs,
+        })
+        const paymentCheckHandle = submittedLogs[0]?.args.paymentCheckHandle as HexAddress | undefined
+
+        if (!paymentCheckHandle) {
+          throw new Error('Payment transaction confirmed without InvoicePaymentSubmitted event.')
+        }
+
+        setPaymentStep('finalize')
+        setStatus('Decrypting only the local paid/rejected boolean...')
+        const proof = await publicDecryptLocalPaymentCheck(paymentCheckHandle)
+
+        if (!proof.accepted) {
+          throw new Error('Encrypted payment was rejected by the settlement proof.')
+        }
+
+        setStatus('Finalizing verified local payment on chain...')
+        const finalizeHash = await walletClient.writeContract({
+          address: settlement,
+          abi: confidentialInvoiceSettlementAbi,
+          functionName: 'finalizePayment',
+          args: [BigInt(chainInvoiceId), proof.abiEncodedClearValues, proof.decryptionProof],
+          account: payerAddress,
+          gas: localConfidentialTxGas,
+        })
+        setFinalizeHash(finalizeHash)
+        const finalizeReceipt = await publicClient.waitForTransactionReceipt({ hash: finalizeHash })
+        const paidLogs = parseEventLogs({
+          abi: confidentialInvoiceSettlementAbi,
+          eventName: 'InvoicePaid',
+          logs: finalizeReceipt.logs,
+        })
+
+        if (paidLogs.length === 0) {
+          throw new Error('Payment finalization confirmed without InvoicePaid event.')
+        }
+
+        setPaymentStep('project')
+        setStatus('Payment confirmed on local chain. Projecting backend read model...')
+        await projectFinalizedPayment(finalizeHash)
+
+        setStatus('Encrypted payment projected. Refreshing fulfillment state...')
+        router.refresh()
+        return
+      }
+
       const settlement = ensureHexAddress(settlementAddress, 'ConfidentialInvoiceSettlement')
       const token = ensureHexAddress(tokenAddress, 'ConfidentialUSDMock')
+      const paymentEnvironment = contractEnvironmentConfigs.sepolia
 
       setStatus('Switching wallet to Zama Sepolia...')
-      await ensureWalletChain(provider, sepoliaWalletChain)
+      await ensureWalletChain(provider, paymentEnvironment.walletChain)
 
-      const walletClient = createWalletClient({ chain: sepolia, transport: custom(provider) })
-      const publicClient = createPublicClient({ chain: sepolia, transport: custom(provider) })
+      const walletClient = createWalletClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
+      const publicClient = createPublicClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
       const [selectedAddress] = await walletClient.requestAddresses()
       const payerAddress = getAddress(selectedAddress)
 
+      setPaymentStep('approval')
       setStatus('Approving encrypted mcUSD allowance...')
       const encryptedApproval = await encryptPaymentAmount({
         amountMinorUnits: amount,
@@ -132,6 +334,7 @@ export function CheckoutPaymentCard({
       })
       await publicClient.waitForTransactionReceipt({ hash: approveHash })
 
+      setPaymentStep('submit')
       setStatus('Encrypting settlement amount with the Zama relayer...')
       const encrypted = await encryptPaymentAmount({
         amountMinorUnits: amount,
@@ -163,6 +366,7 @@ export function CheckoutPaymentCard({
         throw new Error('Payment transaction confirmed without InvoicePaymentSubmitted event.')
       }
 
+      setPaymentStep('finalize')
       setStatus('Publicly decrypting the payment validity proof...')
       const proof = await publicDecryptPaymentCheck(provider, paymentCheckHandle)
 
@@ -190,6 +394,7 @@ export function CheckoutPaymentCard({
         throw new Error('Payment finalization confirmed without InvoicePaid event.')
       }
 
+      setPaymentStep('project')
       setStatus('Payment confirmed on chain. Projecting backend read model...')
       await projectFinalizedPayment(finalizeHash)
 
@@ -204,32 +409,58 @@ export function CheckoutPaymentCard({
   }
 
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardAction>
-          <Badge variant={canPay ? 'default' : 'secondary'}>
-            <LockKeyholeIcon data-icon="inline-start" />
-            {canPay ? 'Sepolia encrypted payment ready' : 'Awaiting Sepolia manifest'}
+    <Card
+      className="w-full max-w-[720px] rounded-[8px] border border-white/70 bg-background/95 shadow-[0_24px_80px_rgba(15,23,42,0.16)] backdrop-blur"
+      size="sm"
+    >
+      <CardHeader className="gap-5 px-5 pt-5 sm:px-7 sm:pt-7">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <Badge className="w-fit" variant="outline">
+            <ShieldCheckIcon data-icon="inline-start" />
+            Secure hosted checkout
           </Badge>
-        </CardAction>
-        <CardTitle>Confidential payment</CardTitle>
-        <CardDescription>Encrypt the amount and settle this invoice on Zama Sepolia.</CardDescription>
+          <Badge variant={canPay || isPaid ? 'default' : 'secondary'}>
+            <LockKeyholeIcon data-icon="inline-start" />
+            {paymentBadgeLabel}
+          </Badge>
+        </div>
+        <div className="flex flex-col gap-2">
+          <CardTitle className="max-w-[28rem] text-2xl font-semibold leading-tight tracking-normal sm:text-3xl">
+            {title}
+          </CardTitle>
+          <CardDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span>{merchantName}</span>
+            <span className="text-muted-foreground/70">Invoice {shortInvoiceId(invoiceId)}</span>
+          </CardDescription>
+        </div>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <Table>
-          <TableBody>
-            <PaymentRow label="Amount" value={amountLabel} />
-            <PaymentRow label="Chain invoice" value={chainInvoiceId === null ? 'not projected' : `#${chainInvoiceId}`} />
-            <PaymentStatusRow label="Payment" value={paymentTruth} />
-            <PaymentStatusRow label="Finality" value={finalityStatus} />
-            <PaymentRow label="Finality depth" value={formatFinalityDepth(finalityConfirmations, finalityThreshold)} />
-          </TableBody>
-        </Table>
 
-        <Alert>
-          <AlertTitle>Payment status</AlertTitle>
-          <AlertDescription>{status}</AlertDescription>
-        </Alert>
+      <CardContent className="flex flex-col gap-5 px-5 sm:px-7">
+        <div className="rounded-[8px] border bg-muted/35 px-5 py-8 text-center sm:px-7 sm:py-10">
+          <div className="flex flex-col items-center gap-2">
+            <span className="text-sm text-muted-foreground">Amount due</span>
+            <span className="text-5xl font-semibold leading-none tracking-normal sm:text-6xl">{amountLabel}</span>
+          </div>
+        </div>
+
+        <StatusStepper
+          ariaLabel="Checkout payment steps"
+          detailMode="active"
+          orientation="horizontal"
+          steps={paymentSteps}
+        />
+
+        <div className="rounded-[8px] border bg-background/70 p-4">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+              {isPaid ? <CheckCircle2Icon className="size-4" /> : <LockKeyholeIcon className="size-4" />}
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium">{isPaid ? 'Payment verified' : 'Ready for private payment'}</div>
+              <p className="mt-1 text-sm text-muted-foreground">{status}</p>
+            </div>
+          </div>
+        </div>
 
         {paymentHash ? (
           <Alert>
@@ -252,7 +483,7 @@ export function CheckoutPaymentCard({
           </Alert>
         ) : null}
 
-        {!isSepoliaManifest ? (
+        {!isSepoliaManifest && !isLocalDevManifest ? (
           <Alert>
             <AlertTitle>Browser payment locked</AlertTitle>
             <AlertDescription>
@@ -261,36 +492,126 @@ export function CheckoutPaymentCard({
           </Alert>
         ) : null}
       </CardContent>
-      <CardFooter>
-        <Button className="w-full" disabled={!canPay || isBusy} onClick={handlePayment} type="button">
+      <CardFooter className="flex-col items-stretch gap-3 px-5 pb-5 sm:px-7 sm:pb-7">
+        <Button className="h-12 w-full text-base" disabled={!canPay || isBusy || isPaid} onClick={handlePayment} type="button">
           {isBusy ? <Spinner data-icon="inline-start" /> : <CreditCardIcon data-icon="inline-start" />}
-          {isBusy ? 'Processing encrypted payment...' : canPay ? 'Pay confidentially' : 'Sepolia manifest required'}
+          {paymentButtonLabel({ canPay, isBusy, isPaid })}
         </Button>
+        {!isPaid ? (
+          <p className="text-center text-xs text-muted-foreground">
+            Wallet signs encrypted cUSDT approval and settlement calls; this checkout does not use a public ERC20 transfer.
+          </p>
+        ) : null}
       </CardFooter>
     </Card>
   )
 }
 
-function formatFinalityDepth(confirmations: number, threshold: number) {
-  return threshold > 0 ? `${confirmations} / ${threshold}` : `${confirmations} / pending threshold`
+function paymentButtonLabel({ canPay, isBusy, isPaid }: { canPay: boolean; isBusy: boolean; isPaid: boolean }) {
+  if (isBusy) {
+    return 'Processing payment...'
+  }
+
+  if (isPaid) {
+    return 'Payment verified'
+  }
+
+  return canPay ? 'Pay confidentially' : 'Payment unavailable'
 }
 
-function PaymentRow({ label, value }: { label: string; value: string }) {
-  return (
-    <TableRow>
-      <TableCell className="text-muted-foreground">{label}</TableCell>
-      <TableCell className="max-w-[280px] truncate text-right font-medium">{value}</TableCell>
-    </TableRow>
-  )
+function getPaymentSteps({
+  canPay,
+  chainInvoiceId,
+  error,
+  finalizeHash,
+  finalityStatus,
+  isBusy,
+  paymentHash,
+  paymentStep,
+  paymentTruth,
+  useLocalConfidentialPayment,
+}: {
+  canPay: boolean
+  chainInvoiceId: number | null
+  error: string | null
+  finalizeHash: string | null
+  finalityStatus: string
+  isBusy: boolean
+  paymentHash: string | null
+  paymentStep: PaymentStep
+  paymentTruth: string
+  useLocalConfidentialPayment: boolean
+}): StatusStepperItem[] {
+  const isPaid = isPaymentComplete(paymentTruth, finalityStatus)
+  const currentStep = error
+    ? paymentStepOrder[paymentStep]
+    : isBusy
+      ? paymentStepOrder[paymentStep]
+      : chainInvoiceId === null
+        ? 1
+        : isPaid
+          ? 5
+          : 2
+
+  return [
+    {
+      description:
+        chainInvoiceId === null
+          ? 'Merchant checkout exists, but the chain invoice is not ready for buyer payment.'
+          : `Settlement contract invoice #${chainInvoiceId} is ready.`,
+      meta: chainInvoiceId === null ? 'waiting' : `#${chainInvoiceId}`,
+      state: chainInvoiceId === null ? 'active' : 'complete',
+      title: 'Invoice',
+    },
+    {
+      description: useLocalConfidentialPayment
+        ? 'Buyer wallet signs encrypted local allowance for the settlement contract.'
+        : canPay || isPaid
+        ? 'Buyer wallet approves encrypted cUSDT allowance for this settlement.'
+        : 'Sepolia manifest and token contract are required before wallet approval.',
+      state: stepState(2, currentStep, isBusy, error),
+      title: 'Approval',
+    },
+    {
+      description: paymentHash
+        ? `${paymentHash.slice(0, 18)}...`
+        : useLocalConfidentialPayment
+          ? 'Encrypted local payment amount is submitted to the settlement contract.'
+          : 'Encrypted payment amount is submitted to the settlement contract.',
+      state: paymentHash || isPaid ? 'complete' : stepState(3, currentStep, isBusy, error),
+      title: 'Payment',
+    },
+    {
+      description: finalizeHash
+        ? `${finalizeHash.slice(0, 18)}...`
+        : useLocalConfidentialPayment
+          ? 'Local FHEVM mock decrypts only the paid/rejected boolean, then finalizes on chain.'
+          : 'Public decrypt proves the encrypted check, then finalizes payment on chain.',
+      state: finalizeHash || isPaid ? 'complete' : stepState(4, currentStep, isBusy, error),
+      title: 'Verify',
+    },
+    {
+      description: isPaid
+        ? `Backend read model is paid; finality is ${finalityStatus.replaceAll('_', ' ')}.`
+        : 'Rust projection updates checkout truth and emits signed project webhooks.',
+      state: isPaid ? 'complete' : stepState(5, currentStep, isBusy, error),
+      title: 'Fulfillment',
+    },
+  ]
 }
 
-function PaymentStatusRow({ label, value }: { label: string; value: string }) {
-  return (
-    <TableRow>
-      <TableCell className="text-muted-foreground">{label}</TableCell>
-      <TableCell className="text-right">
-        <StatusBadge value={value} />
-      </TableCell>
-    </TableRow>
-  )
+function stepState(step: number, currentStep: number, isBusy: boolean, error: string | null): StatusStepperItem['state'] {
+  if (step < currentStep) {
+    return 'complete'
+  }
+
+  if (step === currentStep) {
+    return isBusy && !error ? 'loading' : 'active'
+  }
+
+  return 'pending'
+}
+
+function shortInvoiceId(invoiceId: string) {
+  return invoiceId.length > 16 ? `${invoiceId.slice(0, 10)}...${invoiceId.slice(-6)}` : invoiceId
 }

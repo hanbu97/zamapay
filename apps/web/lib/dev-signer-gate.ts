@@ -1,3 +1,5 @@
+import { normalizeContractEnvironment } from './contract-environment.ts'
+
 export type DevSignerGateInput = {
   contractEnv?: string
   enableDevSigner?: string
@@ -11,10 +13,20 @@ export function isLocalRequestUrl(requestUrl: string): boolean {
 }
 
 export function canUseDevSigner(input: DevSignerGateInput): boolean {
+  const contractEnvironment = safeContractEnvironment(input.contractEnv)
+
   return (
     input.enableDevSigner === '1' &&
     input.nodeEnv !== 'production' &&
-    input.contractEnv !== 'sepolia' &&
+    contractEnvironment === 'local-dev' &&
     isLocalRequestUrl(input.requestUrl)
   )
+}
+
+function safeContractEnvironment(value: string | undefined): 'local-dev' | 'sepolia' | 'invalid' {
+  try {
+    return normalizeContractEnvironment(value)
+  } catch {
+    return 'invalid'
+  }
 }

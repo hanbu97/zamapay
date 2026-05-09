@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub use contracts::{
-    AddressManifest, ContractAddresses, contract_manifest, local_dev_contract_manifest,
+    AddressManifest, BillingPlanProtocolTerms, BillingProtocolManifest, ContractAddresses,
+    contract_manifest, local_dev_contract_manifest, normalize_contract_environment,
 };
 
 pub const DEFAULT_FINALITY_THRESHOLD: u64 = 2;
@@ -95,6 +96,250 @@ pub enum CheckoutSessionStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BillingPlan {
+    #[default]
+    Free,
+    Growth,
+    Enterprise,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BillingCycle {
+    #[default]
+    Monthly,
+    Annual,
+}
+
+impl BillingPlan {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Free => "free",
+            Self::Growth => "growth",
+            Self::Enterprise => "enterprise",
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Free => "Free",
+            Self::Growth => "Growth",
+            Self::Enterprise => "Enterprise",
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Free => "Start with hosted checkout and project API keys.",
+            Self::Growth => "Reduce checkout fees for active merchants.",
+            Self::Enterprise => "Custom rate and settlement policy for larger teams.",
+        }
+    }
+
+    pub fn all() -> [Self; 3] {
+        [Self::Free, Self::Growth, Self::Enterprise]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BillingSubscriptionStatus {
+    Active,
+    PastDue,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BillingEntitlementStatus {
+    #[default]
+    #[serde(alias = "local_only")]
+    ContractDefault,
+    PendingPrivateProof,
+    Anchored,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingPlanCatalogEntry {
+    pub plan: BillingPlan,
+    pub name: String,
+    pub plan_code: Option<u16>,
+    pub checkout_fee_bps: Option<u16>,
+    pub monthly_price_minor_units: Option<u64>,
+    pub annual_price_minor_units: Option<u64>,
+    pub monthly_price_usd: Option<u32>,
+    pub annual_price_usd: Option<u32>,
+    pub self_serve: bool,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingSubscription {
+    pub subscription_id: String,
+    pub owner_wallet: String,
+    pub plan: BillingPlan,
+    #[serde(default)]
+    pub billing_cycle: BillingCycle,
+    pub status: BillingSubscriptionStatus,
+    #[serde(default)]
+    pub pass_id: Option<String>,
+    #[serde(default)]
+    pub entitlement_version: u64,
+    #[serde(default)]
+    pub entitlement_status: BillingEntitlementStatus,
+    #[serde(default)]
+    pub entitlement_tx_hash: Option<String>,
+    #[serde(default)]
+    pub subscription_check_handle: Option<String>,
+    pub current_period_started_at: DateTime<Utc>,
+    pub current_period_ends_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl BillingSubscription {
+    pub fn effective_plan(&self) -> BillingPlan {
+        if self.status != BillingSubscriptionStatus::Active {
+            return BillingPlan::Free;
+        }
+
+        match self.entitlement_status {
+            BillingEntitlementStatus::Anchored => self.plan,
+            BillingEntitlementStatus::ContractDefault
+            | BillingEntitlementStatus::PendingPrivateProof
+            | BillingEntitlementStatus::Rejected => BillingPlan::Free,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BillingPaymentStatus {
+    Succeeded,
+    Pending,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingPaymentRecord {
+    pub payment_id: String,
+    pub owner_wallet: String,
+    pub plan: BillingPlan,
+    pub billing_cycle: BillingCycle,
+    pub amount_minor_units: u64,
+    pub currency: String,
+    pub status: BillingPaymentStatus,
+    #[serde(default)]
+    pub chain_tx_hash: Option<String>,
+    #[serde(default)]
+    pub subscription_check_handle: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingSubscriptionResponse {
+    pub subscription: BillingSubscription,
+    pub plans: Vec<BillingPlanCatalogEntry>,
+    #[serde(default)]
+    pub payments: Vec<BillingPaymentRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpgradeBillingSubscriptionRequest {
+    pub plan: BillingPlan,
+    #[serde(default)]
+    pub billing_cycle: BillingCycle,
+    #[serde(default)]
+    pub pass_id: Option<String>,
+    #[serde(default)]
+    pub chain_tx_hash: Option<String>,
+    #[serde(default)]
+    pub subscription_check_handle: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingUpgradeIntentRequest {
+    pub plan: BillingPlan,
+    #[serde(default)]
+    pub billing_cycle: BillingCycle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BillingUpgradeIntentResponse {
+    pub pass_id: Option<String>,
+    pub owner_wallet: String,
+    pub plan: BillingPlan,
+    pub billing_cycle: BillingCycle,
+    pub plan_code: u16,
+    pub price_minor_units: u64,
+    pub period_days: i64,
+    pub expected_fee_bps: u16,
+    pub charge_token_contract: Option<String>,
+    pub subscription_registry_contract: Option<String>,
+    pub treasury_wallet: Option<String>,
+    pub privacy_note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionEntitlementProjectionRequest {
+    pub plan: BillingPlan,
+    #[serde(default)]
+    pub billing_cycle: BillingCycle,
+    pub pass_id: String,
+    pub entitlement_version: u64,
+    pub entitlement_tx_hash: String,
+    pub subscription_check_handle: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutBillingSnapshot {
+    pub plan: BillingPlan,
+    pub fee_bps: u16,
+    pub gross_amount_minor_units: u64,
+    pub platform_fee_minor_units: u64,
+    pub merchant_net_minor_units: u64,
+}
+
+impl CheckoutBillingSnapshot {
+    pub fn from_gross_amount(
+        plan: BillingPlan,
+        fee_bps: u16,
+        gross_amount_minor_units: u64,
+    ) -> Option<Self> {
+        if gross_amount_minor_units == 0 {
+            return None;
+        }
+
+        let platform_fee_minor_units = calculate_platform_fee(gross_amount_minor_units, fee_bps)?;
+        let merchant_net_minor_units =
+            gross_amount_minor_units.checked_sub(platform_fee_minor_units)?;
+
+        Some(Self {
+            plan,
+            fee_bps,
+            gross_amount_minor_units,
+            platform_fee_minor_units,
+            merchant_net_minor_units,
+        })
+    }
+}
+
+fn calculate_platform_fee(gross_amount_minor_units: u64, fee_bps: u16) -> Option<u64> {
+    let fee = (u128::from(gross_amount_minor_units) * u128::from(fee_bps)).div_ceil(10_000);
+    u64::try_from(fee).ok()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PaymentProject {
@@ -102,6 +347,8 @@ pub struct PaymentProject {
     pub name: String,
     pub owner_wallet: String,
     pub default_environment: ProjectEnvironmentKind,
+    #[serde(default)]
+    pub billing_plan: BillingPlan,
     pub status: ProjectStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -174,6 +421,8 @@ pub struct CheckoutSession {
     pub title: String,
     pub amount_label: String,
     pub amount_minor_units: u64,
+    #[serde(default)]
+    pub billing: CheckoutBillingSnapshot,
     pub note: String,
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
@@ -217,10 +466,35 @@ pub struct WebhookDeliveryRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectWithdrawalStatus {
+    Completed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWithdrawalRecord {
+    pub withdrawal_id: String,
+    pub project_id: String,
+    pub amount_minor_units: u64,
+    pub status: ProjectWithdrawalStatus,
+    pub receipt: String,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProjectWithdrawalRequest {
+    pub amount_minor_units: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatePaymentProjectRequest {
     pub name: String,
     pub environment: Option<ProjectEnvironmentKind>,
+    pub billing_plan: Option<BillingPlan>,
     pub webhook_url: Option<String>,
 }
 
@@ -273,6 +547,8 @@ pub struct CreateCheckoutSessionRequest {
     pub note: String,
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
+    pub chain_invoice_id: Option<u64>,
+    pub chain_tx_hash: Option<String>,
     #[serde(default)]
     pub metadata: BTreeMap<String, String>,
 }
@@ -283,6 +559,11 @@ pub struct ProjectDashboardSummary {
     pub total_checkouts: u32,
     pub open_checkouts: u32,
     pub paid_checkouts: u32,
+    pub gross_volume_minor_units: u64,
+    pub platform_fee_minor_units: u64,
+    pub merchant_net_minor_units: u64,
+    pub withdrawn_minor_units: u64,
+    pub withdrawable_minor_units: u64,
     pub pending_deliveries: u32,
     pub delivered_webhooks: u32,
     pub failed_webhooks: u32,
@@ -298,6 +579,7 @@ pub struct ProjectDashboardOverview {
     pub checkout_sessions: Vec<CheckoutSession>,
     pub webhook_events: Vec<WebhookEventRecord>,
     pub webhook_deliveries: Vec<WebhookDeliveryRecord>,
+    pub withdrawals: Vec<ProjectWithdrawalRecord>,
     pub summary: ProjectDashboardSummary,
 }
 
@@ -449,6 +731,8 @@ pub struct InvoiceRecord {
     pub merchant_name: String,
     pub amount_label: String,
     pub amount_minor_units: u64,
+    #[serde(default)]
+    pub billing: Option<CheckoutBillingSnapshot>,
     pub note: String,
     pub chain_invoice_id: Option<u64>,
     pub chain_tx_hash: Option<String>,

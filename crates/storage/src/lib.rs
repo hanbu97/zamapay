@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use domain::{
@@ -8,24 +7,36 @@ use domain::{
     SettlementSnapshot, WebhookDeliveryOutcome, WebhookDeliveryStatus, build_login_message,
 };
 use shared::{
-    CheckoutSession, DEFAULT_FINALITY_THRESHOLD, DashboardOverview, DashboardSummary,
-    DecryptCallbackOutcome, DecryptRequestSnapshot, FulfillmentReleaseAudit, IndexerCursor,
-    InvoiceRecord, OperatorDiagnostics, PaymentProject, PaymentProjectEnvironment,
-    ProjectInvoiceAuthority, ProjectWebhookEndpoint, SessionUser, WebhookDeliveryRecord,
-    WebhookEventRecord,
+    BillingPaymentRecord, BillingProtocolManifest, BillingSubscription, CheckoutSession,
+    DashboardOverview, DashboardSummary, DecryptCallbackOutcome, DecryptRequestSnapshot,
+    FulfillmentReleaseAudit, InvoiceRecord, OperatorDiagnostics, PaymentProject,
+    PaymentProjectEnvironment, ProjectInvoiceAuthority, ProjectWebhookEndpoint,
+    ProjectWithdrawalRecord, SessionUser, WebhookDeliveryRecord, WebhookEventRecord,
+    local_dev_contract_manifest,
 };
+use tokio::sync::RwLock;
 use uuid::Uuid;
 
+mod billing;
 mod invoice_seed;
-mod persistence;
+mod pg_store;
 mod project_support;
+mod projections;
 mod projects;
+pub use billing::BillingSubscriptionError;
 pub use project_support::CheckoutSessionError;
 
 use invoice_seed::seeded_invoice;
-use persistence::PortalFile;
+use pg_store::{PortalRecordSet, load_portal_records, save_portal_records};
+use projections::{
+    FinalityProgress, apply_finality_progress, chain_sync_status, has_indexer_stalled,
+    has_operator_action_required, indexer_cursor, mark_webhook_pending_if_due,
+    preserve_release_status, project_paid, stalled_count,
+};
 
-const PORTAL_STORE_PATH_ENV: &str = "MERMER_PORTAL_STORE_PATH";
+const DATABASE_URL_ENV: &str = "DATABASE_URL";
+const PORTAL_STATE_KEY_ENV: &str = "MERMER_PORTAL_STATE_KEY";
+const DEFAULT_PORTAL_STATE_KEY: &str = "portal";
 
 #[derive(Debug, Clone)]
 pub struct StoredChallenge {
@@ -43,13 +54,13 @@ pub struct StoredSession {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct InMemoryAuthStore {
+pub struct AuthStore {
     challenges: Arc<RwLock<HashMap<String, StoredChallenge>>>,
     sessions: Arc<RwLock<HashMap<Uuid, StoredSession>>>,
 }
 
-impl InMemoryAuthStore {
-    pub fn issue_challenge(&self, address: &str, now: DateTime<Utc>) -> StoredChallenge {
+impl AuthStore {
+    pub async fn issue_challenge(&self, address: &str, now: DateTime<Utc>) -> StoredChallenge {
         let nonce = Uuid::new_v4().to_string();
         let challenge = StoredChallenge {
             address: address.to_lowercase(),
@@ -62,32 +73,32 @@ impl InMemoryAuthStore {
 
         self.challenges
             .write()
-            .expect("challenge store lock poisoned")
+            .await
             .insert(address.to_lowercase(), challenge.clone());
 
         challenge
     }
 
-    pub fn find_challenge(&self, address: &str) -> Option<StoredChallenge> {
+    pub async fn find_challenge(&self, address: &str) -> Option<StoredChallenge> {
         self.challenges
             .read()
-            .expect("challenge store lock poisoned")
+            .await
             .get(&address.to_lowercase())
             .cloned()
     }
 
-    pub fn consume_challenge(&self, address: &str) {
+    pub async fn consume_challenge(&self, address: &str) {
         if let Some(existing) = self
             .challenges
             .write()
-            .expect("challenge store lock poisoned")
+            .await
             .get_mut(&address.to_lowercase())
         {
             existing.consumed = true;
         }
     }
 
-    pub fn create_session(&self, address: &str, now: DateTime<Utc>) -> StoredSession {
+    pub async fn create_session(&self, address: &str, now: DateTime<Utc>) -> StoredSession {
         let session = StoredSession {
             user: SessionUser {
                 address: address.to_string(),
@@ -98,25 +109,28 @@ impl InMemoryAuthStore {
 
         self.sessions
             .write()
-            .expect("session store lock poisoned")
+            .await
             .insert(session.user.session_id, session.clone());
 
         session
     }
 
-    pub fn find_session(&self, session_id: &Uuid) -> Option<StoredSession> {
-        self.sessions
-            .read()
-            .expect("session store lock poisoned")
-            .get(session_id)
-            .cloned()
+    pub async fn find_session(&self, session_id: &Uuid) -> Option<StoredSession> {
+        self.sessions.read().await.get(session_id).cloned()
+    }
+
+    pub async fn delete_session(&self, session_id: &Uuid) {
+        self.sessions.write().await.remove(session_id);
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct InMemoryPortalStore {
+#[derive(Debug, Clone)]
+pub struct PortalStore {
     invoices: Arc<RwLock<HashMap<String, InvoiceRecord>>>,
     projects: Arc<RwLock<HashMap<String, PaymentProject>>>,
+    subscriptions: Arc<RwLock<HashMap<String, BillingSubscription>>>,
+    billing_payments: Arc<RwLock<HashMap<String, Vec<BillingPaymentRecord>>>>,
+    billing_protocol: Arc<BillingProtocolManifest>,
     environments: Arc<RwLock<HashMap<String, PaymentProjectEnvironment>>>,
     invoice_authorities: Arc<RwLock<HashMap<String, ProjectInvoiceAuthority>>>,
     api_keys: Arc<RwLock<HashMap<String, project_support::StoredProjectApiKey>>>,
@@ -125,9 +139,11 @@ pub struct InMemoryPortalStore {
     idempotency_keys: Arc<RwLock<HashMap<String, String>>>,
     webhook_events: Arc<RwLock<HashMap<String, WebhookEventRecord>>>,
     webhook_deliveries: Arc<RwLock<HashMap<String, WebhookDeliveryRecord>>>,
+    project_withdrawals: Arc<RwLock<HashMap<String, ProjectWithdrawalRecord>>>,
     next_invoice_number: Arc<RwLock<u64>>,
     next_chain_invoice_id: Arc<RwLock<u64>>,
-    persistence_path: Option<Arc<PathBuf>>,
+    database_url: Arc<String>,
+    state_key: Arc<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -137,65 +153,61 @@ pub enum DecryptRequestProjection {
     NotPaid(InvoiceRecord),
 }
 
-impl InMemoryPortalStore {
-    pub fn from_env() -> Self {
-        match std::env::var(PORTAL_STORE_PATH_ENV) {
-            Ok(path) if !path.trim().is_empty() => Self::persisted(path),
-            _ => Self::seeded(),
-        }
+impl PortalStore {
+    pub async fn from_env() -> Self {
+        let database_url = std::env::var(DATABASE_URL_ENV).unwrap_or_else(|_| {
+            panic!("{DATABASE_URL_ENV} is required for the portal Postgres store")
+        });
+        assert!(
+            !database_url.trim().is_empty(),
+            "{DATABASE_URL_ENV} cannot be empty for the portal Postgres store"
+        );
+        let state_key = std::env::var(PORTAL_STATE_KEY_ENV)
+            .ok()
+            .filter(|key| !key.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_PORTAL_STATE_KEY.to_string());
+        Self::connect_with_state_key(database_url, state_key).await
     }
 
-    pub fn persisted(path: impl Into<PathBuf>) -> Self {
-        let path = path.into();
-        match read_portal_file(&path) {
-            Some(data) => Self {
-                invoices: Arc::new(RwLock::new(data.invoices)),
-                projects: Arc::new(RwLock::new(data.projects)),
-                environments: Arc::new(RwLock::new(data.environments)),
-                invoice_authorities: Arc::new(RwLock::new(data.invoice_authorities)),
-                api_keys: Arc::new(RwLock::new(data.api_keys)),
-                webhook_endpoints: Arc::new(RwLock::new(data.webhook_endpoints)),
-                checkout_sessions: Arc::new(RwLock::new(data.checkout_sessions)),
-                idempotency_keys: Arc::new(RwLock::new(data.idempotency_keys)),
-                webhook_events: Arc::new(RwLock::new(data.webhook_events)),
-                webhook_deliveries: Arc::new(RwLock::new(data.webhook_deliveries)),
-                next_invoice_number: Arc::new(RwLock::new(data.next_invoice_number)),
-                next_chain_invoice_id: Arc::new(RwLock::new(data.next_chain_invoice_id)),
-                persistence_path: Some(Arc::new(path)),
-            },
-            None => {
-                let store = Self::seeded().with_persistence_path(path);
-                store.persist();
-                store
-            }
-        }
+    pub async fn connect(database_url: impl Into<String>) -> Self {
+        Self::connect_with_state_key(database_url, DEFAULT_PORTAL_STATE_KEY).await
     }
 
-    pub fn seeded() -> Self {
+    pub async fn connect_with_state_key(
+        database_url: impl Into<String>,
+        state_key: impl Into<String>,
+    ) -> Self {
+        let database_url = database_url.into();
+        let state_key = state_key.into();
+        let records = load_portal_records(&database_url, &state_key).await;
+        Self::from_record_set(records, database_url, state_key)
+    }
+
+    fn from_record_set(records: PortalRecordSet, database_url: String, state_key: String) -> Self {
         Self {
-            invoices: Arc::new(RwLock::new(HashMap::new())),
-            projects: Arc::new(RwLock::new(HashMap::new())),
-            environments: Arc::new(RwLock::new(HashMap::new())),
-            invoice_authorities: Arc::new(RwLock::new(HashMap::new())),
-            api_keys: Arc::new(RwLock::new(HashMap::new())),
-            webhook_endpoints: Arc::new(RwLock::new(HashMap::new())),
-            checkout_sessions: Arc::new(RwLock::new(HashMap::new())),
-            idempotency_keys: Arc::new(RwLock::new(HashMap::new())),
-            webhook_events: Arc::new(RwLock::new(HashMap::new())),
-            webhook_deliveries: Arc::new(RwLock::new(HashMap::new())),
-            next_invoice_number: Arc::new(RwLock::new(1)),
-            next_chain_invoice_id: Arc::new(RwLock::new(1)),
-            persistence_path: None,
+            invoices: Arc::new(RwLock::new(records.invoices)),
+            projects: Arc::new(RwLock::new(records.projects)),
+            subscriptions: Arc::new(RwLock::new(records.subscriptions)),
+            billing_payments: Arc::new(RwLock::new(records.billing_payments)),
+            billing_protocol: Arc::new(contract_billing_protocol()),
+            environments: Arc::new(RwLock::new(records.environments)),
+            invoice_authorities: Arc::new(RwLock::new(records.invoice_authorities)),
+            api_keys: Arc::new(RwLock::new(records.api_keys)),
+            webhook_endpoints: Arc::new(RwLock::new(records.webhook_endpoints)),
+            checkout_sessions: Arc::new(RwLock::new(records.checkout_sessions)),
+            idempotency_keys: Arc::new(RwLock::new(records.idempotency_keys)),
+            webhook_events: Arc::new(RwLock::new(records.webhook_events)),
+            webhook_deliveries: Arc::new(RwLock::new(records.webhook_deliveries)),
+            project_withdrawals: Arc::new(RwLock::new(records.project_withdrawals)),
+            next_invoice_number: Arc::new(RwLock::new(records.next_invoice_number)),
+            next_chain_invoice_id: Arc::new(RwLock::new(records.next_chain_invoice_id)),
+            database_url: Arc::new(database_url),
+            state_key: Arc::new(state_key),
         }
     }
 
-    fn with_persistence_path(mut self, path: PathBuf) -> Self {
-        self.persistence_path = Some(Arc::new(path));
-        self
-    }
-
-    pub fn dashboard_overview(&self, merchant_address: &str) -> DashboardOverview {
-        let invoices = self.invoices.read().expect("portal store lock poisoned");
+    pub async fn dashboard_overview(&self, merchant_address: &str) -> DashboardOverview {
+        let invoices = self.invoices.read().await;
         let invoice_list = invoices.values().cloned().collect::<Vec<_>>();
 
         DashboardOverview {
@@ -224,24 +236,23 @@ impl InMemoryPortalStore {
         }
     }
 
-    pub fn invoice_by_id(&self, invoice_id: &str) -> Option<InvoiceRecord> {
-        self.invoices
-            .read()
-            .expect("portal store lock poisoned")
-            .get(invoice_id)
-            .cloned()
+    pub async fn invoice_by_id(&self, invoice_id: &str) -> Option<InvoiceRecord> {
+        self.invoices.read().await.get(invoice_id).cloned()
     }
 
-    pub fn invoice_by_chain_invoice_id(&self, chain_invoice_id: u64) -> Option<InvoiceRecord> {
+    pub async fn invoice_by_chain_invoice_id(
+        &self,
+        chain_invoice_id: u64,
+    ) -> Option<InvoiceRecord> {
         self.invoices
             .read()
-            .expect("portal store lock poisoned")
+            .await
             .values()
             .find(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))
             .cloned()
     }
 
-    pub fn create_invoice(
+    pub async fn create_invoice(
         &self,
         title: &str,
         amount_label: &str,
@@ -251,18 +262,15 @@ impl InMemoryPortalStore {
         chain_invoice_id: Option<u64>,
         chain_tx_hash: Option<&str>,
     ) -> InvoiceRecord {
-        let invoice_id = external_ref
-            .filter(|reference| !reference.trim().is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                let mut next_invoice_number = self
-                    .next_invoice_number
-                    .write()
-                    .expect("portal invoice counter lock poisoned");
+        let invoice_id = match external_ref.filter(|reference| !reference.trim().is_empty()) {
+            Some(reference) => reference.to_string(),
+            None => {
+                let mut next_invoice_number = self.next_invoice_number.write().await;
                 let next_invoice_id = format!("invoice-{:04}", *next_invoice_number);
                 *next_invoice_number += 1;
                 next_invoice_id
-            });
+            }
+        };
 
         let mut invoice = seeded_invoice(
             &invoice_id,
@@ -280,38 +288,38 @@ impl InMemoryPortalStore {
 
         self.invoices
             .write()
-            .expect("portal store lock poisoned")
+            .await
             .insert(invoice_id, invoice.clone());
-        self.persist();
+        self.persist().await;
 
         invoice
     }
 
-    pub fn project_invoice_paid(
+    pub async fn project_invoice_paid(
         &self,
         invoice_id: &str,
         chain_invoice_id: Option<u64>,
         payment_tx_hash: &str,
         payer_address: &str,
     ) -> Option<InvoiceRecord> {
-        let mut invoices = self.invoices.write().expect("portal store lock poisoned");
+        let mut invoices = self.invoices.write().await;
         let invoice = invoices.get_mut(invoice_id)?;
 
         project_paid(invoice, chain_invoice_id, payment_tx_hash, payer_address);
         let invoice = invoice.clone();
         drop(invoices);
-        self.persist();
+        self.persist().await;
 
         Some(invoice)
     }
 
-    pub fn project_chain_invoice_paid(
+    pub async fn project_chain_invoice_paid(
         &self,
         chain_invoice_id: u64,
         payment_tx_hash: &str,
         payer_address: &str,
     ) -> Option<InvoiceRecord> {
-        let mut invoices = self.invoices.write().expect("portal store lock poisoned");
+        let mut invoices = self.invoices.write().await;
         let invoice = invoices
             .values_mut()
             .find(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))?;
@@ -324,20 +332,21 @@ impl InMemoryPortalStore {
         );
         let invoice = invoice.clone();
         drop(invoices);
-        self.persist();
+        self.persist().await;
 
         Some(invoice)
     }
 
-    pub fn project_chain_invoice_snapshot(
+    pub async fn project_chain_invoice_snapshot(
         &self,
         chain_invoice_id: u64,
         snapshot: SettlementSnapshot,
     ) -> Option<InvoiceRecord> {
         self.project_chain_invoice_snapshot_with_progress(chain_invoice_id, snapshot, None)
+            .await
     }
 
-    pub fn project_chain_invoice_finality_snapshot(
+    pub async fn project_chain_invoice_finality_snapshot(
         &self,
         chain_invoice_id: u64,
         snapshot: SettlementSnapshot,
@@ -352,15 +361,16 @@ impl InMemoryPortalStore {
                 threshold: finality_threshold,
             }),
         )
+        .await
     }
 
-    fn project_chain_invoice_snapshot_with_progress(
+    async fn project_chain_invoice_snapshot_with_progress(
         &self,
         chain_invoice_id: u64,
         mut snapshot: SettlementSnapshot,
         progress: Option<FinalityProgress>,
     ) -> Option<InvoiceRecord> {
-        let mut invoices = self.invoices.write().expect("portal store lock poisoned");
+        let mut invoices = self.invoices.write().await;
         let invoice = invoices
             .values_mut()
             .find(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))?;
@@ -371,19 +381,19 @@ impl InMemoryPortalStore {
         mark_webhook_pending_if_due(invoice);
         let invoice = invoice.clone();
         drop(invoices);
-        self.enqueue_webhook_event_if_ready(&invoice);
-        self.persist();
+        self.enqueue_webhook_event_if_ready(&invoice).await;
+        self.persist().await;
 
         Some(invoice)
     }
 
-    pub fn project_chain_invoice_webhook_delivery(
+    pub async fn project_chain_invoice_webhook_delivery(
         &self,
         chain_invoice_id: u64,
         outcome: WebhookDeliveryOutcome,
         max_attempts: u32,
     ) -> Option<InvoiceRecord> {
-        let mut invoices = self.invoices.write().expect("portal store lock poisoned");
+        let mut invoices = self.invoices.write().await;
         let invoice = invoices
             .values_mut()
             .find(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))?;
@@ -391,17 +401,17 @@ impl InMemoryPortalStore {
         invoice.webhook.apply_delivery(outcome, max_attempts);
         let invoice = invoice.clone();
         drop(invoices);
-        self.persist();
+        self.persist().await;
 
         Some(invoice)
     }
 
-    pub fn request_invoice_decrypt(
+    pub async fn request_invoice_decrypt(
         &self,
         invoice_id: &str,
         requested_at: DateTime<Utc>,
     ) -> Option<DecryptRequestProjection> {
-        let mut invoices = self.invoices.write().expect("portal store lock poisoned");
+        let mut invoices = self.invoices.write().await;
         let invoice = invoices.get_mut(invoice_id)?;
 
         if invoice.snapshot.payment_truth != PaymentTruth::Paid {
@@ -415,7 +425,7 @@ impl InMemoryPortalStore {
             invoice.decrypt_pending_guard_trips += 1;
             let invoice = invoice.clone();
             drop(invoices);
-            self.persist();
+            self.persist().await;
             return Some(DecryptRequestProjection::AlreadyPending(invoice));
         }
 
@@ -429,19 +439,19 @@ impl InMemoryPortalStore {
         });
         let invoice = invoice.clone();
         drop(invoices);
-        self.persist();
+        self.persist().await;
 
         Some(DecryptRequestProjection::Created(invoice))
     }
 
-    pub fn project_decrypt_callback(
+    pub async fn project_decrypt_callback(
         &self,
         request_id: &str,
         outcome: DecryptCallbackOutcome,
         callback_sender: &str,
         completed_at: DateTime<Utc>,
     ) -> Option<InvoiceRecord> {
-        let mut invoices = self.invoices.write().expect("portal store lock poisoned");
+        let mut invoices = self.invoices.write().await;
         let invoice = invoices.values_mut().find(|invoice| {
             invoice
                 .decrypt_request
@@ -454,7 +464,7 @@ impl InMemoryPortalStore {
             request.replayed_callback_count += 1;
             let invoice = invoice.clone();
             drop(invoices);
-            self.persist();
+            self.persist().await;
             return Some(invoice);
         }
 
@@ -467,18 +477,18 @@ impl InMemoryPortalStore {
 
         let invoice = invoice.clone();
         drop(invoices);
-        self.persist();
+        self.persist().await;
 
         Some(invoice)
     }
 
-    pub fn release_fulfillment(
+    pub async fn release_fulfillment(
         &self,
         invoice_id: &str,
         released_at: DateTime<Utc>,
         artifact_count: u32,
     ) -> Option<InvoiceRecord> {
-        let mut invoices = self.invoices.write().expect("portal store lock poisoned");
+        let mut invoices = self.invoices.write().await;
         let invoice = invoices.get_mut(invoice_id)?;
 
         if invoice.fulfillment_release.is_none() && invoice.snapshot.is_fulfillment_ready() {
@@ -493,16 +503,16 @@ impl InMemoryPortalStore {
 
         let invoice = invoice.clone();
         drop(invoices);
-        self.persist();
+        self.persist().await;
 
         Some(invoice)
     }
 
-    pub fn operator_diagnostics(&self, operator_auth_rejections: u32) -> OperatorDiagnostics {
+    pub async fn operator_diagnostics(&self, operator_auth_rejections: u32) -> OperatorDiagnostics {
         let invoices = self
             .invoices
             .read()
-            .expect("portal store lock poisoned")
+            .await
             .values()
             .cloned()
             .collect::<Vec<_>>();
@@ -603,192 +613,34 @@ impl InMemoryPortalStore {
         }
     }
 
-    fn persist(&self) {
-        let Some(path) = self.persistence_path.as_deref() else {
-            return;
-        };
-
-        let invoices = self
-            .invoices
-            .read()
-            .expect("portal store lock poisoned")
-            .clone();
-        let next_invoice_number = *self
-            .next_invoice_number
-            .read()
-            .expect("portal invoice counter lock poisoned");
-        let next_chain_invoice_id = *self
-            .next_chain_invoice_id
-            .read()
-            .expect("portal chain invoice counter lock poisoned");
-        let data = PortalFile {
+    async fn persist(&self) {
+        let invoices = self.invoices.read().await.clone();
+        let next_invoice_number = *self.next_invoice_number.read().await;
+        let next_chain_invoice_id = *self.next_chain_invoice_id.read().await;
+        let records = PortalRecordSet {
             invoices,
-            projects: self
-                .projects
-                .read()
-                .expect("project store lock poisoned")
-                .clone(),
-            environments: self
-                .environments
-                .read()
-                .expect("project environment store lock poisoned")
-                .clone(),
-            invoice_authorities: self
-                .invoice_authorities
-                .read()
-                .expect("invoice authority store lock poisoned")
-                .clone(),
-            api_keys: self
-                .api_keys
-                .read()
-                .expect("api key store lock poisoned")
-                .clone(),
-            webhook_endpoints: self
-                .webhook_endpoints
-                .read()
-                .expect("webhook endpoint store lock poisoned")
-                .clone(),
-            checkout_sessions: self
-                .checkout_sessions
-                .read()
-                .expect("checkout session store lock poisoned")
-                .clone(),
-            idempotency_keys: self
-                .idempotency_keys
-                .read()
-                .expect("idempotency store lock poisoned")
-                .clone(),
-            webhook_events: self
-                .webhook_events
-                .read()
-                .expect("webhook event store lock poisoned")
-                .clone(),
-            webhook_deliveries: self
-                .webhook_deliveries
-                .read()
-                .expect("webhook delivery store lock poisoned")
-                .clone(),
+            projects: self.projects.read().await.clone(),
+            subscriptions: self.subscriptions.read().await.clone(),
+            billing_payments: self.billing_payments.read().await.clone(),
+            environments: self.environments.read().await.clone(),
+            invoice_authorities: self.invoice_authorities.read().await.clone(),
+            api_keys: self.api_keys.read().await.clone(),
+            webhook_endpoints: self.webhook_endpoints.read().await.clone(),
+            checkout_sessions: self.checkout_sessions.read().await.clone(),
+            idempotency_keys: self.idempotency_keys.read().await.clone(),
+            webhook_events: self.webhook_events.read().await.clone(),
+            webhook_deliveries: self.webhook_deliveries.read().await.clone(),
+            project_withdrawals: self.project_withdrawals.read().await.clone(),
             next_invoice_number,
             next_chain_invoice_id,
         };
 
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("failed to create portal store directory");
-        }
-
-        let body = serde_json::to_string_pretty(&data).expect("failed to serialize portal store");
-        std::fs::write(path, body).expect("failed to write portal store");
+        save_portal_records(&self.database_url, &self.state_key, &records).await;
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct FinalityProgress {
-    confirmations: u64,
-    threshold: u64,
-}
-
-fn read_portal_file(path: &Path) -> Option<PortalFile> {
-    if !path.exists() {
-        return None;
-    }
-
-    let body = std::fs::read_to_string(path).expect("failed to read portal store");
-    Some(serde_json::from_str(&body).expect("failed to parse portal store"))
-}
-
-fn chain_sync_status(reorg_exceptions: u32, indexer_stalled: bool) -> String {
-    if reorg_exceptions > 0 {
-        return "intervention_required".to_string();
-    }
-
-    if indexer_stalled {
-        return "stalled".to_string();
-    }
-
-    "healthy".to_string()
-}
-
-fn has_operator_action_required(counts: impl IntoIterator<Item = u32>) -> bool {
-    counts.into_iter().any(|count| count > 0)
-}
-
-fn stalled_count(indexer_stalled: bool) -> u32 {
-    u32::from(indexer_stalled)
-}
-
-fn has_indexer_stalled(invoices: &[InvoiceRecord]) -> bool {
-    invoices.iter().any(|invoice| {
-        invoice.chain_invoice_id.is_some()
-            && invoice.payment_tx_hash.is_some()
-            && invoice.snapshot.finality_status == FinalityStatus::AwaitingFinality
-    })
-}
-
-fn indexer_cursor(invoices: &[InvoiceRecord]) -> IndexerCursor {
-    let latest = invoices
-        .iter()
-        .filter(|invoice| invoice.chain_invoice_id.is_some())
-        .max_by_key(|invoice| invoice.chain_invoice_id);
-
-    IndexerCursor {
-        latest_chain_invoice_id: latest.and_then(|invoice| invoice.chain_invoice_id),
-        latest_payment_tx_hash: latest.and_then(|invoice| invoice.payment_tx_hash.clone()),
-        indexed_invoices: invoices
-            .iter()
-            .filter(|invoice| invoice.chain_invoice_id.is_some())
-            .count() as u32,
-    }
-}
-
-fn project_paid(
-    invoice: &mut InvoiceRecord,
-    chain_invoice_id: Option<u64>,
-    payment_tx_hash: &str,
-    payer_address: &str,
-) {
-    let same_payment = invoice.payment_tx_hash.as_deref() == Some(payment_tx_hash);
-
-    invoice.chain_invoice_id = chain_invoice_id.or(invoice.chain_invoice_id);
-    invoice.payment_tx_hash = Some(payment_tx_hash.to_string());
-    invoice.payer_address = Some(payer_address.to_string());
-    invoice.snapshot.payment_truth = PaymentTruth::Paid;
-
-    if same_payment {
-        return;
-    }
-
-    invoice.finality_confirmations = 0;
-    invoice.finality_threshold = DEFAULT_FINALITY_THRESHOLD;
-    invoice.snapshot.finality_status = FinalityStatus::AwaitingFinality;
-    invoice.snapshot.fulfillment_status = FulfillmentStatus::NotReady;
-    invoice.webhook = Default::default();
-    invoice.fulfillment_release = None;
-}
-
-fn apply_finality_progress(
-    invoice: &mut InvoiceRecord,
-    snapshot: &SettlementSnapshot,
-    progress: Option<FinalityProgress>,
-) {
-    if let Some(progress) = progress {
-        invoice.finality_confirmations = progress.confirmations;
-        invoice.finality_threshold = progress.threshold;
-        return;
-    }
-
-    if snapshot.finality_status == FinalityStatus::NotPaid {
-        invoice.finality_confirmations = 0;
-    }
-}
-
-fn mark_webhook_pending_if_due(invoice: &mut InvoiceRecord) {
-    if invoice.snapshot.is_fulfillment_ready() {
-        invoice.webhook.mark_pending_if_idle();
-    }
-}
-
-fn preserve_release_status(invoice: &InvoiceRecord, snapshot: &mut SettlementSnapshot) {
-    if invoice.fulfillment_release.is_some() && snapshot.is_fulfillment_ready() {
-        snapshot.fulfillment_status = FulfillmentStatus::Released;
-    }
+fn contract_billing_protocol() -> BillingProtocolManifest {
+    local_dev_contract_manifest()
+        .map(|manifest| manifest.billing)
+        .unwrap_or_default()
 }

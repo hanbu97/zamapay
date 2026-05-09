@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createPublicClient, http, parseEventLogs, type Hex } from 'viem'
-import { sepolia } from 'viem/chains'
-import { confidentialInvoiceSettlementAbi, localHardhat } from '@/lib/contracts'
+import { confidentialInvoiceSettlementAbi } from '@/lib/contracts'
+import { contractEnvironmentConfig, contractEnvironmentForChainId, serverContractEnvironment } from '@/lib/contract-environment'
 
 type ProjectionRequest = {
   paymentTxHash?: string
@@ -25,7 +25,7 @@ type ContractManifest = {
 }
 
 const rustApiBaseUrl = process.env.MERMER_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
-const contractEnvironment = process.env.NEXT_PUBLIC_CONTRACT_ENV ?? 'local-dev'
+const contractEnvironment = serverContractEnvironment()
 const defaultOperatorKey = 'local-operator-dev-key'
 const confirmations = Number(process.env.CONFIRMATIONS ?? 2)
 const finalityThreshold = Number(process.env.FINALITY_THRESHOLD ?? 2)
@@ -56,16 +56,12 @@ function routeFailure(caught: unknown) {
 }
 
 function publicClientForChain(chainId: number | null) {
-  if (chainId === sepolia.id) {
-    return createPublicClient({
-      chain: sepolia,
-      transport: http(process.env.SEPOLIA_RPC_URL),
-    })
-  }
+  const environment = contractEnvironmentForChainId(chainId) ?? contractEnvironment
+  const config = contractEnvironmentConfig(environment)
 
   return createPublicClient({
-    chain: localHardhat,
-    transport: http(),
+    chain: config.chain,
+    transport: http(environment === 'sepolia' ? process.env.SEPOLIA_RPC_URL : undefined),
   })
 }
 
@@ -135,7 +131,19 @@ async function findInvoicePaidEvent(paymentTxHash: Hex, chainId: number | null, 
     throw new RouteError('InvoicePaid event was not emitted by the current settlement contract.', 409)
   }
 
-  return paidLog
+  const splitLogs = parseEventLogs({
+    abi: confidentialInvoiceSettlementAbi,
+    eventName: 'InvoicePaymentSplit',
+    logs: settlementLogs,
+  })
+  const splitLog = splitLogs.find((log) => log.args.invoiceId === paidLog.args.invoiceId)
+
+  return {
+    chainInvoiceId: Number(paidLog.args.invoiceId),
+    payerAddress: paidLog.args.payer,
+    platformFeeAmountHandle: splitLog?.args.platformFeeAmountHandle ?? null,
+    settledAmountHandle: splitLog?.args.settledAmountHandle ?? null,
+  }
 }
 
 async function projectPayment(paymentTxHash: Hex, chainInvoiceId: number, payerAddress: string) {
@@ -159,15 +167,16 @@ export async function POST(request: Request) {
 
   try {
     const { chainId, settlementAddress } = await loadSettlementManifest()
-    const paidLog = await findInvoicePaidEvent(body.paymentTxHash, chainId, settlementAddress)
-    const chainInvoiceId = Number(paidLog.args.invoiceId)
-    const { projected, finality } = await projectPayment(body.paymentTxHash, chainInvoiceId, paidLog.args.payer)
+    const paid = await findInvoicePaidEvent(body.paymentTxHash, chainId, settlementAddress)
+    const { projected, finality } = await projectPayment(body.paymentTxHash, paid.chainInvoiceId, paid.payerAddress)
 
     return NextResponse.json({
       chainId,
-      chainInvoiceId,
+      chainInvoiceId: paid.chainInvoiceId,
       paymentTxHash: body.paymentTxHash,
-      payerAddress: paidLog.args.payer,
+      payerAddress: paid.payerAddress,
+      platformFeeAmountHandle: paid.platformFeeAmountHandle,
+      settledAmountHandle: paid.settledAmountHandle,
       projected,
       finality,
     })

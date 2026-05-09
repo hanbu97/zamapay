@@ -19,6 +19,25 @@ function isEnabled(request: Request) {
   })
 }
 
+export async function GET(request: Request) {
+  if (!isEnabled(request)) {
+    return NextResponse.json({ error: 'dev signing is available only for local non-production verification.' }, { status: 404 })
+  }
+
+  const account = privateKeyToAccount(localLoginPrivateKey as `0x${string}`)
+
+  return NextResponse.json(
+    {
+      address: account.address,
+    },
+    {
+      headers: {
+        'cache-control': 'no-store',
+      },
+    },
+  )
+}
+
 export async function POST(request: Request) {
   if (!isEnabled(request)) {
     return NextResponse.json({ error: 'dev signing is available only for local non-production verification.' }, { status: 404 })
