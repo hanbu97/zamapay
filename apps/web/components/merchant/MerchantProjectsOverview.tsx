@@ -23,12 +23,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { createPaymentProject, createProjectApiKey, type PaymentProject, type ProjectEnvironmentKind } from '@/lib/api'
-import { projectEnvironmentOptions } from '@/lib/contract-environment'
+import { createPaymentProject, createProjectApiKey, type PaymentProject } from '@/lib/api'
 import { OneTimeSecretDialog, buildIntegrationBundle, formatEnvironment, type OneTimeSecret } from './PaymentProjectConsoleParts'
 
 type MerchantProjectsOverviewProps = {
@@ -39,7 +38,7 @@ type ProjectFilter = 'all' | 'active' | 'disabled'
 type ProjectSort = 'name' | 'newest'
 type ProjectView = 'grid' | 'list'
 
-const environmentOptions: Array<{ label: string; value: ProjectEnvironmentKind }> = [...projectEnvironmentOptions]
+const defaultProjectEnvironment = 'local_dev'
 
 const statusOptions: Array<{ label: string; value: ProjectFilter }> = [
   { label: 'All status', value: 'all' },
@@ -61,7 +60,6 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
   const [view, setView] = useState<ProjectView>('grid')
   const [createOpen, setCreateOpen] = useState(false)
   const [projectName, setProjectName] = useState('Online store')
-  const [projectEnvironment, setProjectEnvironment] = useState<ProjectEnvironmentKind>('local_dev')
   const [webhookUrl, setWebhookUrl] = useState('http://127.0.0.1:8092/api/mermer-pay/webhook')
   const [apiKeyLabel, setApiKeyLabel] = useState('Merchant backend')
   const [oneTimeSecret, setOneTimeSecret] = useState<OneTimeSecret | null>(null)
@@ -128,7 +126,7 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
     event.preventDefault()
     await runAction('create-project', async () => {
       const created = await createPaymentProject({
-        environment: projectEnvironment,
+        environment: defaultProjectEnvironment,
         name: projectName,
         webhookUrl: webhookUrl.trim() ? webhookUrl : undefined,
       })
@@ -138,11 +136,11 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
       })
       setProjects((current) => [created.project, ...current.filter((project) => project.projectId !== created.project.projectId)])
       setCreateOpen(false)
-      setStatus('Project created. Copy the backend env bundle, then open the project.')
+      setStatus('Project created. Copy the shell exports, then open the project.')
       revealOneTimeSecret({
-        copyLabel: 'Backend .env',
-        description: 'This integration bundle is shown once. Copy it into the standalone merchant backend before continuing.',
-        title: 'Copy integration bundle',
+        copyLabel: 'Shell exports',
+        description: 'This bundle is shown once. Paste these export lines into the CardForge backend terminal before cargo run.',
+        title: 'Copy CardForge backend exports',
         value: buildIntegrationBundle({
           apiBaseUrl,
           apiKey: apiKey.apiKey,
@@ -235,11 +233,9 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
               createOpen={createOpen}
               onApiKeyLabelChange={setApiKeyLabel}
               onCreateOpenChange={setCreateOpen}
-              onProjectEnvironmentChange={setProjectEnvironment}
               onProjectNameChange={setProjectName}
               onSubmit={handleCreateProject}
               onWebhookUrlChange={setWebhookUrl}
-              projectEnvironment={projectEnvironment}
               projectName={projectName}
               webhookUrl={webhookUrl}
             />
@@ -274,11 +270,9 @@ function CreateProjectDialog({
   createOpen,
   onApiKeyLabelChange,
   onCreateOpenChange,
-  onProjectEnvironmentChange,
   onProjectNameChange,
   onSubmit,
   onWebhookUrlChange,
-  projectEnvironment,
   projectName,
   webhookUrl,
 }: {
@@ -287,11 +281,9 @@ function CreateProjectDialog({
   createOpen: boolean
   onApiKeyLabelChange: (value: string) => void
   onCreateOpenChange: (open: boolean) => void
-  onProjectEnvironmentChange: (value: ProjectEnvironmentKind) => void
   onProjectNameChange: (value: string) => void
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
   onWebhookUrlChange: (value: string) => void
-  projectEnvironment: ProjectEnvironmentKind
   projectName: string
   webhookUrl: string
 }) {
@@ -316,24 +308,6 @@ function CreateProjectDialog({
                 </InputGroupAddon>
                 <InputGroupInput id="project-name" onChange={(event) => onProjectNameChange(event.target.value)} value={projectName} />
               </InputGroup>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="project-environment">Environment</FieldLabel>
-              <Select items={environmentOptions} onValueChange={(value) => onProjectEnvironmentChange(value as ProjectEnvironmentKind)} value={projectEnvironment}>
-                <SelectTrigger className="w-full" id="project-environment">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {environmentOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              <FieldDescription>Local dev is deterministic. Public testnets are paused until protocol-fee policy is explicit.</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="project-webhook">Webhook URL</FieldLabel>

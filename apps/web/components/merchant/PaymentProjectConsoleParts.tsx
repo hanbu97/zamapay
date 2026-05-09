@@ -29,7 +29,7 @@ export function OneTimeSecretDialog({
 }) {
   return (
     <Dialog onOpenChange={onOpenChange} open={Boolean(secret)}>
-      <DialogContent showCloseButton={false}>
+      <DialogContent className="[--mermer-dialog-width:44rem]" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{secret?.title ?? 'Copy secret'}</DialogTitle>
           <DialogDescription>{secret?.description ?? 'Copy this value before continuing.'}</DialogDescription>
@@ -39,7 +39,7 @@ export function OneTimeSecretDialog({
             <Badge className="w-fit" variant="outline">
               {secret.copyLabel}
             </Badge>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border bg-muted/40 p-3 font-mono text-xs leading-5">{secret.value}</pre>
+            <pre className="max-h-48 overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs leading-5 whitespace-pre">{secret.value}</pre>
           </div>
         ) : null}
         <DialogFooter>
@@ -262,11 +262,19 @@ export function buildIntegrationBundle({
   webhookSecret: string | null
 }) {
   return [
-    `MERMER_PAY_PROJECT_ID=${projectId}`,
-    `MERMER_PAY_API_KEY=${apiKey}`,
-    `MERMER_PAY_API_URL=${apiBaseUrl}`,
-    `MERMER_PAY_WEBHOOK_SECRET=${webhookSecret ?? '<create a webhook endpoint first>'}`,
+    buildEnvExport('MERMER_PAY_PROJECT_ID', projectId),
+    buildEnvExport('MERMER_PAY_API_KEY', apiKey),
+    buildEnvExport('MERMER_PAY_API_URL', apiBaseUrl),
+    buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', webhookSecret ?? '<create a webhook endpoint first>'),
   ].join('\n')
+}
+
+export function buildEnvExport(key: string, value: string) {
+  return `export ${key}=${shellQuote(value)}`
+}
+
+function shellQuote(value: string) {
+  return `'${value.split("'").join("'\\''")}'`
 }
 
 export function compact(value: string | null | undefined) {

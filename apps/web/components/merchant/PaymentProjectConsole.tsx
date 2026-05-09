@@ -41,6 +41,7 @@ import {
   MerchantSetupFlow,
   MetricCard,
   OneTimeSecretDialog,
+  buildEnvExport,
   buildIntegrationBundle,
   compact,
   copyText,
@@ -90,10 +91,10 @@ export function PaymentProjectConsole({
   const activeTab = normalizeTab(initialTab)
   const currentPlanCatalog = initialBilling.plans.find((plan) => plan.plan === initialBilling.subscription.plan)
   const integrationSnippet = [
-    `MERMER_PAY_PROJECT_ID=${project.projectId}`,
-    'MERMER_PAY_API_KEY=<generated once>',
-    `MERMER_PAY_API_URL=${apiBaseUrl}`,
-    'MERMER_PAY_WEBHOOK_SECRET=<shown once when webhook is created>',
+    buildEnvExport('MERMER_PAY_PROJECT_ID', project.projectId),
+    buildEnvExport('MERMER_PAY_API_KEY', '<generated once>'),
+    buildEnvExport('MERMER_PAY_API_URL', apiBaseUrl),
+    buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', '<shown once when webhook is created>'),
   ].join('\n')
 
   function revealOneTimeSecret(secret: Omit<OneTimeSecret, 'copied'>) {
@@ -142,12 +143,12 @@ export function PaymentProjectConsole({
         environment: project.defaultEnvironment,
         label: apiKeyLabel,
       })
-      setStatus('API key created. Store it in the standalone merchant backend environment.')
+      setStatus('API key created. Paste the export line into the standalone merchant backend terminal.')
       revealOneTimeSecret({
-        copyLabel: 'MERMER_PAY_API_KEY',
-        description: 'This project API key is shown once. Copy it into the merchant backend as a server-side secret.',
-        title: 'Copy project API key',
-        value: created.apiKey,
+        copyLabel: 'Shell export',
+        description: 'This project API key is shown once. Paste this export line into the merchant backend terminal as a server-side secret.',
+        title: 'Copy API key export',
+        value: buildEnvExport('MERMER_PAY_API_KEY', created.apiKey),
       })
       await refresh()
     })
@@ -160,13 +161,13 @@ export function PaymentProjectConsole({
         environment: project.defaultEnvironment,
         url: webhookUrl,
       })
-      setStatus('Webhook endpoint created. Use the secret in the standalone merchant backend.')
+      setStatus('Webhook endpoint created. Paste the export line into the standalone merchant backend terminal.')
       if (configured.webhookSecret) {
         revealOneTimeSecret({
-          copyLabel: 'MERMER_PAY_WEBHOOK_SECRET',
-          description: 'This webhook secret is shown once. Copy it into the merchant backend so callbacks can be verified.',
-          title: 'Copy webhook secret',
-          value: configured.webhookSecret,
+          copyLabel: 'Shell export',
+          description: 'This webhook secret is shown once. Paste this export line into the merchant backend terminal so callbacks can be verified.',
+          title: 'Copy webhook secret export',
+          value: buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', configured.webhookSecret),
         })
       }
       await refresh()
@@ -328,7 +329,7 @@ export function PaymentProjectConsole({
                   <CardDescription>Use these values in a standalone merchant backend.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
-                  <CodeBlock actionLabel="Copy env" onCopy={() => copyText(integrationSnippet, setStatus)} value={integrationSnippet} />
+                  <CodeBlock actionLabel="Copy exports" onCopy={() => copyText(integrationSnippet, setStatus)} value={integrationSnippet} />
                 </CardContent>
               </Card>
             </div>

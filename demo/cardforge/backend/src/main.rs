@@ -1,8 +1,10 @@
 use std::{
     collections::BTreeMap,
-    env,
+    env, io,
     net::SocketAddr,
+    process::Command,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use axum::{
@@ -16,7 +18,7 @@ use ethers_core::utils::keccak256;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, time::sleep};
 use tower_http::{cors::AllowOrigin, cors::CorsLayer, trace::TraceLayer};
 use uuid::Uuid;
 
@@ -26,6 +28,15 @@ const DEFAULT_CONSOLE_URL: &str = "http://127.0.0.1:3001/merchant";
 const DEFAULT_LOGIN_URL: &str = "http://127.0.0.1:3001/login";
 const DEFAULT_MERCHANT_LABEL: &str = "CardForge Demo Store";
 const DEFAULT_WEBHOOK_ENDPOINT: &str = "http://127.0.0.1:8092/api/mermer-pay/webhook";
+const DEMO_BACKEND_PROCESS_NAME: &str = "cardforge-backend";
+
+type DynError = Box<dyn std::error::Error>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PortListener {
+    pid: u32,
+    command: String,
+}
 
 #[derive(Clone)]
 struct AppState {
@@ -191,16 +202,151 @@ struct ApiError {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), DynError> {
     let config = Config::from_env()?;
     let bind_addr = config.bind_addr;
     let state = AppState::new(config);
-    let listener = TcpListener::bind(bind_addr).await?;
+    let listener = bind_demo_listener(bind_addr).await?;
 
     println!("CardForge backend listening on http://{bind_addr}");
     axum::serve(listener, app(state)).await?;
 
     Ok(())
+}
+
+async fn bind_demo_listener(bind_addr: SocketAddr) -> Result<TcpListener, DynError> {
+    match TcpListener::bind(bind_addr).await {
+        Ok(listener) => Ok(listener),
+        Err(error) if error.kind() == io::ErrorKind::AddrInUse => {
+            stop_previous_cardforge_backend(bind_addr, "-TERM")?;
+            wait_for_released_port(bind_addr).await
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
+async fn wait_for_released_port(bind_addr: SocketAddr) -> Result<TcpListener, DynError> {
+    for attempt in 0..20 {
+        sleep(Duration::from_millis(100)).await;
+
+        match TcpListener::bind(bind_addr).await {
+            Ok(listener) => return Ok(listener),
+            Err(error) if error.kind() == io::ErrorKind::AddrInUse => {
+                if attempt == 9 {
+                    stop_previous_cardforge_backend(bind_addr, "-KILL")?;
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::AddrInUse,
+        format!("port {bind_addr} stayed busy after replacing the old CardForge backend"),
+    )
+    .into())
+}
+
+fn stop_previous_cardforge_backend(bind_addr: SocketAddr, signal: &str) -> Result<(), DynError> {
+    let listeners = listeners_on_port(bind_addr.port())?;
+    let matching: Vec<_> = listeners
+        .iter()
+        .filter(|listener| is_cardforge_backend_command(&listener.command))
+        .cloned()
+        .collect();
+
+    if matching.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::AddrInUse,
+            format!(
+                "port {bind_addr} is occupied, but no {DEMO_BACKEND_PROCESS_NAME} listener was found: {}",
+                listener_summary(&listeners)
+            ),
+        )
+        .into());
+    }
+
+    for listener in matching {
+        println!(
+            "CardForge backend port {bind_addr} is occupied by PID {}; sending {signal}.",
+            listener.pid
+        );
+        signal_process(listener.pid, signal)?;
+    }
+
+    Ok(())
+}
+
+fn listeners_on_port(port: u16) -> Result<Vec<PortListener>, DynError> {
+    let port_filter = format!("-iTCP:{port}");
+    let output = Command::new("lsof")
+        .args(["-nP", &port_filter, "-sTCP:LISTEN", "-t"])
+        .output()?;
+
+    if !output.status.success() && output.stdout.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut pids = parse_lsof_pids(&output.stdout);
+    pids.sort_unstable();
+    pids.dedup();
+
+    let listeners = pids
+        .into_iter()
+        .filter_map(|pid| {
+            let command = process_command(pid).ok()?;
+            (!command.is_empty()).then_some(PortListener { pid, command })
+        })
+        .collect();
+
+    Ok(listeners)
+}
+
+fn parse_lsof_pids(stdout: &[u8]) -> Vec<u32> {
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse().ok())
+        .collect()
+}
+
+fn process_command(pid: u32) -> Result<String, DynError> {
+    let output = Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()?;
+
+    if !output.status.success() {
+        return Ok(String::new());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+fn signal_process(pid: u32, signal: &str) -> Result<(), DynError> {
+    let status = Command::new("kill")
+        .args([signal, &pid.to_string()])
+        .status()?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!("failed to send {signal} to PID {pid}")).into())
+    }
+}
+
+fn is_cardforge_backend_command(command: &str) -> bool {
+    command.contains(DEMO_BACKEND_PROCESS_NAME)
+}
+
+fn listener_summary(listeners: &[PortListener]) -> String {
+    if listeners.is_empty() {
+        return "no visible listener".to_string();
+    }
+
+    listeners
+        .iter()
+        .map(|listener| format!("PID {} ({})", listener.pid, listener.command))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn app(state: AppState) -> Router {
@@ -229,10 +375,8 @@ impl AppState {
 
 impl Config {
     fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
-        let mermer_console_url = clean_base_url(env_value(
-            "MERMER_PAY_CONSOLE_URL",
-            DEFAULT_CONSOLE_URL,
-        ));
+        let mermer_console_url =
+            clean_base_url(env_value("MERMER_PAY_CONSOLE_URL", DEFAULT_CONSOLE_URL));
         Ok(Self {
             bind_addr: env_value("CARDFORGE_BACKEND_BIND", DEFAULT_BIND_ADDR).parse()?,
             login_url: env_value("MERMER_PAY_LOGIN_URL", DEFAULT_LOGIN_URL),
@@ -516,14 +660,18 @@ fn fulfillment_snapshot(state: &AppState) -> Result<FulfillmentSnapshot, ApiErro
 fn released_cards(checkout_session_id: &str) -> Vec<ReleasedCard> {
     let suffix = checkout_suffix(checkout_session_id);
 
-    ["SEA prepaid code", "Game wallet code", "Instant access code"]
-        .into_iter()
-        .enumerate()
-        .map(|(index, label)| ReleasedCard {
-            label: label.to_string(),
-            secret: format!("CF-{}-{}", index + 1, suffix),
-        })
-        .collect()
+    [
+        "SEA prepaid code",
+        "Game wallet code",
+        "Instant access code",
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, label)| ReleasedCard {
+        label: label.to_string(),
+        secret: format!("CF-{}-{}", index + 1, suffix),
+    })
+    .collect()
 }
 
 fn checkout_suffix(checkout_session_id: &str) -> String {
@@ -804,6 +952,26 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn detects_only_the_cardforge_demo_backend_listener() {
+        assert!(is_cardforge_backend_command(
+            "/tmp/predict/demo/cardforge/backend/target/debug/cardforge-backend"
+        ));
+        assert!(is_cardforge_backend_command(
+            "target/debug/cardforge-backend"
+        ));
+        assert!(!is_cardforge_backend_command("node apps/web/server.js"));
+        assert!(!is_cardforge_backend_command("target/debug/other-backend"));
+    }
+
+    #[test]
+    fn parses_lsof_listener_pids_without_trusting_noise() {
+        assert_eq!(
+            parse_lsof_pids(b"123\n456\nbad\n123\n"),
+            vec![123, 456, 123]
+        );
+    }
+
     #[tokio::test]
     async fn checkout_uses_project_api_key_and_drops_browser_cookie() {
         let captured = Arc::new(Mutex::new(None::<(String, HeaderMap)>));
@@ -979,28 +1147,32 @@ mod tests {
             "mmp_test_secret",
         ));
 
-        assert!(release_from_webhook(
-            &state,
-            &json!({
-                "event": "invoice.fulfillment_ready",
-                "checkoutSessionId": "cs_z_first",
-                "invoiceId": "cs_z_first",
-                "paymentTruth": "paid",
-                "finalityStatus": "finality_safe"
-            }),
-        )
-        .is_ok());
-        assert!(release_from_webhook(
-            &state,
-            &json!({
-                "event": "invoice.fulfillment_ready",
-                "checkoutSessionId": "cs_a_second",
-                "invoiceId": "cs_a_second",
-                "paymentTruth": "paid",
-                "finalityStatus": "finality_safe"
-            }),
-        )
-        .is_ok());
+        assert!(
+            release_from_webhook(
+                &state,
+                &json!({
+                    "event": "invoice.fulfillment_ready",
+                    "checkoutSessionId": "cs_z_first",
+                    "invoiceId": "cs_z_first",
+                    "paymentTruth": "paid",
+                    "finalityStatus": "finality_safe"
+                }),
+            )
+            .is_ok()
+        );
+        assert!(
+            release_from_webhook(
+                &state,
+                &json!({
+                    "event": "invoice.fulfillment_ready",
+                    "checkoutSessionId": "cs_a_second",
+                    "invoiceId": "cs_a_second",
+                    "paymentTruth": "paid",
+                    "finalityStatus": "finality_safe"
+                }),
+            )
+            .is_ok()
+        );
 
         let snapshot = match fulfillment_snapshot(&state) {
             Ok(snapshot) => snapshot,

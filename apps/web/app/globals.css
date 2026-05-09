@@ -193,7 +193,7 @@
   }
 
   .mermer-dialog-panel {
-    width: min(calc(100% - var(--mermer-page-x) - var(--mermer-page-x)), 30rem);
+    width: min(calc(100% - var(--mermer-page-x) - var(--mermer-page-x)), var(--mermer-dialog-width, 30rem));
     gap: var(--mermer-dialog-gap);
     padding: var(--mermer-dialog-y) var(--mermer-dialog-x);
   }
