@@ -28,21 +28,92 @@ export type FulfillmentSnapshot = {
   releasedCount: number
 }
 
+export type WebhookReceipt = {
+  id: null | string
+  payload: {
+    amountLabel?: string
+    amountMinorUnits?: number
+    chainInvoiceId?: number
+    chainTxHash?: null | string
+    checkoutSessionId?: string
+    createdAt?: string
+    event?: string
+    finalityStatus?: string
+    fulfillmentStatus?: string
+    invoiceId?: string
+    paymentTruth?: string
+    paymentTxHash?: null | string
+  } & Record<string, unknown>
+  signature: null | string
+}
+
+export type WebhookLog = {
+  events: WebhookReceipt[]
+  receivedEventCount: number
+}
+
+export type OwnedCardRecord = {
+  amountLabel: string
+  amountMinorUnits: number
+  cards: Array<{
+    label: string
+    secret: string
+  }>
+  chainInvoiceId: number
+  checkoutSessionId: string
+  id: string
+  invoiceId: string
+  paymentTxHash: null | string
+  productId: string
+  purchasedAt: string
+  title: string
+  walletAddress: string
+}
+
+export type PaymentActivityRecord = {
+  amountLabel: string
+  amountMinorUnits: string
+  chainId: number
+  chainInvoiceId: number | null
+  checkoutSessionId: string | null
+  recordedAt: string
+  status: 'confirmed'
+  txHash: string
+  type: 'payment'
+}
+
+export type WalletActivityResponse = {
+  ownedCards: OwnedCardRecord[]
+  payments: PaymentActivityRecord[]
+}
+
 type ErrorBody = {
   code?: string
   loginUrl?: string
   message?: string
 }
 
-export async function createCardForgeCheckout(config: CardForgeConfig) {
+export async function createCardForgeCheckout(
+  config: CardForgeConfig,
+  productId = 'mythic-loadout',
+  buyerWalletAddress?: null | string,
+) {
   const response = await fetch(`${config.apiBaseUrl}/api/orders/checkout`, {
     method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      ...(buyerWalletAddress ? { buyerWalletAddress } : {}),
+      productId,
+    }),
     credentials: 'omit',
   })
 
   if (!response.ok) {
     const body = await readErrorBody(response)
-    const code = body.code === 'mermer_project_auth_failed' ? body.code : 'checkout_create_failed'
+    const code =
+      body.code === 'mermer_project_auth_failed' || body.code === 'unknown_product' ? body.code : 'checkout_create_failed'
 
     throw new CardForgeApiError(code, body.message ?? `CardForge backend returned ${response.status}.`, body.loginUrl)
   }
@@ -62,6 +133,37 @@ export async function getCardForgeFulfillment(config: CardForgeConfig) {
   }
 
   return response.json() as Promise<FulfillmentSnapshot>
+}
+
+export async function getCardForgeWebhookLog(config: CardForgeConfig) {
+  const response = await fetch(`${config.apiBaseUrl}/api/mermer-pay/webhooks`, {
+    credentials: 'omit',
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    const body = await readErrorBody(response)
+    throw new CardForgeApiError('webhook_log_read_failed', body.message ?? `CardForge backend returned ${response.status}.`)
+  }
+
+  return response.json() as Promise<WebhookLog>
+}
+
+export async function getCardForgeWalletActivity(config: CardForgeConfig, walletAddress: string) {
+  const response = await fetch(`${config.apiBaseUrl}/api/wallets/${encodeURIComponent(walletAddress)}/activity`, {
+    credentials: 'omit',
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    const body = await readErrorBody(response)
+    throw new CardForgeApiError(
+      'wallet_activity_read_failed',
+      body.message ?? `CardForge backend returned ${response.status}.`,
+    )
+  }
+
+  return response.json() as Promise<WalletActivityResponse>
 }
 
 async function readErrorBody(response: Response): Promise<ErrorBody> {
@@ -90,7 +192,10 @@ export class CardForgeApiError extends Error {
     public readonly code:
       | 'checkout_create_failed'
       | 'fulfillment_read_failed'
-      | 'mermer_project_auth_failed',
+      | 'mermer_project_auth_failed'
+      | 'webhook_log_read_failed'
+      | 'wallet_activity_read_failed'
+      | 'unknown_product',
     message: string,
     public readonly loginUrl?: string,
   ) {

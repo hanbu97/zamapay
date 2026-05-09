@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2Icon, CreditCardIcon, LockKeyholeIcon, ShieldCheckIcon } from 'lucide-react'
 import { bytesToHex, createPublicClient, createWalletClient, custom, getAddress, http } from 'viem'
-import { StatusStepper, type StatusStepperItem } from '@/components/commerce/StatusStepper'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -12,7 +11,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Spinner } from '@/components/ui/spinner'
 import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib/contract-environment'
 import { privateCheckoutSettlementAbi } from '@/lib/contracts'
-import { encryptLocalEuint64, publicDecryptLocalBool } from '@/lib/local-fhevm-browser'
+import { encryptLocalEuint64 } from '@/lib/local-fhevm-browser'
 import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
 type HexAddress = `0x${string}`
@@ -31,15 +30,13 @@ type CheckoutPaymentCardProps = {
   tokenAddress: string | null
 }
 
-type PaymentStep = 'encrypt' | 'finalize' | 'invoice' | 'project' | 'submit'
-
-const paymentStepOrder: Record<PaymentStep, number> = {
-  invoice: 1,
-  encrypt: 2,
-  submit: 3,
-  finalize: 4,
-  project: 5,
-}
+const checkoutStatus = {
+  accepted: 3,
+  created: 1,
+  expired: 5,
+  rejected: 4,
+  submitted: 2,
+} as const
 
 function ensureHexAddress(address: string | null, label: string): HexAddress {
   if (!address) {
@@ -54,7 +51,19 @@ function ensureHexAddress(address: string | null, label: string): HexAddress {
 }
 
 function readableError(caught: unknown): string {
-  return caught instanceof Error ? caught.message : 'Confidential payment failed.'
+  const message = caught instanceof Error ? caught.message : 'Confidential payment failed.'
+
+  if (message.includes('User rejected')) {
+    return 'Wallet request was rejected. Confirm the next wallet prompt to continue.'
+  }
+
+  const revertReason = message.match(/reverted with the following reason:\s*([^\n]+)/i)
+  if (revertReason?.[1]) {
+    return revertReason[1].trim()
+  }
+
+  const firstLine = message.split('\n')[0]?.trim() || message
+  return firstLine.length > 180 ? `${firstLine.slice(0, 177)}...` : firstLine
 }
 
 function isPaymentComplete(paymentTruth: string, finalityStatus: string) {
@@ -63,8 +72,8 @@ function isPaymentComplete(paymentTruth: string, finalityStatus: string) {
 
 function initialPaymentStatus(paymentTruth: string, finalityStatus: string) {
   return isPaymentComplete(paymentTruth, finalityStatus)
-    ? 'Payment already verified. Project backend can fulfill this order.'
-    : 'Connect a buyer wallet to submit the encrypted payment.'
+    ? 'Payment complete.'
+    : 'Confirm the private payment with your wallet.'
 }
 
 function parseProjectionError(text: string): string {
@@ -76,16 +85,16 @@ function parseProjectionError(text: string): string {
   }
 }
 
-async function projectFinalizedPayment(paymentTxHash: HexAddress, chainInvoiceId?: number) {
+async function finalizeAndProjectLocalPayment(chainInvoiceId: number) {
   const response = await fetch('/api/checkout/project-finalized-payment', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chainInvoiceId, paymentTxHash }),
+    body: JSON.stringify({ chainInvoiceId }),
   })
   const text = await response.text()
 
   if (!response.ok) {
-    throw new Error(parseProjectionError(text) || `Payment projection failed with ${response.status}.`)
+    throw new Error(parseProjectionError(text) || `Payment finalization failed with ${response.status}.`)
   }
 }
 
@@ -103,31 +112,19 @@ export function CheckoutPaymentCard({
   tokenAddress,
 }: CheckoutPaymentCardProps) {
   const router = useRouter()
+  const redirectTimerRef = useRef<number | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [finalizeHash, setFinalizeHash] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
-  const [paymentStep, setPaymentStep] = useState<PaymentStep>('encrypt')
-  const [paymentHash, setPaymentHash] = useState<string | null>(null)
+  const [optimisticPaid, setOptimisticPaid] = useState(false)
   const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus))
 
   const manifestEnvironment = contractEnvironmentForChainId(manifestChainId)
   const isLocalDevManifest = manifestEnvironment === 'local-dev'
-  const isPaid = isPaymentComplete(paymentTruth, finalityStatus)
+  const isPaid = optimisticPaid || isPaymentComplete(paymentTruth, finalityStatus)
   const isPayable = paymentTruth === 'pending_payment' && chainInvoiceId !== null
   const canPayOnLocalDev = isPayable && isLocalDevManifest && Boolean(settlementAddress) && Boolean(tokenAddress)
   const canPay = canPayOnLocalDev
-  const paymentBadgeLabel = isPaid ? 'Payment verified' : canPay ? 'Local-dev ready' : 'Awaiting local-dev invoice'
-  const paymentSteps = getPaymentSteps({
-    canPay,
-    chainInvoiceId,
-    error,
-    finalizeHash,
-    finalityStatus,
-    isBusy,
-    paymentHash,
-    paymentStep,
-    paymentTruth,
-  })
+  const paymentBadgeLabel = isPaid ? 'Success' : canPay ? 'Local-dev ready' : 'Awaiting local-dev invoice'
 
   useEffect(() => {
     if (!isPaymentComplete(paymentTruth, finalityStatus)) {
@@ -138,12 +135,18 @@ export function CheckoutPaymentCard({
     setStatus(initialPaymentStatus(paymentTruth, finalityStatus))
   }, [finalityStatus, paymentTruth])
 
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current !== null) {
+        window.clearTimeout(redirectTimerRef.current)
+      }
+    }
+  }, [])
+
   async function handlePayment() {
     setIsBusy(true)
     setError(null)
-    setFinalizeHash(null)
-    setPaymentHash(null)
-    setPaymentStep('encrypt')
+    setOptimisticPaid(false)
 
     try {
       if (!canPay || chainInvoiceId === null) {
@@ -178,58 +181,58 @@ export function CheckoutPaymentCard({
           functionName: 'orderCommitmentOf',
           args: [BigInt(chainInvoiceId)],
         })
+        const currentCheckoutStatus = Number(
+          await publicClient.readContract({
+            address: settlement,
+            abi: privateCheckoutSettlementAbi,
+            functionName: 'statusOf',
+            args: [orderCommitment],
+          }),
+        )
 
-        setPaymentStep('encrypt')
-        setStatus(`Encrypting ${amountLabel} with the local FHEVM mock RPC...`)
-        const encryptedPayment = await encryptLocalEuint64({
-          amountMinorUnits: BigInt(amountMinorUnits),
-          chainId: manifestChainId ?? paymentEnvironment.chain.id,
-          contractAddress: settlement,
-          rpcUrl,
-          userAddress: payerAddress,
-        })
-
-        setPaymentStep('submit')
-        setStatus(`Submitting encrypted ${amountLabel} from the buyer wallet...`)
-        const paymentNonce = randomNonce()
-        const paymentTxHash = await walletClient.writeContract({
-          account: payerAddress,
-          address: settlement,
-          abi: privateCheckoutSettlementAbi,
-          functionName: 'submitPrivatePayment',
-          args: [orderCommitment, paymentNonce, encryptedPayment.handle, encryptedPayment.inputProof],
-        })
-        setPaymentHash(paymentTxHash)
-        await publicClient.waitForTransactionReceipt({ hash: paymentTxHash })
-
-        setPaymentStep('finalize')
-        setStatus('Local FHEVM mock decrypts only the paid/rejected boolean...')
-        const paymentCheckHandle = await publicClient.readContract({
-          address: settlement,
-          abi: privateCheckoutSettlementAbi,
-          functionName: 'paymentCheckHandleOf',
-          args: [orderCommitment],
-        })
-        const proof = await publicDecryptLocalBool(rpcUrl, paymentCheckHandle)
-        if (!proof.accepted) {
-          throw new Error('Encrypted payment was rejected by the settlement proof.')
+        if (currentCheckoutStatus === checkoutStatus.expired) {
+          throw new Error('This checkout has expired. Return to CardForge and create a new order.')
         }
-        const finalizeTxHash = await walletClient.writeContract({
-          account: payerAddress,
-          address: settlement,
-          abi: privateCheckoutSettlementAbi,
-          functionName: 'finalizePrivatePayment',
-          args: [orderCommitment, proof.abiEncodedClearValues, proof.decryptionProof],
-        })
-        setFinalizeHash(finalizeTxHash)
-        await publicClient.waitForTransactionReceipt({ hash: finalizeTxHash })
 
-        setPaymentStep('project')
-        setStatus('Payment confirmed on local chain. Projecting backend read model...')
-        await projectFinalizedPayment(finalizeTxHash, chainInvoiceId)
+        if (currentCheckoutStatus === checkoutStatus.rejected) {
+          throw new Error('This checkout was rejected. Return to CardForge and create a new order.')
+        }
 
-        setStatus('Encrypted payment projected. Refreshing fulfillment state...')
-        router.refresh()
+        if (currentCheckoutStatus === checkoutStatus.accepted) {
+          completePayment()
+          return
+        }
+
+        if (currentCheckoutStatus === checkoutStatus.created) {
+          setStatus('Preparing private payment...')
+          const encryptedPayment = await encryptLocalEuint64({
+            amountMinorUnits: BigInt(amountMinorUnits),
+            chainId: manifestChainId ?? paymentEnvironment.chain.id,
+            contractAddress: settlement,
+            rpcUrl,
+            userAddress: payerAddress,
+          })
+
+          setStatus(`Confirm ${amountLabel} in your wallet.`)
+          const paymentNonce = randomNonce()
+          const paymentTxHash = await walletClient.writeContract({
+            account: payerAddress,
+            address: settlement,
+            abi: privateCheckoutSettlementAbi,
+            functionName: 'submitPrivatePayment',
+            args: [orderCommitment, paymentNonce, encryptedPayment.handle, encryptedPayment.inputProof],
+          })
+          await publicClient.waitForTransactionReceipt({ hash: paymentTxHash })
+        } else if (currentCheckoutStatus === checkoutStatus.submitted) {
+          setStatus('Payment already submitted. Finishing securely...')
+        } else {
+          throw new Error('This checkout is not payable.')
+        }
+
+        setStatus('Finalizing private payment...')
+        await finalizeAndProjectLocalPayment(chainInvoiceId)
+
+        completePayment()
         return
       }
 
@@ -240,6 +243,12 @@ export function CheckoutPaymentCard({
     } finally {
       setIsBusy(false)
     }
+  }
+
+  function completePayment() {
+    setOptimisticPaid(true)
+    setStatus('Payment successful. Returning to CardForge...')
+    redirectTimerRef.current = scheduleReturnToMerchant(() => router.refresh())
   }
 
   return (
@@ -253,7 +262,10 @@ export function CheckoutPaymentCard({
             <ShieldCheckIcon data-icon="inline-start" />
             Secure hosted checkout
           </Badge>
-          <Badge variant={canPay || isPaid ? 'default' : 'secondary'}>
+          <Badge
+            className={isPaid ? 'border-emerald-200 bg-emerald-600 text-white hover:bg-emerald-600' : undefined}
+            variant={canPay || isPaid ? 'default' : 'secondary'}
+          >
             <LockKeyholeIcon data-icon="inline-start" />
             {paymentBadgeLabel}
           </Badge>
@@ -277,38 +289,31 @@ export function CheckoutPaymentCard({
           </div>
         </div>
 
-        <StatusStepper
-          ariaLabel="Checkout payment steps"
-          detailMode="active"
-          orientation="horizontal"
-          steps={paymentSteps}
-        />
-
-        <div className="rounded-[8px] border bg-background/70 p-4">
+        <div
+          className={
+            isPaid
+              ? 'rounded-[8px] border border-emerald-200 bg-emerald-50 p-4 text-emerald-950'
+              : 'rounded-[8px] border bg-background/70 p-4'
+          }
+        >
           <div className="flex items-start gap-3">
-            <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <div
+              className={
+                isPaid
+                  ? 'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white'
+                  : 'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground'
+              }
+            >
               {isPaid ? <CheckCircle2Icon className="size-4" /> : <LockKeyholeIcon className="size-4" />}
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-medium">{isPaid ? 'Payment verified' : 'Ready for private payment'}</div>
-              <p className="mt-1 text-sm text-muted-foreground">{status}</p>
+              <div className="text-sm font-medium">{isPaid ? 'Success' : 'Ready for private payment'}</div>
+              <p className={isPaid ? 'mt-1 text-sm text-emerald-800' : 'mt-1 text-sm text-muted-foreground'}>
+                {status}
+              </p>
             </div>
           </div>
         </div>
-
-        {paymentHash ? (
-          <Alert>
-            <AlertTitle>Payment submission</AlertTitle>
-            <AlertDescription>{paymentHash.slice(0, 18)}...</AlertDescription>
-          </Alert>
-        ) : null}
-
-        {finalizeHash ? (
-          <Alert>
-            <AlertTitle>Finalization transaction</AlertTitle>
-            <AlertDescription>{finalizeHash}</AlertDescription>
-          </Alert>
-        ) : null}
 
         {error ? (
           <Alert variant="destructive">
@@ -319,127 +324,65 @@ export function CheckoutPaymentCard({
 
         {!isLocalDevManifest ? (
           <Alert>
-            <AlertTitle>Browser payment locked</AlertTitle>
+            <AlertTitle>Payment unavailable</AlertTitle>
             <AlertDescription>
               Browser payment is limited to the local-dev private checkout rail in this MVP.
             </AlertDescription>
           </Alert>
         ) : null}
       </CardContent>
-      <CardFooter className="flex-col items-stretch gap-3 px-5 pb-5 sm:px-7 sm:pb-7">
-        <Button className="h-12 w-full text-base" disabled={!canPay || isBusy || isPaid} onClick={handlePayment} type="button">
-          {isBusy ? <Spinner data-icon="inline-start" /> : <CreditCardIcon data-icon="inline-start" />}
-          {paymentButtonLabel({ canPay, isBusy, isPaid })}
-        </Button>
-        {!isPaid ? (
-          <p className="text-center text-xs text-muted-foreground">
-            Wallet submits the encrypted checkout directly; only the paid result is publicly finalized.
-          </p>
-        ) : null}
-      </CardFooter>
+      {!isPaid ? (
+        <CardFooter className="flex-col items-stretch gap-3 px-5 pb-5 sm:px-7 sm:pb-7">
+          <Button className="h-12 w-full text-base" disabled={!canPay || isBusy} onClick={handlePayment} type="button">
+            {isBusy ? <Spinner data-icon="inline-start" /> : <CreditCardIcon data-icon="inline-start" />}
+            {paymentButtonLabel({ canPay, isBusy })}
+          </Button>
+        </CardFooter>
+      ) : null}
     </Card>
   )
 }
 
-function paymentButtonLabel({ canPay, isBusy, isPaid }: { canPay: boolean; isBusy: boolean; isPaid: boolean }) {
+function paymentButtonLabel({ canPay, isBusy }: { canPay: boolean; isBusy: boolean }) {
   if (isBusy) {
     return 'Processing payment...'
-  }
-
-  if (isPaid) {
-    return 'Payment verified'
   }
 
   return canPay ? 'Pay confidentially' : 'Payment unavailable'
 }
 
-function getPaymentSteps({
-  canPay,
-  chainInvoiceId,
-  error,
-  finalizeHash,
-  finalityStatus,
-  isBusy,
-  paymentHash,
-  paymentStep,
-  paymentTruth,
-}: {
-  canPay: boolean
-  chainInvoiceId: number | null
-  error: string | null
-  finalizeHash: string | null
-  finalityStatus: string
-  isBusy: boolean
-  paymentHash: string | null
-  paymentStep: PaymentStep
-  paymentTruth: string
-}): StatusStepperItem[] {
-  const isPaid = isPaymentComplete(paymentTruth, finalityStatus)
-  const currentStep = error
-    ? paymentStepOrder[paymentStep]
-    : isBusy
-      ? paymentStepOrder[paymentStep]
-      : chainInvoiceId === null
-        ? 1
-        : isPaid
-          ? 5
-          : 2
-
-  return [
-    {
-      description:
-        chainInvoiceId === null
-          ? 'Merchant checkout exists, but the chain invoice is not ready for buyer payment.'
-          : `Settlement contract invoice #${chainInvoiceId} is ready.`,
-      meta: chainInvoiceId === null ? 'waiting' : `#${chainInvoiceId}`,
-      state: chainInvoiceId === null ? 'active' : 'complete',
-      title: 'Invoice',
-    },
-    {
-      description: canPay || isPaid
-        ? 'Browser encrypts the payment amount with the local FHEVM mock.'
-        : 'Local-dev private checkout manifest is required before buyer payment.',
-      state: stepState(2, currentStep, isBusy, error),
-      title: 'Encrypt',
-    },
-    {
-      description: paymentHash
-        ? `${paymentHash.slice(0, 18)}...`
-        : 'Buyer wallet submits the encrypted amount to the settlement contract.',
-      state: paymentHash || isPaid ? 'complete' : stepState(3, currentStep, isBusy, error),
-      title: 'Payment',
-    },
-    {
-      description: finalizeHash
-        ? `${finalizeHash.slice(0, 18)}...`
-        : 'Local FHEVM mock decrypts only the paid/rejected boolean.',
-      state: finalizeHash || isPaid ? 'complete' : stepState(4, currentStep, isBusy, error),
-      title: 'Verify',
-    },
-    {
-      description: isPaid
-        ? `Backend read model is paid; finality is ${finalityStatus.replaceAll('_', ' ')}.`
-        : 'Rust projection updates checkout truth and emits signed project webhooks.',
-      state: isPaid ? 'complete' : stepState(5, currentStep, isBusy, error),
-      title: 'Fulfillment',
-    },
-  ]
-}
-
-function stepState(step: number, currentStep: number, isBusy: boolean, error: string | null): StatusStepperItem['state'] {
-  if (step < currentStep) {
-    return 'complete'
-  }
-
-  if (step === currentStep) {
-    return isBusy && !error ? 'loading' : 'active'
-  }
-
-  return 'pending'
-}
-
 function shortInvoiceId(invoiceId: string) {
   return invoiceId.length > 16 ? `${invoiceId.slice(0, 10)}...${invoiceId.slice(-6)}` : invoiceId
+}
+
+function scheduleReturnToMerchant(fallback: () => void) {
+  return window.setTimeout(() => {
+    const returnUrl = safeReferrerUrl()
+    if (returnUrl) {
+      window.location.assign(returnUrl)
+      return
+    }
+
+    fallback()
+  }, 1_250)
+}
+
+function safeReferrerUrl() {
+  if (!document.referrer) {
+    return null
+  }
+
+  try {
+    const referrer = new URL(document.referrer)
+    const current = new URL(window.location.href)
+    if (referrer.href === current.href || referrer.origin === current.origin) {
+      return null
+    }
+
+    return referrer.protocol === 'http:' || referrer.protocol === 'https:' ? referrer.toString() : null
+  } catch {
+    return null
+  }
 }
 
 function randomNonce(): HexAddress {

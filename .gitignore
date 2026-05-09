@@ -29,6 +29,10 @@ refs/
 /zama-*.md
 /*console*.txt
 
+# Demo-local merchant state.
+/.cardforge-data.json
+/demo/cardforge/backend/.cardforge-data.json
+
 # Contract build/runtime output. Generated ABI snapshots live under /generated.
 contracts/artifacts/
 contracts/cache/

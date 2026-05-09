@@ -1,14 +1,19 @@
 'use client'
 
+import { useState } from 'react'
 import { BoxIcon, Gamepad2Icon, GemIcon, KeyboardIcon, SparklesIcon, SwordsIcon } from 'lucide-react'
+import { getAddress } from 'viem'
 import { EffectCoverflow, Keyboard, Pagination } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
+import { CardForgeApiError, createCardForgeCheckout } from '@/lib/cardforge-api'
+import type { CardForgeConfig } from '@/lib/config'
 import { cn } from '@/lib/utils'
 
 type CardForgeProduct = {
   accent: string
   category: string
   description: string
+  id: string
   image: string
   price: number
   rarity: string
@@ -20,6 +25,7 @@ const products: CardForgeProduct[] = [
     accent: 'from-cyan-300/80 via-blue-500/35 to-black',
     category: 'Starter loot',
     description: 'Credit shard, starter boost, and one instant access code.',
+    id: 'neon-credit',
     image: 'https://images.unsplash.com/photo-1511512578047-dfb367046420?auto=format&fit=crop&w=900&q=80',
     price: 40,
     rarity: 'Common',
@@ -29,6 +35,7 @@ const products: CardForgeProduct[] = [
     accent: 'from-emerald-300/75 via-teal-500/35 to-black',
     category: 'Arena pass',
     description: 'Match entry, demo wallet credit, and a timed reward slot.',
+    id: 'arena-access',
     image: 'https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=900&q=80',
     price: 80,
     rarity: 'Rare',
@@ -38,6 +45,7 @@ const products: CardForgeProduct[] = [
     accent: 'from-fuchsia-300/80 via-purple-600/35 to-black',
     category: 'Weapon crate',
     description: 'Three demo codes released after finality-safe payment.',
+    id: 'mythic-loadout',
     image: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=900&q=80',
     price: 120,
     rarity: 'Epic',
@@ -47,6 +55,7 @@ const products: CardForgeProduct[] = [
     accent: 'from-amber-200/80 via-orange-500/35 to-black',
     category: 'Skin vault',
     description: 'Cosmetic vault claim with encrypted checkout delivery.',
+    id: 'cyber-skin',
     image: 'https://images.unsplash.com/photo-1493711662062-fa541adb3fc8?auto=format&fit=crop&w=900&q=80',
     price: 160,
     rarity: 'Legend',
@@ -56,6 +65,7 @@ const products: CardForgeProduct[] = [
     accent: 'from-lime-200/85 via-yellow-400/40 to-black',
     category: 'Full bundle',
     description: 'Premium pack for credits, access, loadout, and vault drops.',
+    id: 'founders-drop',
     image: 'https://images.unsplash.com/photo-1593305841991-05c297ba4575?auto=format&fit=crop&w=900&q=80',
     price: 200,
     rarity: 'Mythic',
@@ -65,7 +75,35 @@ const products: CardForgeProduct[] = [
 
 const icons = [GemIcon, Gamepad2Icon, SwordsIcon, KeyboardIcon, BoxIcon]
 
-export function ProductCoverflow() {
+type ProductCoverflowProps = {
+  buyerWalletAddress?: null | string
+  config: CardForgeConfig
+}
+
+export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflowProps) {
+  const [busyProductId, setBusyProductId] = useState<string | null>(null)
+
+  async function handleBuy(product: CardForgeProduct) {
+    if (busyProductId) {
+      return
+    }
+
+    setBusyProductId(product.id)
+
+    try {
+      const activeWalletAddress = await readActiveWalletAddress()
+      const checkout = await createCardForgeCheckout(config, product.id, activeWalletAddress ?? buyerWalletAddress)
+      window.location.assign(checkout.checkoutUrl)
+    } catch (caught) {
+      const message =
+        caught instanceof CardForgeApiError
+          ? caught.message
+          : 'CardForge could not create the encrypted checkout.'
+      setBusyProductId(null)
+      window.alert(message)
+    }
+  }
+
   return (
     <section className="flex min-h-[calc(100vh-8.5rem)] w-full min-w-0 items-center overflow-hidden py-8">
       <Swiper
@@ -125,7 +163,12 @@ export function ProductCoverflow() {
                     </div>
                     <button
                       aria-label={`Buy ${product.title}`}
+                      aria-busy={busyProductId === product.id}
                       className="rounded-full bg-[#f4ff00] px-5 py-2 text-sm font-semibold text-black shadow-lg shadow-black/25 transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f4ff00]"
+                      disabled={busyProductId !== null}
+                      onClick={() => {
+                        void handleBuy(product)
+                      }}
                       type="button"
                     >
                       Buy
@@ -139,4 +182,30 @@ export function ProductCoverflow() {
       </Swiper>
     </section>
   )
+}
+
+async function readActiveWalletAddress(): Promise<null | string> {
+  const provider = (window as { ethereum?: { request(args: { method: string }): Promise<unknown> } }).ethereum
+  if (!provider) {
+    return null
+  }
+
+  const accounts = await provider.request({ method: 'eth_accounts' })
+  if (!Array.isArray(accounts)) {
+    return null
+  }
+
+  for (const account of accounts) {
+    if (typeof account !== 'string') {
+      continue
+    }
+
+    try {
+      return getAddress(account)
+    } catch {
+      continue
+    }
+  }
+
+  return null
 }

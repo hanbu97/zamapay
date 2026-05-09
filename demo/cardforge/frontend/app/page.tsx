@@ -1,3 +1,6 @@
+'use client'
+
+import { useState } from 'react'
 import { ArrowUpRightIcon, HomeIcon } from 'lucide-react'
 import { ConfidentialWalletPanel } from '@/components/cardforge/ConfidentialWalletPanel'
 import { ProductCoverflow } from '@/components/cardforge/ProductCoverflow'
@@ -7,6 +10,7 @@ import { cn } from '@/lib/utils'
 
 export default function CardForgePage() {
   const config = cardForgeConfig()
+  const [walletAddress, setWalletAddress] = useState<string | null>(null)
 
   return (
     <div className="min-h-screen bg-[#08080a] text-foreground xl:[--wallet-rail:clamp(340px,25vw,400px)]">
@@ -38,13 +42,15 @@ export default function CardForgePage() {
 
       <main className="min-h-[calc(100vh-3.5rem)] bg-[linear-gradient(180deg,#101014_0%,#08080a_72%)] px-4 py-5 md:px-8 md:py-8 xl:mr-[var(--wallet-rail)]">
         <div className="w-full min-w-0">
-          <ProductCoverflow />
+          <ProductCoverflow buyerWalletAddress={walletAddress} config={config} />
         </div>
       </main>
 
-      <aside className="px-4 pb-6 md:px-8 xl:fixed xl:right-0 xl:top-0 xl:z-30 xl:flex xl:h-screen xl:w-[var(--wallet-rail)] xl:flex-col xl:overflow-y-auto xl:border-l xl:border-white/10 xl:bg-[#111114] xl:px-4 xl:py-6">
+      <aside className="px-4 pb-6 md:px-8 xl:fixed xl:right-0 xl:top-0 xl:z-30 xl:flex xl:h-screen xl:w-[var(--wallet-rail)] xl:flex-col xl:overflow-hidden xl:border-l xl:border-white/10 xl:bg-[#111114] xl:px-4 xl:py-6">
         <ConfidentialWalletPanel
           className="xl:h-full xl:rounded-none xl:border-0 xl:bg-transparent xl:shadow-none"
+          config={config}
+          onWalletChange={setWalletAddress}
         />
       </aside>
     </div>

@@ -265,6 +265,7 @@ export function buildIntegrationBundle({
     buildEnvExport('MERMER_PAY_PROJECT_ID', projectId),
     buildEnvExport('MERMER_PAY_API_KEY', apiKey),
     buildEnvExport('MERMER_PAY_API_URL', apiBaseUrl),
+    buildEnvExport('MERMER_PAY_CHAIN_INVOICE_API_URL', 'http://127.0.0.1:3001'),
     buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', webhookSecret ?? '<create a webhook endpoint first>'),
   ].join('\n')
 }

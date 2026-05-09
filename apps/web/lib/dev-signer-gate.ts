@@ -7,6 +7,12 @@ export type DevSignerGateInput = {
   requestUrl: string
 }
 
+export type LocalDevServerBridgeInput = {
+  contractEnv?: string
+  nodeEnv?: string
+  requestUrl: string
+}
+
 export function isLocalRequestUrl(requestUrl: string): boolean {
   const host = new URL(requestUrl).hostname
   return host === '127.0.0.1' || host === 'localhost'
@@ -21,6 +27,12 @@ export function canUseDevSigner(input: DevSignerGateInput): boolean {
     contractEnvironment === 'local-dev' &&
     isLocalRequestUrl(input.requestUrl)
   )
+}
+
+export function canUseLocalDevServerBridge(input: LocalDevServerBridgeInput): boolean {
+  const contractEnvironment = safeContractEnvironment(input.contractEnv)
+
+  return input.nodeEnv !== 'production' && contractEnvironment === 'local-dev' && isLocalRequestUrl(input.requestUrl)
 }
 
 function safeContractEnvironment(value: string | undefined): 'local-dev' | 'invalid' {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { canUseDevSigner, isLocalRequestUrl } from '../lib/dev-signer-gate.ts'
+import { canUseDevSigner, canUseLocalDevServerBridge, isLocalRequestUrl } from '../lib/dev-signer-gate.ts'
 
 test('dev signer allows only explicit local non-production use', () => {
   assert.equal(
@@ -51,4 +51,34 @@ test('dev signer rejects non-local request hosts', () => {
   assert.equal(isLocalRequestUrl('http://127.0.0.1:3001/api/dev/sign-message'), true)
   assert.equal(isLocalRequestUrl('http://localhost:3001/api/dev/sign-message'), true)
   assert.equal(isLocalRequestUrl('https://mermer.example/api/dev/sign-message'), false)
+})
+
+test('local chain invoice bridge allows local non-production server calls without browser signer opt-in', () => {
+  assert.equal(
+    canUseLocalDevServerBridge({
+      contractEnv: 'local-dev',
+      nodeEnv: 'development',
+      requestUrl: 'http://127.0.0.1:3001/api/dev/local-chain-invoice',
+    }),
+    true,
+  )
+})
+
+test('local chain invoice bridge rejects production or remote hosts', () => {
+  assert.equal(
+    canUseLocalDevServerBridge({
+      contractEnv: 'local-dev',
+      nodeEnv: 'production',
+      requestUrl: 'http://127.0.0.1:3001/api/dev/local-chain-invoice',
+    }),
+    false,
+  )
+  assert.equal(
+    canUseLocalDevServerBridge({
+      contractEnv: 'local-dev',
+      nodeEnv: 'development',
+      requestUrl: 'https://mermer.example/api/dev/local-chain-invoice',
+    }),
+    false,
+  )
 })

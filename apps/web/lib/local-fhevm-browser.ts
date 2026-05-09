@@ -1,17 +1,17 @@
 import { bytesToHex, concatHex, decodeAbiParameters, keccak256, type Hex } from 'viem'
 
 type RelayerMetadata = {
-  ACLAddress: Hex
+  ACLAddress: unknown
 }
 
 type InputProofResponse = {
-  handles: Hex[]
-  signatures: Hex[]
+  handles: unknown[]
+  signatures: unknown[]
 }
 
 type PublicDecryptResponse = {
-  decrypted_value: Hex
-  signatures: Hex[]
+  decrypted_value: unknown
+  signatures: unknown[]
 }
 
 export type LocalEncrypted64 = {
@@ -119,6 +119,7 @@ async function encryptLocalValues(input: {
   values: LocalEncryptedValue[]
 }): Promise<{ handles: Hex[]; inputProof: Hex }> {
   const metadata = await localFhevmRpc<RelayerMetadata>(input.rpcUrl, 'fhevm_relayer_metadata', [])
+  const aclContractAddress = rpcHex(metadata.ACLAddress, 'ACL address')
   const random32List = input.values.map(() => {
     const random32 = new Uint8Array(32)
     crypto.getRandomValues(random32)
@@ -138,15 +139,17 @@ async function encryptLocalValues(input: {
         metadatas: input.values.map((_, index) => ({ blockNumber: 0, index, transactionHash: zeroTxHash })),
         fheTypes: input.values.map((value) => value.fhevmType),
         fhevmTypes: input.values.map((value) => value.fhevmType),
-        aclContractAddress: metadata.ACLAddress,
+        aclContractAddress,
         random32List: random32List.map((random32) => bytesToHex(random32)),
       },
     },
   ])
+  const handles = rpcHexList(response.handles, 'encrypted handle')
+  const signatures = rpcHexList(response.signatures, 'input proof signature')
 
   return {
-    handles: response.handles,
-    inputProof: inputProofHex(response.handles, response.signatures),
+    handles,
+    inputProof: inputProofHex(handles, signatures),
   }
 }
 
@@ -155,8 +158,8 @@ export async function decryptLocalEuint64Handle(rpcUrl: string, handle: Hex): Pr
     return 0n
   }
 
-  const values = await localFhevmRpc<Hex[]>(rpcUrl, 'fhevm_getClearText', [[handle]])
-  const value = values[0]
+  const values = await localFhevmRpc<unknown[]>(rpcUrl, 'fhevm_getClearText', [[handle]])
+  const value = values[0] === undefined ? undefined : rpcHex(values[0], 'clear text')
   return value && value !== '0x' ? BigInt(value) : 0n
 }
 
@@ -167,12 +170,14 @@ export async function publicDecryptLocalBool(rpcUrl: string, handle: Hex): Promi
       extraData,
     },
   ])
-  const [value] = decodeAbiParameters([{ type: 'uint256' }], response.decrypted_value)
+  const decryptedValue = rpcHex(response.decrypted_value, 'public decrypt value')
+  const signatures = rpcHexList(response.signatures, 'decryption signature')
+  const [value] = decodeAbiParameters([{ type: 'uint256' }], decryptedValue)
 
   return {
     accepted: value === 1n,
-    abiEncodedClearValues: response.decrypted_value,
-    decryptionProof: decryptionProofHex(response.signatures),
+    abiEncodedClearValues: decryptedValue,
+    decryptionProof: decryptionProofHex(signatures),
   }
 }
 
@@ -260,4 +265,29 @@ function oneByte(value: number) {
 
 function bigintHex(value: bigint): Hex {
   return `0x${value.toString(16)}` as Hex
+}
+
+function rpcHex(value: unknown, label: string): Hex {
+  if (value instanceof Uint8Array) {
+    return bytesToHex(value)
+  }
+
+  if (typeof value === 'string') {
+    if (/^0x[0-9a-fA-F]*$/.test(value)) {
+      return value as Hex
+    }
+    if (/^[0-9a-fA-F]*$/.test(value)) {
+      return `0x${value}` as Hex
+    }
+  }
+
+  throw new Error(`Local FHEVM RPC returned an invalid ${label}.`)
+}
+
+function rpcHexList(values: unknown, label: string): Hex[] {
+  if (!Array.isArray(values)) {
+    throw new Error(`Local FHEVM RPC returned invalid ${label} list.`)
+  }
+
+  return values.map((value) => rpcHex(value, label))
 }

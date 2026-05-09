@@ -1,15 +1,16 @@
 use std::{
     collections::BTreeMap,
-    env, io,
+    env, fs, io,
     net::SocketAddr,
+    path::PathBuf,
     process::Command,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -24,11 +25,15 @@ use uuid::Uuid;
 
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:8092";
 const DEFAULT_API_URL: &str = "http://127.0.0.1:8080";
+const DEFAULT_CHAIN_INVOICE_API_URL: &str = "http://127.0.0.1:3001";
 const DEFAULT_CONSOLE_URL: &str = "http://127.0.0.1:3001/merchant";
 const DEFAULT_LOGIN_URL: &str = "http://127.0.0.1:3001/login";
 const DEFAULT_MERCHANT_LABEL: &str = "CardForge Demo Store";
 const DEFAULT_WEBHOOK_ENDPOINT: &str = "http://127.0.0.1:8092/api/mermer-pay/webhook";
 const DEMO_BACKEND_PROCESS_NAME: &str = "cardforge-backend";
+const DEFAULT_PRODUCT_ID: &str = "mythic-loadout";
+const DEFAULT_DATA_PATH: &str = ".cardforge-data.json";
+const LOCAL_CHAIN_ID: u64 = 31337;
 
 type DynError = Box<dyn std::error::Error>;
 
@@ -38,19 +43,76 @@ struct PortListener {
     command: String,
 }
 
+static PRODUCT_CATALOG: &[ProductDefinition] = &[
+    ProductDefinition {
+        amount_label: "40 cUSDT",
+        amount_minor_units: 40_000_000,
+        codes: &["Credit shard", "Starter boost", "Instant access code"],
+        id: "neon-credit",
+        note: "Credit shard, starter boost, and one instant access code release after Mermer Pay reports finality-safe payment.",
+        title: "Neon Credit Card",
+    },
+    ProductDefinition {
+        amount_label: "80 cUSDT",
+        amount_minor_units: 80_000_000,
+        codes: &["Arena entry code", "Demo wallet credit", "Reward slot code"],
+        id: "arena-access",
+        note: "Match entry, demo wallet credit, and a timed reward slot release after finality-safe payment.",
+        title: "Arena Access Card",
+    },
+    ProductDefinition {
+        amount_label: "120 cUSDT",
+        amount_minor_units: 120_000_000,
+        codes: &[
+            "SEA prepaid code",
+            "Game wallet code",
+            "Instant access code",
+        ],
+        id: DEFAULT_PRODUCT_ID,
+        note: "Three CardForge demo codes release after Mermer Pay reports finality-safe payment.",
+        title: "Mythic Loadout Card",
+    },
+    ProductDefinition {
+        amount_label: "160 cUSDT",
+        amount_minor_units: 160_000_000,
+        codes: &[
+            "Cosmetic vault code",
+            "Skin claim code",
+            "Delivery receipt code",
+        ],
+        id: "cyber-skin",
+        note: "Cosmetic vault claim codes release after encrypted checkout finality.",
+        title: "Cyber Skin Card",
+    },
+    ProductDefinition {
+        amount_label: "200 cUSDT",
+        amount_minor_units: 200_000_000,
+        codes: &[
+            "Founder credit code",
+            "Premium access code",
+            "Vault drop code",
+        ],
+        id: "founders-drop",
+        note: "Premium pack codes for credits, access, loadout, and vault drops release after finality-safe payment.",
+        title: "Founders Drop Card",
+    },
+];
+
 #[derive(Clone)]
 struct AppState {
     client: Client,
     config: Arc<Config>,
     fulfillment: Arc<Mutex<FulfillmentState>>,
+    orders: Arc<Mutex<LocalOrderStore>>,
     webhooks: Arc<Mutex<Vec<WebhookReceipt>>>,
 }
 
 #[derive(Clone)]
 struct Config {
     bind_addr: SocketAddr,
+    data_path: PathBuf,
+    local_chain_invoice_api_url: String,
     login_url: String,
-    local_chain_invoice_api_url: Option<String>,
     mermer_api_url: String,
     mermer_console_url: String,
     project_api_key: String,
@@ -66,7 +128,17 @@ struct Product {
     amount_label: String,
     amount_minor_units: u64,
     codes: Vec<String>,
+    id: String,
     title: String,
+}
+
+struct ProductDefinition {
+    amount_label: &'static str,
+    amount_minor_units: u64,
+    codes: &'static [&'static str],
+    id: &'static str,
+    note: &'static str,
+    title: &'static str,
 }
 
 #[derive(Clone, Default)]
@@ -93,7 +165,7 @@ struct ReleasedOrder {
     invoice_id: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ReleasedCard {
     label: String,
@@ -107,6 +179,7 @@ struct StorefrontResponse {
     mermer_console_url: String,
     mermer_login_url: String,
     product: Product,
+    products: Vec<Product>,
     project_id: String,
     webhook_endpoint: String,
 }
@@ -119,6 +192,13 @@ struct CheckoutResponse {
     checkout_url: String,
     checkout_session_id: String,
     invoice_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateCheckoutRequest {
+    buyer_wallet_address: Option<String>,
+    product_id: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -186,6 +266,73 @@ struct WebhookAck {
 struct WebhookLog {
     events: Vec<WebhookReceipt>,
     received_event_count: usize,
+}
+
+struct LocalOrderStore {
+    data: LocalOrderData,
+    path: PathBuf,
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalOrderData {
+    #[serde(default)]
+    owned_cards: Vec<OwnedCard>,
+    #[serde(default)]
+    pending_orders: BTreeMap<String, PendingOrder>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PendingOrder {
+    amount_label: String,
+    amount_minor_units: u64,
+    buyer_wallet_address: Option<String>,
+    chain_invoice_id: u64,
+    checkout_session_id: String,
+    created_at: String,
+    invoice_id: String,
+    product_id: String,
+    product_title: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OwnedCard {
+    amount_label: String,
+    amount_minor_units: u64,
+    cards: Vec<ReleasedCard>,
+    chain_invoice_id: u64,
+    checkout_session_id: String,
+    id: String,
+    invoice_id: String,
+    payment_tx_hash: Option<String>,
+    product_id: String,
+    purchased_at: String,
+    title: String,
+    wallet_address: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WalletActivityResponse {
+    owned_cards: Vec<OwnedCard>,
+    payments: Vec<WalletPaymentRecord>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WalletPaymentRecord {
+    amount_label: String,
+    amount_minor_units: String,
+    chain_id: u64,
+    chain_invoice_id: Option<u64>,
+    checkout_session_id: Option<String>,
+    recorded_at: String,
+    status: &'static str,
+    tx_hash: String,
+    #[serde(rename = "type")]
+    record_type: &'static str,
 }
 
 #[derive(Serialize)]
@@ -355,6 +502,10 @@ fn app(state: AppState) -> Router {
         .route("/api/storefront", get(storefront))
         .route("/api/fulfillment", get(fulfillment))
         .route("/api/orders/checkout", post(create_checkout))
+        .route(
+            "/api/wallets/{wallet_address}/activity",
+            get(wallet_activity),
+        )
         .route("/api/mermer-pay/webhook", post(receive_webhook))
         .route("/api/mermer-pay/webhooks", get(webhook_log))
         .with_state(state)
@@ -364,10 +515,13 @@ fn app(state: AppState) -> Router {
 
 impl AppState {
     fn new(config: Config) -> Self {
+        let orders = LocalOrderStore::load(config.data_path.clone());
+
         Self {
             client: Client::new(),
             config: Arc::new(config),
             fulfillment: Arc::new(Mutex::new(FulfillmentState::default())),
+            orders: Arc::new(Mutex::new(orders)),
             webhooks: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -379,8 +533,12 @@ impl Config {
             clean_base_url(env_value("MERMER_PAY_CONSOLE_URL", DEFAULT_CONSOLE_URL));
         Ok(Self {
             bind_addr: env_value("CARDFORGE_BACKEND_BIND", DEFAULT_BIND_ADDR).parse()?,
+            data_path: PathBuf::from(env_value("CARDFORGE_DATA_PATH", DEFAULT_DATA_PATH)),
             login_url: env_value("MERMER_PAY_LOGIN_URL", DEFAULT_LOGIN_URL),
-            local_chain_invoice_api_url: optional_base_url("MERMER_PAY_CHAIN_INVOICE_API_URL"),
+            local_chain_invoice_api_url: clean_base_url(env_value(
+                "MERMER_PAY_CHAIN_INVOICE_API_URL",
+                DEFAULT_CHAIN_INVOICE_API_URL,
+            )),
             mermer_api_url: clean_base_url(env_value("MERMER_PAY_API_URL", DEFAULT_API_URL)),
             mermer_console_url,
             project_api_key: required_env("MERMER_PAY_API_KEY")?,
@@ -401,7 +559,8 @@ async fn storefront(State(state): State<AppState>) -> Json<StorefrontResponse> {
         merchant_label: state.config.merchant_label.clone(),
         mermer_console_url: state.config.mermer_console_url.clone(),
         mermer_login_url: state.config.login_url.clone(),
-        product: product(),
+        product: product(default_product()),
+        products: PRODUCT_CATALOG.iter().map(product).collect(),
         project_id: state.config.project_id.clone(),
         webhook_endpoint: state.config.webhook_endpoint.clone(),
     })
@@ -413,8 +572,20 @@ async fn fulfillment(State(state): State<AppState>) -> Result<Json<FulfillmentSn
 
 async fn create_checkout(
     State(state): State<AppState>,
+    request: Option<Json<CreateCheckoutRequest>>,
 ) -> Result<Json<CheckoutResponse>, ApiError> {
-    let checkout = create_mermer_checkout_session(&state).await?;
+    let request = request.map(|Json(payload)| payload);
+    let product_id = request
+        .as_ref()
+        .and_then(|payload| payload.product_id.as_deref());
+    let buyer_wallet_address = normalize_optional_wallet_address(
+        request
+            .as_ref()
+            .and_then(|payload| payload.buyer_wallet_address.as_deref()),
+    )?;
+    let selected = selected_product(product_id)?;
+    let checkout = create_mermer_checkout_session(&state, selected).await?;
+    record_pending_checkout(&state, selected, &checkout, buyer_wallet_address)?;
 
     Ok(Json(CheckoutResponse {
         billing: checkout.billing,
@@ -423,6 +594,14 @@ async fn create_checkout(
         checkout_url: checkout.checkout_url,
         invoice_id: checkout.invoice_id,
     }))
+}
+
+async fn wallet_activity(
+    State(state): State<AppState>,
+    Path(wallet_address): Path<String>,
+) -> Result<Json<WalletActivityResponse>, ApiError> {
+    let wallet_address = normalize_wallet_address(&wallet_address)?;
+    Ok(Json(wallet_activity_snapshot(&state, &wallet_address)?))
 }
 
 async fn receive_webhook(
@@ -457,12 +636,12 @@ async fn webhook_log(State(state): State<AppState>) -> Result<Json<WebhookLog>, 
 
 async fn create_mermer_checkout_session(
     state: &AppState,
+    selected: &ProductDefinition,
 ) -> Result<MermerCheckoutSessionResponse, ApiError> {
-    let mut payload = checkout_payload();
-    if let Some(chain_invoice) = create_local_chain_invoice(state, &payload).await? {
-        payload.chain_invoice_id = Some(chain_invoice.chain_invoice_id);
-        payload.chain_tx_hash = Some(chain_invoice.chain_tx_hash);
-    }
+    let mut payload = checkout_payload(selected);
+    let chain_invoice = create_local_chain_invoice(state, &payload).await?;
+    payload.chain_invoice_id = Some(chain_invoice.chain_invoice_id);
+    payload.chain_tx_hash = Some(chain_invoice.chain_tx_hash);
 
     let response = state
         .client
@@ -500,14 +679,13 @@ async fn create_mermer_checkout_session(
 async fn create_local_chain_invoice(
     state: &AppState,
     payload: &CreateCheckoutSessionRequest,
-) -> Result<Option<LocalChainInvoiceResponse>, ApiError> {
-    let Some(api_url) = &state.config.local_chain_invoice_api_url else {
-        return Ok(None);
-    };
-
+) -> Result<LocalChainInvoiceResponse, ApiError> {
     let response = state
         .client
-        .post(format!("{api_url}/api/dev/local-chain-invoice"))
+        .post(format!(
+            "{}/api/dev/local-chain-invoice",
+            state.config.local_chain_invoice_api_url
+        ))
         .json(&serde_json::json!({
             "amountMinorUnits": payload.amount_minor_units,
             "externalRef": payload.merchant_order_id,
@@ -524,7 +702,6 @@ async fn create_local_chain_invoice(
     response
         .json()
         .await
-        .map(Some)
         .map_err(ApiError::bad_chain_invoice_json)
 }
 
@@ -540,35 +717,227 @@ impl CheckoutBillingSnapshot {
     }
 }
 
-fn checkout_payload() -> CreateCheckoutSessionRequest {
-    let order_id = format!("cardforge-{}", Uuid::new_v4().simple());
+fn checkout_payload(selected: &ProductDefinition) -> CreateCheckoutSessionRequest {
+    let order_id = format!("cardforge-{}-{}", selected.id, Uuid::new_v4().simple());
+    let mut metadata = std::collections::BTreeMap::new();
+    metadata.insert("productId".to_string(), selected.id.to_string());
+    metadata.insert("productTitle".to_string(), selected.title.to_string());
+    metadata.insert("source".to_string(), "cardforge".to_string());
 
     CreateCheckoutSessionRequest {
-        amount_label: "120 cUSDT".to_string(),
-        amount_minor_units: 120_000_000,
+        amount_label: selected.amount_label.to_string(),
+        amount_minor_units: selected.amount_minor_units,
         cancel_url: None,
         chain_invoice_id: None,
         chain_tx_hash: None,
         merchant_order_id: order_id,
-        metadata: std::collections::BTreeMap::new(),
-        note: "Three CardForge demo codes release after Mermer Pay reports finality-safe payment."
-            .to_string(),
+        metadata,
+        note: selected.note.to_string(),
         success_url: None,
-        title: "CardForge prepaid card bundle".to_string(),
+        title: selected.title.to_string(),
     }
 }
 
-fn product() -> Product {
-    Product {
-        amount_label: "120 cUSDT".to_string(),
-        amount_minor_units: 120_000_000,
-        codes: vec![
-            "SEA prepaid code".to_string(),
-            "Game wallet code".to_string(),
-            "Instant access code".to_string(),
-        ],
-        title: "Prepaid card bundle".to_string(),
+fn default_product() -> &'static ProductDefinition {
+    match selected_product(Some(DEFAULT_PRODUCT_ID)) {
+        Ok(product) => product,
+        Err(_) => panic!("default product must exist"),
     }
+}
+
+fn selected_product(product_id: Option<&str>) -> Result<&'static ProductDefinition, ApiError> {
+    let product_id = product_id.unwrap_or(DEFAULT_PRODUCT_ID);
+    PRODUCT_CATALOG
+        .iter()
+        .find(|product| product.id == product_id)
+        .ok_or_else(|| {
+            ApiError::bad_request(
+                "unknown_product",
+                format!("CardForge product `{product_id}` does not exist."),
+            )
+        })
+}
+
+fn product_for_amount_minor_units(amount_minor_units: Option<u64>) -> &'static ProductDefinition {
+    amount_minor_units
+        .and_then(|amount| {
+            PRODUCT_CATALOG
+                .iter()
+                .find(|product| product.amount_minor_units == amount)
+        })
+        .unwrap_or_else(default_product)
+}
+
+fn product(definition: &ProductDefinition) -> Product {
+    Product {
+        amount_label: definition.amount_label.to_string(),
+        amount_minor_units: definition.amount_minor_units,
+        codes: definition
+            .codes
+            .iter()
+            .map(|code| code.to_string())
+            .collect(),
+        id: definition.id.to_string(),
+        title: definition.title.to_string(),
+    }
+}
+
+impl LocalOrderStore {
+    fn load(path: PathBuf) -> Self {
+        let data = fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<LocalOrderData>(&raw).ok())
+            .unwrap_or_default();
+
+        Self { data, path }
+    }
+
+    fn persist(&self) -> Result<(), ApiError> {
+        if let Some(parent) = self
+            .path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+        {
+            fs::create_dir_all(parent).map_err(ApiError::persistence_failed)?;
+        }
+
+        let body = serde_json::to_string_pretty(&self.data)
+            .map_err(|_| ApiError::internal("CardForge local order state cannot be serialized"))?;
+        fs::write(&self.path, body).map_err(ApiError::persistence_failed)
+    }
+
+    fn record_pending(&mut self, pending: PendingOrder) -> Result<(), ApiError> {
+        self.data
+            .pending_orders
+            .insert(pending.checkout_session_id.clone(), pending);
+        self.persist()
+    }
+
+    fn record_owned_card(
+        &mut self,
+        release: &ReleasedOrder,
+        payload: &Value,
+    ) -> Result<(), ApiError> {
+        let Some(order) = self
+            .data
+            .pending_orders
+            .get(&release.checkout_session_id)
+            .cloned()
+        else {
+            return Ok(());
+        };
+        let Some(wallet_address) = order.buyer_wallet_address else {
+            return Ok(());
+        };
+
+        let owned = OwnedCard {
+            amount_label: release
+                .amount_label
+                .clone()
+                .unwrap_or_else(|| order.amount_label.clone()),
+            amount_minor_units: order.amount_minor_units,
+            cards: release.cards.clone(),
+            chain_invoice_id: order.chain_invoice_id,
+            checkout_session_id: release.checkout_session_id.clone(),
+            id: format!("card-{}", release.checkout_session_id),
+            invoice_id: release.invoice_id.clone(),
+            payment_tx_hash: payload
+                .get("paymentTxHash")
+                .and_then(Value::as_str)
+                .filter(|value| is_transaction_hash(value))
+                .map(str::to_string),
+            product_id: order.product_id,
+            purchased_at: payload
+                .get("createdAt")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(epoch_millis),
+            title: order.product_title,
+            wallet_address,
+        };
+
+        if let Some(existing) = self
+            .data
+            .owned_cards
+            .iter_mut()
+            .find(|card| card.checkout_session_id == owned.checkout_session_id)
+        {
+            *existing = owned;
+        } else {
+            self.data.owned_cards.push(owned);
+        }
+
+        self.persist()
+    }
+}
+
+fn record_pending_checkout(
+    state: &AppState,
+    selected: &ProductDefinition,
+    checkout: &MermerCheckoutSessionResponse,
+    buyer_wallet_address: Option<String>,
+) -> Result<(), ApiError> {
+    let pending = PendingOrder {
+        amount_label: selected.amount_label.to_string(),
+        amount_minor_units: selected.amount_minor_units,
+        buyer_wallet_address,
+        chain_invoice_id: checkout.chain_invoice_id,
+        checkout_session_id: checkout.checkout_session_id.clone(),
+        created_at: epoch_millis(),
+        invoice_id: checkout.invoice_id.clone(),
+        product_id: selected.id.to_string(),
+        product_title: selected.title.to_string(),
+    };
+    let mut orders = state
+        .orders
+        .lock()
+        .map_err(|_| ApiError::internal("CardForge local order store is unavailable"))?;
+
+    orders.record_pending(pending)
+}
+
+fn wallet_activity_snapshot(
+    state: &AppState,
+    wallet_address: &str,
+) -> Result<WalletActivityResponse, ApiError> {
+    let orders = state
+        .orders
+        .lock()
+        .map_err(|_| ApiError::internal("CardForge local order store is unavailable"))?;
+    let mut owned_cards = orders
+        .data
+        .owned_cards
+        .iter()
+        .filter(|card| card.wallet_address == wallet_address)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    owned_cards.reverse();
+    let payments = owned_cards
+        .iter()
+        .filter_map(payment_record_from_owned_card)
+        .collect();
+
+    Ok(WalletActivityResponse {
+        owned_cards,
+        payments,
+    })
+}
+
+fn payment_record_from_owned_card(card: &OwnedCard) -> Option<WalletPaymentRecord> {
+    let tx_hash = card.payment_tx_hash.as_ref()?.clone();
+
+    Some(WalletPaymentRecord {
+        amount_label: card.amount_label.clone(),
+        amount_minor_units: card.amount_minor_units.to_string(),
+        chain_id: LOCAL_CHAIN_ID,
+        chain_invoice_id: Some(card.chain_invoice_id),
+        checkout_session_id: Some(card.checkout_session_id.clone()),
+        recorded_at: card.purchased_at.clone(),
+        status: "confirmed",
+        tx_hash,
+        record_type: "payment",
+    })
 }
 
 fn push_webhook(state: &AppState, receipt: WebhookReceipt) -> Result<usize, ApiError> {
@@ -593,7 +962,7 @@ fn release_from_webhook(state: &AppState, payload: &Value) -> Result<&'static st
     let checkout_session_id = release.checkout_session_id.clone();
     let status = if fulfillment
         .released_orders
-        .insert(checkout_session_id.clone(), release)
+        .insert(checkout_session_id.clone(), release.clone())
         .is_some()
     {
         "already_released"
@@ -601,8 +970,23 @@ fn release_from_webhook(state: &AppState, payload: &Value) -> Result<&'static st
         fulfillment.release_order.push(checkout_session_id);
         "released"
     };
+    drop(fulfillment);
+    record_owned_card(state, &release, payload)?;
 
     Ok(status)
+}
+
+fn record_owned_card(
+    state: &AppState,
+    release: &ReleasedOrder,
+    payload: &Value,
+) -> Result<(), ApiError> {
+    let mut orders = state
+        .orders
+        .lock()
+        .map_err(|_| ApiError::internal("CardForge local order store is unavailable"))?;
+
+    orders.record_owned_card(release, payload)
 }
 
 fn release_from_payload(payload: &Value) -> Option<ReleasedOrder> {
@@ -626,10 +1010,12 @@ fn release_from_payload(payload: &Value) -> Option<ReleasedOrder> {
         .get("amountLabel")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let selected =
+        product_for_amount_minor_units(payload.get("amountMinorUnits").and_then(Value::as_u64));
 
     Some(ReleasedOrder {
         amount_label,
-        cards: released_cards(&checkout_session_id),
+        cards: released_cards(&checkout_session_id, selected),
         checkout_session_id,
         invoice_id,
     })
@@ -657,21 +1043,18 @@ fn fulfillment_snapshot(state: &AppState) -> Result<FulfillmentSnapshot, ApiErro
     })
 }
 
-fn released_cards(checkout_session_id: &str) -> Vec<ReleasedCard> {
+fn released_cards(checkout_session_id: &str, selected: &ProductDefinition) -> Vec<ReleasedCard> {
     let suffix = checkout_suffix(checkout_session_id);
 
-    [
-        "SEA prepaid code",
-        "Game wallet code",
-        "Instant access code",
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(index, label)| ReleasedCard {
-        label: label.to_string(),
-        secret: format!("CF-{}-{}", index + 1, suffix),
-    })
-    .collect()
+    selected
+        .codes
+        .iter()
+        .enumerate()
+        .map(|(index, label)| ReleasedCard {
+            label: (*label).to_string(),
+            secret: format!("CF-{}-{}", index + 1, suffix),
+        })
+        .collect()
 }
 
 fn checkout_suffix(checkout_session_id: &str) -> String {
@@ -767,15 +1150,44 @@ fn required_env(key: &'static str) -> Result<String, ConfigError> {
         .ok_or(ConfigError(key))
 }
 
-fn optional_base_url(key: &str) -> Option<String> {
-    env::var(key)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(clean_base_url)
-}
-
 fn clean_base_url(value: String) -> String {
     value.trim_end_matches('/').to_string()
+}
+
+fn normalize_optional_wallet_address(value: Option<&str>) -> Result<Option<String>, ApiError> {
+    value.map(normalize_wallet_address).transpose()
+}
+
+fn normalize_wallet_address(value: &str) -> Result<String, ApiError> {
+    let trimmed = value.trim();
+    if trimmed.len() == 42
+        && trimmed.starts_with("0x")
+        && trimmed.as_bytes()[2..]
+            .iter()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Ok(trimmed.to_ascii_lowercase());
+    }
+
+    Err(ApiError::bad_request(
+        "invalid_wallet_address",
+        "CardForge buyer wallet address must be a 20-byte hex address.",
+    ))
+}
+
+fn is_transaction_hash(value: &str) -> bool {
+    value.len() == 66
+        && value.starts_with("0x")
+        && value.as_bytes()[2..]
+            .iter()
+            .all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn epoch_millis() -> String {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 fn keyed_digest(secret: &str, message: &str) -> String {
@@ -811,6 +1223,10 @@ impl std::fmt::Display for ConfigError {
 impl std::error::Error for ConfigError {}
 
 impl ApiError {
+    fn bad_request(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, code, message, None)
+    }
+
     fn project_auth_failed() -> Self {
         Self::new(
             StatusCode::UNAUTHORIZED,
@@ -911,6 +1327,15 @@ impl ApiError {
             StatusCode::INTERNAL_SERVER_ERROR,
             "internal_error",
             message,
+            None,
+        )
+    }
+
+    fn persistence_failed(error: io::Error) -> Self {
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "local_state_persistence_failed",
+            format!("CardForge local order state could not be persisted: {error}"),
             None,
         )
     }
@@ -1029,7 +1454,7 @@ mod tests {
         let captured = Arc::new(Mutex::new(None::<Value>));
         let fake_mermer = fake_mermer_api_with_local_chain(captured.clone()).await;
         let mut config = test_config(&fake_mermer, "proj_cardforge", "mmp_test_secret");
-        config.local_chain_invoice_api_url = Some(fake_mermer);
+        config.local_chain_invoice_api_url = fake_mermer;
         let state = AppState::new(config);
         let response = app(state)
             .oneshot(
@@ -1056,6 +1481,49 @@ mod tests {
             .expect("fake Mermer API should receive checkout request");
         assert_eq!(payload["chainInvoiceId"], 0);
         assert_eq!(payload["chainTxHash"], "0xabc");
+    }
+
+    #[tokio::test]
+    async fn checkout_uses_server_catalog_product_amounts() {
+        let captured = Arc::new(Mutex::new(None::<Value>));
+        let fake_mermer = fake_mermer_api_with_local_chain(captured.clone()).await;
+        let mut config = test_config(&fake_mermer, "proj_cardforge", "mmp_test_secret");
+        config.local_chain_invoice_api_url = fake_mermer;
+        let state = AppState::new(config);
+        let response = app(state)
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/orders/checkout")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "buyerWalletAddress": "0xcAa3F62150E5813A52c329498dBEfa913B49f2de",
+                            "productId": "arena-access"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let payload = captured
+            .lock()
+            .expect("captured checkout request lock should work")
+            .clone()
+            .expect("fake Mermer API should receive checkout request");
+        assert_eq!(payload["amountMinorUnits"], 80_000_000);
+        assert_eq!(payload["amountLabel"], "80 cUSDT");
+        assert_eq!(payload["metadata"]["productId"], "arena-access");
+        assert_eq!(
+            payload["metadata"]
+                .as_object()
+                .expect("metadata should be an object")
+                .len(),
+            3
+        );
     }
 
     #[tokio::test]
@@ -1185,47 +1653,140 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn wallet_activity_records_owned_cards_after_paid_webhook() {
+        let fake_mermer = fake_mermer_api_with_local_chain(Arc::new(Mutex::new(None))).await;
+        let mut config = test_config(&fake_mermer, "proj_cardforge", "mmp_test_secret");
+        config.local_chain_invoice_api_url = fake_mermer;
+        let state = AppState::new(config);
+        let service = app(state);
+        let wallet = "0xC431773Fbc13B36384077847B884dE5D8dB91618";
+
+        let checkout = service
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/orders/checkout")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        json!({
+                            "buyerWalletAddress": wallet,
+                            "productId": "arena-access"
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(checkout.status(), StatusCode::OK);
+
+        let payload = json!({
+            "event": "invoice.fulfillment_ready",
+            "checkoutSessionId": "cs_cardforge",
+            "invoiceId": "cs_cardforge",
+            "paymentTruth": "paid",
+            "finalityStatus": "finality_safe",
+            "amountLabel": "80 cUSDT",
+            "amountMinorUnits": 80_000_000,
+            "paymentTxHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+            "createdAt": "2026-05-09T05:00:00Z"
+        });
+        let webhook_id = "del_cardforge_owned";
+        let timestamp = "2026-05-09T05:00:00Z";
+        let signature = signed_header("whsec_test", webhook_id, timestamp, &payload);
+        let accepted = service
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/mermer-pay/webhook")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header("x-mermer-webhook-id", webhook_id)
+                    .header("x-mermer-webhook-timestamp", timestamp)
+                    .header("x-mermer-webhook-signature", signature)
+                    .header("x-mermer-webhook-algorithm", "keccak256.secret_prefix.v1")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(accepted.status(), StatusCode::OK);
+
+        let activity = service
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri(&format!("/api/wallets/{wallet}/activity"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(activity.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(activity.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["ownedCards"].as_array().unwrap().len(), 1);
+        assert_eq!(json["ownedCards"][0]["title"], "Arena Access Card");
+        assert_eq!(json["payments"][0]["txHash"], payload["paymentTxHash"]);
+    }
+
     async fn fake_mermer_api(captured: Arc<Mutex<Option<(String, HeaderMap)>>>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let app = Router::new().route(
-            "/api/projects/{project_id}/checkout-sessions",
-            post(move |Path(project_id): Path<String>, headers: HeaderMap| {
-                let captured = captured.clone();
-                async move {
-                    *captured.lock().unwrap() = Some((project_id, headers));
+        let app = Router::new()
+            .route(
+                "/api/dev/local-chain-invoice",
+                post(|| async {
                     Json(json!({
-                        "checkoutSessionId": "cs_cardforge",
-                        "projectId": "proj_cardforge",
-                        "environment": "local_dev",
-                        "merchantOrderId": "cardforge-order",
-                        "idempotencyKey": "cardforge-order",
-                        "invoiceId": "cs_cardforge",
                         "chainInvoiceId": 1001,
                         "chainTxHash": "0x01",
-                        "checkoutUrl": "http://127.0.0.1:3001/checkout/cs_cardforge",
-                        "title": "CardForge prepaid card bundle",
-                        "amountLabel": "120 cUSDT",
-                        "amountMinorUnits": 120000000,
-                        "billing": {
-                            "plan": "free",
-                            "feeBps": 50,
-                            "grossAmountMinorUnits": 120000000,
-                            "platformFeeMinorUnits": 600000,
-                            "merchantNetMinorUnits": 119400000
-                        },
-                        "note": "demo",
-                        "successUrl": null,
-                        "cancelUrl": null,
-                        "metadata": {},
-                        "status": "open",
-                        "createdAt": "2026-05-07T04:00:00Z",
-                        "updatedAt": "2026-05-07T04:00:00Z",
-                        "expiresAt": "2026-05-07T05:00:00Z"
+                        "expiresAt": 1770000000,
+                        "settlementAddress": "0xSettlement"
                     }))
-                }
-            }),
-        );
+                }),
+            )
+            .route(
+                "/api/projects/{project_id}/checkout-sessions",
+                post(move |Path(project_id): Path<String>, headers: HeaderMap| {
+                    let captured = captured.clone();
+                    async move {
+                        *captured.lock().unwrap() = Some((project_id, headers));
+                        Json(json!({
+                            "checkoutSessionId": "cs_cardforge",
+                            "projectId": "proj_cardforge",
+                            "environment": "local_dev",
+                            "merchantOrderId": "cardforge-order",
+                            "idempotencyKey": "cardforge-order",
+                            "invoiceId": "cs_cardforge",
+                            "chainInvoiceId": 1001,
+                            "chainTxHash": "0x01",
+                            "checkoutUrl": "http://127.0.0.1:3001/checkout/cs_cardforge",
+                            "title": "CardForge prepaid card bundle",
+                            "amountLabel": "120 cUSDT",
+                            "amountMinorUnits": 120000000,
+                            "billing": {
+                                "plan": "free",
+                                "feeBps": 50,
+                                "grossAmountMinorUnits": 120000000,
+                                "platformFeeMinorUnits": 600000,
+                                "merchantNetMinorUnits": 119400000
+                            },
+                            "note": "demo",
+                            "successUrl": null,
+                            "cancelUrl": null,
+                            "metadata": {},
+                            "status": "open",
+                            "createdAt": "2026-05-07T04:00:00Z",
+                            "updatedAt": "2026-05-07T04:00:00Z",
+                            "expiresAt": "2026-05-07T05:00:00Z"
+                        }))
+                    }
+                }),
+            );
 
         tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -1254,6 +1815,8 @@ mod tests {
                 post(move |Json(payload): Json<Value>| {
                     let captured = captured.clone();
                     async move {
+                        let gross = payload["amountMinorUnits"].as_u64().unwrap_or(120_000_000);
+                        let fee = gross * 25 / 10_000;
                         *captured.lock().unwrap() = Some(payload.clone());
                         Json(json!({
                             "checkoutSessionId": "cs_cardforge",
@@ -1265,15 +1828,15 @@ mod tests {
                             "chainInvoiceId": payload["chainInvoiceId"],
                             "chainTxHash": payload["chainTxHash"],
                             "checkoutUrl": "http://127.0.0.1:3001/checkout/cs_cardforge",
-                            "title": "CardForge prepaid card bundle",
-                            "amountLabel": "120 cUSDT",
-                            "amountMinorUnits": 120000000,
+                            "title": payload["title"],
+                            "amountLabel": payload["amountLabel"],
+                            "amountMinorUnits": gross,
                             "billing": {
                                 "plan": "growth",
                                 "feeBps": 25,
-                                "grossAmountMinorUnits": 120000000,
-                                "platformFeeMinorUnits": 300000,
-                                "merchantNetMinorUnits": 119700000
+                                "grossAmountMinorUnits": gross,
+                                "platformFeeMinorUnits": fee,
+                                "merchantNetMinorUnits": gross - fee
                             },
                             "note": "demo",
                             "successUrl": null,
@@ -1298,8 +1861,10 @@ mod tests {
     fn test_config(api_url: &str, project_id: &str, api_key: &str) -> Config {
         Config {
             bind_addr: "127.0.0.1:0".parse().unwrap(),
+            data_path: std::env::temp_dir()
+                .join(format!("cardforge-test-{}.json", Uuid::new_v4().simple())),
             login_url: "http://127.0.0.1:3001/login".to_string(),
-            local_chain_invoice_api_url: None,
+            local_chain_invoice_api_url: api_url.to_string(),
             mermer_api_url: api_url.to_string(),
             mermer_console_url: "http://127.0.0.1:3001/merchant".to_string(),
             project_api_key: api_key.to_string(),

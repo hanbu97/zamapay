@@ -48,8 +48,8 @@ apps/web
 - Server components guard protected pages by consulting Rust session state.
 - `/login` is standalone; expired or missing sessions do not inherit merchant chrome.
 - Hosted checkout renders from Rust read-model APIs in a standalone buyer shell and uses one centered private-payment card.
-- Local-dev is the only active contract environment. The hosted checkout browser encrypts `paidAmount`, submits `PrivateCheckoutSettlement` directly with the buyer wallet, and finalizes only the paid/rejected boolean.
-- `app/api/checkout/project-finalized-payment` verifies only `PrivatePaymentFinalized` from `PrivateCheckoutSettlement`, then calls Rust projection and confirmation endpoints.
+- Local-dev is the only active contract environment. The hosted checkout browser encrypts `paidAmount` and submits one `PrivateCheckoutSettlement` transaction directly with the buyer wallet.
+- `app/api/checkout/project-finalized-payment` either verifies a supplied finalization transaction or finalizes a submitted local-dev checkout server-side, then calls Rust projection and confirmation endpoints.
 - `app/api/dev/project-local-growth` only projects browser-finalized Growth chain evidence into Rust; it never signs, mints, or pays on behalf of the merchant.
 - Local confidential cUSDT balances are read by buyer-facing browser UI from Hardhat/FHEVM mock RPC, not through Mermer Pay backend balance projections.
 - The old platform relayer route, old local confidential-payment routes, public-testnet branches, and dashboard settlement decrypt card are removed from the active web app.

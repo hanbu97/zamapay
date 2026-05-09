@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { serverContractEnvironment } from '@/lib/contract-environment'
-import { canUseDevSigner } from '@/lib/dev-signer-gate'
+import { canUseLocalDevServerBridge } from '@/lib/dev-signer-gate'
 import { createLocalChainInvoice } from '@/lib/local-fhevm-dev'
 
 type LocalChainInvoiceRequest = {
@@ -12,9 +12,8 @@ type LocalChainInvoiceRequest = {
 function isEnabled(request: Request) {
   return (
     serverContractEnvironment() === 'local-dev' &&
-    canUseDevSigner({
-      contractEnv: process.env.NEXT_PUBLIC_CONTRACT_ENV,
-      enableDevSigner: process.env.MERMER_ENABLE_DEV_SIGNER,
+    canUseLocalDevServerBridge({
+      contractEnv: process.env.MERMER_CONTRACT_ENV ?? process.env.NEXT_PUBLIC_CONTRACT_ENV,
       nodeEnv: process.env.NODE_ENV,
       requestUrl: request.url,
     })

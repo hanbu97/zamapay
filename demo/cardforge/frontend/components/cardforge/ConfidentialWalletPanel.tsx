@@ -9,8 +9,10 @@ import {
   EyeIcon,
   EyeOffIcon,
   PlusIcon,
+  Rows3Icon,
   RefreshCwIcon,
   ShieldCheckIcon,
+  TicketCheckIcon,
 } from 'lucide-react'
 import { getAddress } from 'viem'
 import {
@@ -19,8 +21,14 @@ import {
   readLocalTransactionReceipt,
   type ConfidentialWalletSnapshot,
 } from '@/lib/local-confidential-wallet'
+import {
+  getCardForgeWalletActivity,
+  type OwnedCardRecord,
+  type PaymentActivityRecord,
+} from '@/lib/cardforge-api'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import type { CardForgeConfig } from '@/lib/config'
 import { cn } from '@/lib/utils'
 
 type EthereumProvider = {
@@ -37,9 +45,11 @@ declare global {
 
 type ConfidentialWalletPanelProps = {
   className?: string
+  config: CardForgeConfig
+  onWalletChange?: (address: string | null) => void
 }
 
-type WalletActivityRecord = {
+type MintActivityRecord = {
   amountMinorUnits: string
   blockNumber: string
   chainId: number
@@ -50,6 +60,8 @@ type WalletActivityRecord = {
   type: 'mint'
   walletAddress: string
 }
+
+type WalletActivityRecord = MintActivityRecord | PaymentActivityRecord
 
 const hardhatChain = {
   chainId: '0x7a69',
@@ -66,11 +78,13 @@ const maxActivityRecords = 8
 const walletActivityStoragePrefix = 'cardforge:confidential-wallet:activity:v1'
 const localExplorerUrl = process.env.NEXT_PUBLIC_LOCAL_EXPLORER_URL?.trim()
 
-export function ConfidentialWalletPanel({ className }: ConfidentialWalletPanelProps) {
+export function ConfidentialWalletPanel({ className, config, onWalletChange }: ConfidentialWalletPanelProps) {
   const [address, setAddress] = useState<string | null>(null)
-  const [activity, setActivity] = useState<WalletActivityRecord[]>([])
+  const [activity, setActivity] = useState<MintActivityRecord[]>([])
   const [error, setError] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
+  const [ownedCards, setOwnedCards] = useState<OwnedCardRecord[]>([])
+  const [paymentActivity, setPaymentActivity] = useState<PaymentActivityRecord[]>([])
   const [status, setStatus] = useState('Connect wallet to reveal balance')
   const [wallet, setWallet] = useState<ConfidentialWalletSnapshot | null>(null)
   const didHydrateWallet = useRef(false)
@@ -166,6 +180,7 @@ export function ConfidentialWalletPanel({ className }: ConfidentialWalletPanelPr
       const snapshot = await readConfidentialWallet(selectedAddress)
       setWallet(snapshot)
       setActivity(await restoreWalletActivity(snapshot.address, snapshot.tokenAddress))
+      await refreshWalletRecords(snapshot.address).catch(() => undefined)
       setStatus(
         BigInt(snapshot.balanceMinorUnits) > 0n
           ? 'Confidential wallet balance is ready for encrypted checkout.'
@@ -179,13 +194,29 @@ export function ConfidentialWalletPanel({ className }: ConfidentialWalletPanelPr
     }
   }
 
-  function appendActivity(record: WalletActivityRecord) {
+  async function refreshWalletRecords(selectedAddress = address) {
+    if (!selectedAddress) {
+      setOwnedCards([])
+      setPaymentActivity([])
+      return
+    }
+
+    const records = await getCardForgeWalletActivity(config, selectedAddress)
+    setOwnedCards(records.ownedCards)
+    setPaymentActivity(records.payments)
+  }
+
+  function appendActivity(record: MintActivityRecord) {
     setActivity((current) => {
       const next = [record, ...current.filter((item) => item.txHash !== record.txHash)].slice(0, maxActivityRecords)
       writeWalletActivity(record.walletAddress, record.tokenAddress, next)
       return next
     })
   }
+
+  useEffect(() => {
+    onWalletChange?.(address)
+  }, [address, onWalletChange])
 
   useEffect(() => {
     if (didHydrateWallet.current) {
@@ -210,20 +241,61 @@ export function ConfidentialWalletPanel({ className }: ConfidentialWalletPanelPr
   }, [])
 
   useEffect(() => {
+    let isActive = true
+
+    const syncWalletRecords = async () => {
+      if (!address) {
+        setOwnedCards([])
+        setPaymentActivity([])
+        return
+      }
+
+      try {
+        const records = await getCardForgeWalletActivity(config, address)
+        if (isActive) {
+          setOwnedCards(records.ownedCards)
+          setPaymentActivity(records.payments)
+        }
+      } catch {
+        if (isActive) {
+          setOwnedCards([])
+          setPaymentActivity([])
+        }
+      }
+    }
+
+    void syncWalletRecords()
+    const interval = window.setInterval(() => void syncWalletRecords(), 4_000)
+    const onFocus = () => void syncWalletRecords()
+    window.addEventListener('focus', onFocus)
+
+    return () => {
+      isActive = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [address, config])
+
+  useEffect(() => {
     const provider = window.ethereum
     if (!provider?.on) {
       return
     }
 
-    const handleAccountsChanged = (...args: unknown[]) => {
-      const accounts = Array.isArray(args[0]) ? args[0] : []
+    const setSelectedAccount = (accounts: unknown[]) => {
       const selected = firstWalletAccount(accounts)
       setAddress(selected)
       setWallet(null)
       setActivity([])
+      setOwnedCards([])
+      setPaymentActivity([])
       if (selected) {
         void refreshWallet(selected)
       }
+    }
+
+    const handleAccountsChanged = (...args: unknown[]) => {
+      setSelectedAccount(Array.isArray(args[0]) ? args[0] : [])
     }
 
     const handleChainChanged = () => {
@@ -232,11 +304,20 @@ export function ConfidentialWalletPanel({ className }: ConfidentialWalletPanelPr
       }
     }
 
+    const handleFocus = async () => {
+      const selected = firstWalletAccount(await readAccounts(provider))
+      if (selected !== address) {
+        setSelectedAccount(selected ? [selected] : [])
+      }
+    }
+
     provider.on('accountsChanged', handleAccountsChanged)
     provider.on('chainChanged', handleChainChanged)
+    window.addEventListener('focus', handleFocus)
     return () => {
       provider.removeListener?.('accountsChanged', handleAccountsChanged)
       provider.removeListener?.('chainChanged', handleChainChanged)
+      window.removeEventListener('focus', handleFocus)
     }
   }, [address])
 
@@ -247,6 +328,7 @@ export function ConfidentialWalletPanel({ className }: ConfidentialWalletPanelPr
   const canClaimTokens = !isBusy
   const walletHandle = address ? shortHex(address) : 'Not connected'
   const walletActionLabel = hasWallet ? walletHandle : 'Connect wallet'
+  const visibleActivity = mergeActivityRecords(activity, paymentActivity)
 
   return (
     <Card className={cn('flex min-w-0 flex-col', className)}>
@@ -316,92 +398,160 @@ export function ConfidentialWalletPanel({ className }: ConfidentialWalletPanelPr
           </div>
         </section>
 
-        <section
-          className="min-h-[22rem] rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-4 text-white shadow-[0_18px_55px_rgb(0_0_0/0.2)] xl:min-h-0 xl:flex-1 xl:overflow-y-auto"
-          data-testid="wallet-activity-panel"
-        >
-          <div className="flex min-w-0 items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold">Transaction history</h2>
-              <p className="mt-1 truncate text-xs text-white/45">Hardhat Local chain {hardhatChainId}</p>
+        <div className="grid min-h-[42rem] gap-3 xl:min-h-0 xl:flex-1 xl:grid-rows-[minmax(12rem,0.42fr)_minmax(14rem,0.58fr)]">
+          <section
+            className="flex min-h-0 flex-col rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-4 text-white shadow-[0_18px_55px_rgb(0_0_0/0.2)]"
+            data-testid="owned-cards-panel"
+          >
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold">Unlocked cards</h2>
+                <p className="mt-1 truncate text-xs text-white/45">Wallet-local fulfillment</p>
+              </div>
+              <Badge className="shrink-0 border-white/10 bg-white/[0.06] text-white/65 hover:bg-white/[0.06]" variant="outline">
+                {ownedCards.length}
+              </Badge>
             </div>
-            <Badge className="shrink-0 border-white/10 bg-white/[0.06] text-white/65 hover:bg-white/[0.06]" variant="outline">
-              {activity.length}
-            </Badge>
-          </div>
 
-          {activity.length ? (
-            <div className="mt-4 grid gap-2">
-              {activity.map((record) => {
-                const href = transactionHref(record.txHash)
-                return (
+            {ownedCards.length ? (
+              <div className="mt-3 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1">
+                {ownedCards.map((card) => (
                   <article
-                    className="rounded-2xl border border-white/10 bg-black/25 p-3"
-                    data-testid="wallet-activity-record"
-                    key={record.txHash}
+                    className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.08] p-3"
+                    data-testid="owned-card-record"
+                    key={card.id}
                   >
                     <div className="flex min-w-0 items-start gap-3">
-                      <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#f4ff00] text-black">
-                        <CoinsIcon className="size-4" />
+                      <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-300 text-black">
+                        <TicketCheckIcon className="size-4" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center justify-between gap-2">
-                          <p className="truncate text-sm font-semibold">Mint test cUSDT</p>
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/[0.08] px-2 py-1 text-[11px] text-white/70">
+                          <p className="truncate text-sm font-semibold">{card.title}</p>
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-300/15 px-2 py-1 text-[11px] text-emerald-100">
                             <CheckCircle2Icon className="size-3" />
-                            {record.status}
+                            owned
                           </span>
                         </div>
-                        <p className="mt-1 truncate text-xs text-white/55">
-                          {formatMinorUnits(record.amountMinorUnits)} on block #{record.blockNumber}
-                        </p>
-                        <div className="mt-3 flex min-w-0 items-center justify-between gap-2">
-                          <code className="min-w-0 truncate rounded-full bg-white/[0.06] px-2.5 py-1 text-[11px] text-white/65">
-                            {shortHex(record.txHash)}
-                          </code>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <button
-                              aria-label="Copy transaction hash"
-                              className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
-                              onClick={() => void copyTransactionHash(record.txHash)}
-                              title={record.txHash}
-                              type="button"
+                        <p className="mt-1 truncate text-xs text-white/55">{ownedCardDescription(card)}</p>
+                        <div className="mt-3 grid gap-1">
+                          {card.cards.slice(0, 2).map((released) => (
+                            <div
+                              className="flex min-w-0 items-center justify-between gap-2 rounded-xl bg-black/25 px-2.5 py-1.5"
+                              key={`${card.id}:${released.secret}`}
                             >
-                              <ClipboardIcon className="size-3.5" />
-                            </button>
-                            {href ? (
-                              <a
-                                aria-label="Open transaction in local explorer"
-                                className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
-                                href={href}
-                                rel="noreferrer"
-                                target="_blank"
-                                title="Open transaction in local explorer"
-                              >
-                                <ExternalLinkIcon className="size-3.5" />
-                              </a>
-                            ) : null}
-                          </div>
+                              <span className="min-w-0 truncate text-[11px] text-white/55">{released.label}</span>
+                              <code className="shrink-0 text-[11px] font-semibold text-emerald-100">{released.secret}</code>
+                            </div>
+                          ))}
+                          {card.cards.length > 2 ? (
+                            <p className="text-[11px] text-white/45">+{card.cards.length - 2} more unlock codes</p>
+                          ) : null}
                         </div>
                       </div>
                     </div>
                   </article>
-                )
-              })}
+                ))}
+              </div>
+            ) : (
+              <div
+                className="mt-3 flex min-h-0 flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/20 px-5 text-center"
+                data-testid="owned-cards-empty"
+              >
+                <Rows3Icon className="size-7 text-white/30" />
+                <p className="mt-3 text-sm font-medium text-white/75">No unlocked cards yet</p>
+                <p className="mt-1 max-w-52 text-xs leading-5 text-white/45">
+                  Buy a card with this wallet. Fulfilled cards will stay attached to the wallet.
+                </p>
+              </div>
+            )}
+          </section>
+
+          <section
+            className="flex min-h-0 flex-col rounded-[1.5rem] border border-white/10 bg-white/[0.035] p-4 text-white shadow-[0_18px_55px_rgb(0_0_0/0.2)]"
+            data-testid="wallet-activity-panel"
+          >
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-semibold">Transaction history</h2>
+                <p className="mt-1 truncate text-xs text-white/45">Hardhat Local chain {hardhatChainId}</p>
+              </div>
+              <Badge className="shrink-0 border-white/10 bg-white/[0.06] text-white/65 hover:bg-white/[0.06]" variant="outline">
+                {visibleActivity.length}
+              </Badge>
             </div>
-          ) : (
-            <div
-              className="mt-4 flex min-h-64 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/20 px-5 text-center"
-              data-testid="wallet-activity-empty"
-            >
-              <CoinsIcon className="size-7 text-white/30" />
-              <p className="mt-3 text-sm font-medium text-white/75">No wallet transactions yet</p>
-              <p className="mt-1 max-w-52 text-xs leading-5 text-white/45">
-                Use the plus button to mint local test cUSDT. The confirmed chain hash will appear here.
-              </p>
-            </div>
-          )}
-        </section>
+
+            {visibleActivity.length ? (
+              <div className="mt-4 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1">
+                {visibleActivity.map((record) => {
+                  const href = transactionHref(record.txHash)
+                  return (
+                    <article
+                      className="rounded-2xl border border-white/10 bg-black/25 p-3"
+                      data-testid="wallet-activity-record"
+                      key={`${record.type}:${record.txHash}`}
+                    >
+                      <div className="flex min-w-0 items-start gap-3">
+                        <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#f4ff00] text-black">
+                          <CoinsIcon className="size-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <p className="truncate text-sm font-semibold">{activityTitle(record)}</p>
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/[0.08] px-2 py-1 text-[11px] text-white/70">
+                              <CheckCircle2Icon className="size-3" />
+                              {record.status}
+                            </span>
+                          </div>
+                          <p className="mt-1 truncate text-xs text-white/55">{activityDescription(record)}</p>
+                          <div className="mt-3 flex min-w-0 items-center justify-between gap-2">
+                            <code className="min-w-0 truncate rounded-full bg-white/[0.06] px-2.5 py-1 text-[11px] text-white/65">
+                              {shortHex(record.txHash)}
+                            </code>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <button
+                                aria-label="Copy transaction hash"
+                                className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
+                                onClick={() => void copyTransactionHash(record.txHash)}
+                                title={record.txHash}
+                                type="button"
+                              >
+                                <ClipboardIcon className="size-3.5" />
+                              </button>
+                              {href ? (
+                                <a
+                                  aria-label="Open transaction in local explorer"
+                                  className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
+                                  href={href}
+                                  rel="noreferrer"
+                                  target="_blank"
+                                  title="Open transaction in local explorer"
+                                >
+                                  <ExternalLinkIcon className="size-3.5" />
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            ) : (
+              <div
+                className="mt-4 flex min-h-0 flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 bg-black/20 px-5 text-center"
+                data-testid="wallet-activity-empty"
+              >
+                <CoinsIcon className="size-7 text-white/30" />
+                <p className="mt-3 text-sm font-medium text-white/75">No wallet transactions yet</p>
+                <p className="mt-1 max-w-52 text-xs leading-5 text-white/45">
+                  Mint local cUSDT or complete a checkout. Confirmed chain hashes will appear here.
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
       </CardContent>
     </Card>
   )
@@ -485,7 +635,7 @@ function readableError(caught: unknown): string {
   return caught instanceof Error ? caught.message : 'Confidential wallet lookup failed.'
 }
 
-function createMintActivity(address: string, claim: Awaited<ReturnType<typeof claimLocalTestCusd>>): WalletActivityRecord {
+function createMintActivity(address: string, claim: Awaited<ReturnType<typeof claimLocalTestCusd>>): MintActivityRecord {
   return {
     amountMinorUnits: claim.amountMinorUnits,
     blockNumber: claim.blockNumber,
@@ -499,7 +649,7 @@ function createMintActivity(address: string, claim: Awaited<ReturnType<typeof cl
   }
 }
 
-function readWalletActivity(address: string, tokenAddress: string): WalletActivityRecord[] {
+function readWalletActivity(address: string, tokenAddress: string): MintActivityRecord[] {
   if (typeof window === 'undefined') {
     return []
   }
@@ -517,7 +667,7 @@ function readWalletActivity(address: string, tokenAddress: string): WalletActivi
   }
 }
 
-async function restoreWalletActivity(address: string, tokenAddress: string): Promise<WalletActivityRecord[]> {
+async function restoreWalletActivity(address: string, tokenAddress: string): Promise<MintActivityRecord[]> {
   const stored = readWalletActivity(address, tokenAddress)
   if (!stored.length) {
     return []
@@ -533,12 +683,12 @@ async function restoreWalletActivity(address: string, tokenAddress: string): Pro
       return { ...record, blockNumber: receipt.blockNumber, status: toActivityStatus(receipt.receiptStatus) }
     }),
   )
-  const active = verified.filter((record): record is WalletActivityRecord => record !== null)
+  const active = verified.filter((record): record is MintActivityRecord => record !== null)
   writeWalletActivity(address, tokenAddress, active)
   return active
 }
 
-function writeWalletActivity(address: string, tokenAddress: string, records: WalletActivityRecord[]) {
+function writeWalletActivity(address: string, tokenAddress: string, records: MintActivityRecord[]) {
   if (typeof window === 'undefined') {
     return
   }
@@ -553,12 +703,12 @@ function walletActivityStorageKey(address: string, tokenAddress: string): string
   return `${walletActivityStoragePrefix}:${getAddress(address)}:${getAddress(tokenAddress)}`
 }
 
-function isWalletActivityRecord(value: unknown): value is WalletActivityRecord {
+function isWalletActivityRecord(value: unknown): value is MintActivityRecord {
   if (typeof value !== 'object' || value === null) {
     return false
   }
 
-  const record = value as Partial<WalletActivityRecord>
+  const record = value as Partial<MintActivityRecord>
   return (
     typeof record.amountMinorUnits === 'string' &&
     typeof record.blockNumber === 'string' &&
@@ -571,11 +721,48 @@ function isWalletActivityRecord(value: unknown): value is WalletActivityRecord {
   )
 }
 
+function mergeActivityRecords(
+  mints: MintActivityRecord[],
+  payments: PaymentActivityRecord[],
+): WalletActivityRecord[] {
+  return [...mints, ...payments]
+    .sort((left, right) => activityTimestamp(right) - activityTimestamp(left))
+    .slice(0, maxActivityRecords)
+}
+
+function activityTitle(record: WalletActivityRecord): string {
+  return record.type === 'mint' ? 'Mint test cUSDT' : 'Private checkout payment'
+}
+
+function activityDescription(record: WalletActivityRecord): string {
+  if (record.type === 'mint') {
+    return `${formatMinorUnits(record.amountMinorUnits)} on block #${record.blockNumber}`
+  }
+
+  const invoice = record.chainInvoiceId === null ? 'local invoice' : `invoice #${record.chainInvoiceId}`
+  return `${record.amountLabel} paid on ${invoice}`
+}
+
+function ownedCardDescription(card: OwnedCardRecord): string {
+  const invoice = Number.isFinite(card.chainInvoiceId) ? `invoice #${card.chainInvoiceId}` : card.invoiceId
+  return `${card.amountLabel} paid on ${invoice}`
+}
+
+function activityTimestamp(record: WalletActivityRecord): number {
+  const parsed = Date.parse(record.recordedAt)
+  if (Number.isFinite(parsed)) {
+    return parsed
+  }
+
+  const numeric = Number(record.recordedAt)
+  return Number.isFinite(numeric) ? numeric : 0
+}
+
 function transactionHref(txHash: string): string | null {
   return localExplorerUrl ? `${localExplorerUrl.replace(/\/$/, '')}/tx/${txHash}` : null
 }
 
-function toActivityStatus(status: 'success' | 'reverted'): WalletActivityRecord['status'] {
+function toActivityStatus(status: 'success' | 'reverted'): MintActivityRecord['status'] {
   return status === 'success' ? 'confirmed' : 'reverted'
 }
 

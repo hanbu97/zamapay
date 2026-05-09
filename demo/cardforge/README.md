@@ -10,7 +10,7 @@ Start Mermer Pay API and web from the repository root first. In the Mermer Pay c
 http://127.0.0.1:8092/api/mermer-pay/webhook
 ```
 
-Copy the project id, one-time API key, and webhook secret into `backend/.env`. Then run the template from its own directories.
+Copy the shell exports shown by the Mermer Pay project dialog into the CardForge backend terminal. The bundle includes `MERMER_PAY_CHAIN_INVOICE_API_URL=http://127.0.0.1:3001`, so CardForge creates a local-dev private settlement invoice before it opens hosted checkout. Then run the template from its own directories.
 
 ```bash
 cd demo/cardforge/backend
@@ -33,8 +33,8 @@ When no local explorer is running, CardForge still records and displays the conf
 
 ## Boundary
 
-- `frontend/` owns catalog UI and buyer intent.
-- `backend/` owns Mermer Pay checkout creation, webhook receipt, and release policy.
+- `frontend/` owns catalog UI and buyer intent; Buy sends only the selected product id.
+- `backend/` owns server-side product amounts, Mermer Pay checkout creation, local-dev private invoice creation, webhook receipt, and release policy.
 - Mermer Pay owns login, project configuration, hosted checkout, invoice truth, finality, and settlement.
 - The root Mermer Pay workspace does not start, build, lint, or import this template.
 - CardForge uses `MERMER_PAY_PROJECT_ID` and `MERMER_PAY_API_KEY` only; it does not forward `mermer_session` cookies to Mermer Pay.

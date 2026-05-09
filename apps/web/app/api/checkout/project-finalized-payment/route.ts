@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createPublicClient, http, parseEventLogs, type Hex } from 'viem'
 import { localDevAddresses, privateCheckoutSettlementAbi } from '@/lib/contracts'
 import { contractEnvironmentConfig } from '@/lib/contract-environment'
+import { finalizeLocalPrivatePayment } from '@/lib/local-fhevm-dev'
 
 type ProjectionRequest = {
   chainInvoiceId?: unknown
@@ -11,6 +12,12 @@ type ProjectionRequest = {
 type PaymentProjectionBody = {
   paymentTxHash: string
   payerAddress: string
+}
+
+type FinalizedPayment = {
+  chainInvoiceId: number
+  payerAddress: string
+  paymentTxHash: Hex
 }
 
 type ConfirmationBody = {
@@ -78,7 +85,7 @@ async function rustJson<T>(pathname: string, body: PaymentProjectionBody | Confi
 async function findFinalizedPayment(input: {
   paymentTxHash: Hex
   requestedChainInvoiceId?: number | null
-}) {
+}): Promise<FinalizedPayment> {
   const settlementAddress = localDevAddresses.contracts.PrivateCheckoutSettlement
   if (!settlementAddress?.startsWith('0x')) {
     throw new RouteError('PrivateCheckoutSettlement is missing from the local-dev manifest.', 409)
@@ -123,6 +130,20 @@ async function findFinalizedPayment(input: {
   return {
     chainInvoiceId,
     payerAddress: '0x0000000000000000000000000000000000000000',
+    paymentTxHash: input.paymentTxHash,
+  }
+}
+
+async function finalizeSubmittedPayment(chainInvoiceId: number): Promise<FinalizedPayment> {
+  const finalized = await finalizeLocalPrivatePayment({ chainInvoiceId })
+  if (!finalized.accepted) {
+    throw new RouteError('PrivatePaymentFinalized was rejected.', 409)
+  }
+
+  return {
+    chainInvoiceId: finalized.chainInvoiceId,
+    payerAddress: finalized.payerAddress,
+    paymentTxHash: finalized.paymentTxHash,
   }
 }
 
@@ -141,25 +162,32 @@ async function projectPayment(paymentTxHash: Hex, chainInvoiceId: number, payerA
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as ProjectionRequest
-  if (!isHexHash(body.paymentTxHash)) {
-    return NextResponse.json({ error: 'paymentTxHash must be a 32-byte hex transaction hash.' }, { status: 400 })
-  }
   const requestedChainInvoiceId =
     typeof body.chainInvoiceId === 'number' && Number.isSafeInteger(body.chainInvoiceId) && body.chainInvoiceId >= 0
       ? body.chainInvoiceId
       : null
+  const paymentTxHash = isHexHash(body.paymentTxHash) ? body.paymentTxHash : null
+
+  if (!paymentTxHash && requestedChainInvoiceId === null) {
+    return NextResponse.json(
+      { error: 'chainInvoiceId or paymentTxHash is required for local private checkout projection.' },
+      { status: 400 },
+    )
+  }
 
   try {
-    const paid = await findFinalizedPayment({
-      paymentTxHash: body.paymentTxHash,
-      requestedChainInvoiceId,
-    })
-    const { projected, finality } = await projectPayment(body.paymentTxHash, paid.chainInvoiceId, paid.payerAddress)
+    const paid = paymentTxHash
+      ? await findFinalizedPayment({
+          paymentTxHash,
+          requestedChainInvoiceId,
+        })
+      : await finalizeSubmittedPayment(requestedChainInvoiceId!)
+    const { projected, finality } = await projectPayment(paid.paymentTxHash, paid.chainInvoiceId, paid.payerAddress)
 
     return NextResponse.json({
       chainId: localDevAddresses.chainId,
       chainInvoiceId: paid.chainInvoiceId,
-      paymentTxHash: body.paymentTxHash,
+      paymentTxHash: paid.paymentTxHash,
       payerAddress: paid.payerAddress,
       projected,
       finality,

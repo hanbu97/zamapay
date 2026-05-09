@@ -16,6 +16,11 @@ type HardhatRuntime = {
       add64(value: bigint): void
       encrypt(): Promise<{ handles: unknown[]; inputProof: unknown }>
     }
+    publicDecrypt(handles: (string | Uint8Array)[]): Promise<{
+      abiEncodedClearValues: unknown
+      clearValues: Record<string, unknown>
+      decryptionProof: unknown
+    }>
   }
 }
 
@@ -44,6 +49,7 @@ type LocalPrivateCheckoutSettlement = {
   finalizePrivatePayment(orderCommitment: Hex, abiEncodedPaymentAccepted: Hex, decryptionProof: Hex): Promise<LocalTx>
   orderCommitmentOf(checkoutId: bigint): Promise<unknown>
   paymentCheckHandleOf(orderCommitment: Hex): Promise<unknown>
+  statusOf(orderCommitment: Hex): Promise<unknown>
 }
 
 type LocalEncryptedInput = {
@@ -60,6 +66,22 @@ export type LocalChainInvoice = {
   settlementAddress: Hex
   tokenAddress?: Hex
 }
+
+export type LocalFinalizedPayment = {
+  accepted: boolean
+  chainInvoiceId: number
+  orderCommitment: Hex
+  payerAddress: Hex
+  paymentTxHash: Hex
+}
+
+const checkoutStatus = {
+  accepted: 3n,
+  created: 1n,
+  expired: 5n,
+  rejected: 4n,
+  submitted: 2n,
+} as const
 
 let hardhatPromise: Promise<{ hre: HardhatRuntime }> | null = null
 let localOperationQueue: Promise<void> = Promise.resolve()
@@ -136,6 +158,72 @@ export async function createLocalChainInvoice(input: {
       settlementBucketCommitment,
       settlementAddress,
       tokenAddress,
+    }
+  })
+}
+
+export async function finalizeLocalPrivatePayment(input: { chainInvoiceId: number }): Promise<LocalFinalizedPayment> {
+  return runExclusiveLocalFhevm(async () => {
+    if (!Number.isSafeInteger(input.chainInvoiceId) || input.chainInvoiceId < 0) {
+      throw new Error('chainInvoiceId must be a non-negative safe integer.')
+    }
+
+    const settlementAddress = localDevAddresses.contracts.PrivateCheckoutSettlement
+    if (!settlementAddress) {
+      throw new Error('local-dev private checkout settlement is not deployed.')
+    }
+
+    const { hre } = await localHardhatRuntime()
+    const signers = await hre.ethers.getSigners()
+    const operator = signers[0] as LocalSigner | undefined
+    if (!operator) {
+      throw new Error('No local Hardhat signer is available to finalize the private checkout.')
+    }
+
+    const operatorAddress = getAddress(await operator.getAddress()) as Hex
+    const settlement = (await hre.ethers.getContractAt(
+      'PrivateCheckoutSettlement',
+      settlementAddress,
+      operator,
+    )) as LocalPrivateCheckoutSettlement
+    const orderCommitment = toHex(await settlement.orderCommitmentOf(BigInt(input.chainInvoiceId)), 'order commitment')
+    const status = chainValueToBigInt(await settlement.statusOf(orderCommitment))
+
+    if (status === checkoutStatus.created) {
+      throw new Error('Private payment has not been submitted yet.')
+    }
+    if (status === checkoutStatus.accepted) {
+      throw new Error('Private payment is already finalized.')
+    }
+    if (status === checkoutStatus.rejected) {
+      throw new Error('Private payment was rejected.')
+    }
+    if (status === checkoutStatus.expired) {
+      throw new Error('Private checkout has expired.')
+    }
+    if (status !== checkoutStatus.submitted) {
+      throw new Error('Private checkout is not ready for finalization.')
+    }
+
+    const paymentCheckHandle = toHex(await settlement.paymentCheckHandleOf(orderCommitment), 'payment check handle')
+    const proof = await hre.fhevm.publicDecrypt([paymentCheckHandle])
+    const accepted = coercePublicBool(proof.clearValues[paymentCheckHandle] ?? proof.clearValues[paymentCheckHandle.toLowerCase()])
+    const tx = await settlement.finalizePrivatePayment(
+      orderCommitment,
+      toHex(proof.abiEncodedClearValues, 'ABI-encoded clear payment result'),
+      toHex(proof.decryptionProof, 'decryption proof'),
+    )
+    const receipt = await tx.wait()
+    if (!receipt) {
+      throw new Error('Local private checkout finalization transaction was not mined.')
+    }
+
+    return {
+      accepted,
+      chainInvoiceId: input.chainInvoiceId,
+      orderCommitment,
+      payerAddress: operatorAddress,
+      paymentTxHash: toHex(tx.hash, 'finalization transaction hash'),
     }
   })
 }
@@ -252,4 +340,21 @@ function chainValueToBigInt(value: unknown): bigint {
   }
 
   throw new Error('Local chain returned a value that cannot be converted to bigint.')
+}
+
+function coercePublicBool(value: unknown): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'bigint') {
+    return value === 1n
+  }
+  if (typeof value === 'number') {
+    return value === 1
+  }
+  if (typeof value === 'string') {
+    return value === 'true' || value === '1' || value === '0x1'
+  }
+
+  return false
 }
