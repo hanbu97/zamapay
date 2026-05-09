@@ -21,7 +21,7 @@ apps/web/app/docs
 - `/docs` opens directly into the documentation map; it is not a landing page stacked above a second docs layout.
 - The docs body uses `100dvh - 3.5rem` as its minimum viewport while the shared public header owns top navigation.
 - `/merchant` owns project state and one-time secret reveal.
-- Privacy checkout documents the MVP boundary, payment rail, field contract, safety controls, and payment path as row-spanned tables plus Mermaid, so privacy claims stay narrower than the settlement proof.
+- Privacy checkout documents the implemented local-dev mock confidential rail, MVP boundary, field contract, safety controls, and payment path as row-spanned tables plus Mermaid, so privacy claims stay narrower than the settlement proof.
 - Mermaid is isolated in a client component and loaded dynamically; docs articles remain server-rendered and typed.
 - Guide figures render only when a section declares one; text/table-only sections stay single-column and do not receive placeholder cards.
 - API examples document the project/API-key checkout boundary and deliberately exclude browser cookie checkout creation.

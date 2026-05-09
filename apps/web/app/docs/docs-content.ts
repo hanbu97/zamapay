@@ -248,6 +248,7 @@ export function verifyMermerWebhook(headers, body, secret) {
       {
         body: [
           "Private Checkout v1 is a Private Checkout Proof MVP. It proves that a checkout contract can validate encrypted amount equality and emit only a fulfillment-safe paid/rejected result.",
+          "The implemented local-dev rail is MockConfidentialPaymentRail: an application-rendered confidential cUSDT balance keyed by accountCommitment. It is not a MetaMask ERC20 token and should not be tested through a public ERC20 transfer.",
           "The privacy claim is scoped to PrivateCheckoutSettlement storage and events. Public observers should not see buyer wallet, merchant wallet, payout wallet, project id, order id, or amount there. Token funding, wrapping, gas, or a future transfer rail must be reviewed separately.",
         ],
         id: "privacy-target",
@@ -283,7 +284,7 @@ export function verifyMermerWebhook(headers, body, secret) {
             [
               "Payment Rail",
               "The buyer actually paid, or the demo honestly simulated settlement before relaying.",
-              "Declare as demo balance, mock confidential cUSDT, or real confidential transfer.",
+              "Implemented as mock confidential cUSDT balance on local-dev.",
             ],
             [
               "Merchant Settlement / Withdraw",
@@ -452,7 +453,7 @@ export function verifyMermerWebhook(headers, body, secret) {
             [
               "Mock cUSDT confidential balance",
               "Buyer has a demo confidential balance and payment submission records or deducts an encrypted debit.",
-              "Recommended hard MVP if time allows.",
+              "Implemented local-dev path.",
             ],
             [
               "ERC-7984 / confidential wrapper transfer",
@@ -482,7 +483,7 @@ export function verifyMermerWebhook(headers, body, secret) {
       {
         body: [
           "The normal checkout path decrypts only accepted, an ebool. Per-order gross, merchant net, and platform fee stay encrypted and can be handled by settlement batches later.",
-          "Expected and paid amounts are encrypted as external inputs with input proofs, then imported by the contract. Mermer Pay verifies the selected payment rail before relaying the encrypted paidAmount.",
+          "Expected and paid amounts are encrypted as external inputs with input proofs, then imported by the contract. In local-dev, the buyer wallet signs the payment intent and the relayer submits the encrypted paidAmount after checking the mock confidential rail.",
         ],
         code: `accepted = FHE.eq(paidAmount, expectedAmount)`,
         id: "payment-flow",
@@ -491,9 +492,9 @@ export function verifyMermerWebhook(headers, body, secret) {
   B --> C["Rotate settlementBucketCommitment"]
   C --> D["Encrypt expectedAmount + inputProof"]
   D --> E["createPrivateCheckout"]
-  E --> F["Buyer encrypts paidAmount + signs intent"]
+  E --> F["Buyer signs payment intent"]
   F --> G["Verify intent and payment rail"]
-  G --> H["Relayer submitPrivatePayment"]
+  G --> H["Relayer encrypts paidAmount and submitPrivatePayment"]
   H --> I["FHE.fromExternal + FHE.eq"]
   I --> J["Public decrypt only accepted ebool"]
   J --> K["PrivatePaymentFinalized(orderCommitment, accepted)"]
@@ -565,7 +566,7 @@ struct PrivateCheckout {
             title: "Relay buyer payment",
           },
           {
-            detail: "Verify the selected payment rail, then use FHE equality to compare encrypted paidAmount with encrypted expectedAmount.",
+            detail: "Verify MockConfidentialPaymentRail, then use FHE equality to compare encrypted paidAmount with encrypted expectedAmount.",
             title: "Validate privately",
           },
           {

@@ -9,7 +9,7 @@ apps/web/lib
 |-- contracts.ts                    # Generated ABI/address bridge and local chain definition
 |-- dev-signer-gate.ts              # Pure environment gate for local browser signer
 |-- fhevm.ts                        # Client-only Zama relayer payment/subscription encryption, public decrypt, and user decrypt helpers
-|-- local-fhevm-dev.ts              # Server-only Hardhat FHEVM mock bridge for local chain invoices, encrypted inputs, boolean decrypt, and wallet balance projection
+|-- local-fhevm-dev.ts              # Server-only Hardhat FHEVM mock bridge for private checkout, Growth proof, boolean decrypt, and confidential wallet projection
 |-- merchant-portal.ts              # Protected billing/project loader that maps auth failures to login and backend failures to UI state
 |-- utils.ts                        # shadcn className merge helper
 `-- wallet.ts                       # Browser wallet account/session helpers, chain metadata, and switch/add helper
@@ -22,7 +22,7 @@ apps/web/lib
 - `getSession`, `getOptionalSession`, and `logoutSession` keep auth state owned by the Rust `mermer_session` boundary; unavailable auth means anonymous UI, login redirect, or a failed logout action rather than invented client truth.
 - Contract ABIs and billing/address manifests flow from `generated/clients/ts` so UI writes and public pricing follow compiled Solidity/deploy output.
 - `contract-environment.ts` is the single frontend map: `local-dev` means Hardhat/local manifest plus dev FHEVM mock bridge; `sepolia` means public testnet manifest and wallet-bound Zama relayer flows.
-- `local-fhevm-dev.ts` is server-only and gated by API routes; it never creates a public ERC20 payment rail, only local settlement invoices, encrypted handles, local `accepted` boolean decrypts, and app-rendered confidential wallet balances.
+- `local-fhevm-dev.ts` is server-only and gated by API routes; it never creates a public ERC20 payment rail, only `PrivateCheckoutSettlement` checkouts, `MockConfidentialPaymentRail` balances, local `accepted` boolean decrypts, and chain-backed Growth subscription upgrades.
 - `dev-signer-gate.ts` is pure and unit-tested so the local browser signer cannot silently widen into Sepolia, production, or remote-host contexts.
 - FHEVM logic is dynamically loaded on payment or subscription action: the browser first loads the static Zama UMD bundle from `public`, then imports the SDK `bundle` shim after `window.relayerSDK` exists.
 - Merchant checkout creation belongs to project/API-key backends, not dashboard browser wallet helpers; the web app exposes project config and hosted checkout pages.

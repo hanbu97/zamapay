@@ -15,8 +15,6 @@ import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib
 import {
   encryptPaymentAmount,
   publicDecryptPaymentCheck,
-  type EncryptedPaymentInput,
-  type PublicPaymentCheckProof,
 } from '@/lib/fhevm'
 import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
@@ -36,17 +34,15 @@ type CheckoutPaymentCardProps = {
   tokenAddress: string | null
 }
 
-type PaymentStep = 'approval' | 'finalize' | 'invoice' | 'project' | 'submit'
+type PaymentStep = 'finalize' | 'intent' | 'invoice' | 'project' | 'submit'
 
 const paymentStepOrder: Record<PaymentStep, number> = {
   invoice: 1,
-  approval: 2,
+  intent: 2,
   submit: 3,
   finalize: 4,
   project: 5,
 }
-const localConfidentialTxGas = 16_000_000n
-
 function ensureHexAddress(address: string | null, label: string): HexAddress {
   if (!address?.startsWith('0x')) {
     throw new Error(`${label} is not deployed in the contract manifest.`)
@@ -78,11 +74,11 @@ function parseProjectionError(text: string): string {
   }
 }
 
-async function projectFinalizedPayment(paymentTxHash: HexAddress) {
+async function projectFinalizedPayment(paymentTxHash: HexAddress, chainInvoiceId?: number) {
   const response = await fetch('/api/checkout/project-finalized-payment', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ paymentTxHash }),
+    body: JSON.stringify({ chainInvoiceId, paymentTxHash }),
   })
   const text = await response.text()
 
@@ -91,21 +87,23 @@ async function projectFinalizedPayment(paymentTxHash: HexAddress) {
   }
 }
 
-type LocalConfidentialPaymentInputs = {
-  approval: EncryptedPaymentInput
-  balanceMinorUnits: string
+type LocalPrivateCheckoutPaymentResult = {
+  accepted: boolean
   chainInvoiceId: number
-  payment: EncryptedPaymentInput
-  settlementAddress: HexAddress
-  tokenAddress: HexAddress
+  finalizeTxHash: HexAddress
+  orderCommitment: HexAddress
+  paymentCheckHandle: HexAddress
+  paymentTxHash: HexAddress
 }
 
-async function createLocalConfidentialPaymentInputs(input: {
+async function submitLocalPrivateCheckout(input: {
   amountMinorUnits: number
   chainInvoiceId: number
+  intentMessage: string
+  intentSignature: HexAddress
   payerAddress: HexAddress
-}): Promise<LocalConfidentialPaymentInputs> {
-  const response = await fetch('/api/dev/local-confidential-payment/inputs', {
+}): Promise<LocalPrivateCheckoutPaymentResult> {
+  const response = await fetch('/api/dev/local-private-checkout/pay', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(input),
@@ -116,22 +114,26 @@ async function createLocalConfidentialPaymentInputs(input: {
     throw new Error(parseProjectionError(text) || `Local encrypted input creation failed with ${response.status}.`)
   }
 
-  return JSON.parse(text) as LocalConfidentialPaymentInputs
+  return JSON.parse(text) as LocalPrivateCheckoutPaymentResult
 }
 
-async function publicDecryptLocalPaymentCheck(paymentCheckHandle: HexAddress): Promise<PublicPaymentCheckProof> {
-  const response = await fetch('/api/dev/local-confidential-payment/decrypt', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ paymentCheckHandle }),
-  })
-  const text = await response.text()
-
-  if (!response.ok) {
-    throw new Error(parseProjectionError(text) || `Local payment decrypt failed with ${response.status}.`)
-  }
-
-  return JSON.parse(text) as PublicPaymentCheckProof
+function privateCheckoutIntentMessage(input: {
+  amountMinorUnits: number
+  chainId: number
+  chainInvoiceId: number
+  payerAddress: string
+  paymentRailAddress: string
+  settlementAddress: string
+}) {
+  return [
+    'Mermer Pay Private Checkout',
+    `Chain ID: ${input.chainId}`,
+    `Settlement: ${input.settlementAddress}`,
+    `Payment rail: ${input.paymentRailAddress}`,
+    `Invoice: ${input.chainInvoiceId}`,
+    `Amount minor units: ${input.amountMinorUnits}`,
+    `Payer: ${input.payerAddress}`,
+  ].join('\n')
 }
 
 export function CheckoutPaymentCard({
@@ -151,7 +153,7 @@ export function CheckoutPaymentCard({
   const [error, setError] = useState<string | null>(null)
   const [finalizeHash, setFinalizeHash] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
-  const [paymentStep, setPaymentStep] = useState<PaymentStep>('approval')
+  const [paymentStep, setPaymentStep] = useState<PaymentStep>('intent')
   const [paymentHash, setPaymentHash] = useState<string | null>(null)
   const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus))
 
@@ -193,7 +195,7 @@ export function CheckoutPaymentCard({
     setError(null)
     setFinalizeHash(null)
     setPaymentHash(null)
-    setPaymentStep('approval')
+    setPaymentStep('intent')
 
     try {
       if (!canPay || chainInvoiceId === null) {
@@ -209,96 +211,52 @@ export function CheckoutPaymentCard({
 
       if (canPayOnLocalDev) {
         const paymentEnvironment = contractEnvironmentConfigs['local-dev']
-        const settlement = ensureHexAddress(settlementAddress, 'ConfidentialInvoiceSettlement')
-        const token = ensureHexAddress(tokenAddress, 'ConfidentialUSDMock')
+        const settlement = ensureHexAddress(settlementAddress, 'PrivateCheckoutSettlement')
+        const paymentRail = ensureHexAddress(tokenAddress, 'MockConfidentialPaymentRail')
 
         setStatus('Switching wallet to Hardhat Local...')
         await ensureWalletChain(provider, paymentEnvironment.walletChain)
 
         const walletClient = createWalletClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
-        const publicClient = createPublicClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
         const [selectedAddress] = await walletClient.requestAddresses()
         const payerAddress = getAddress(selectedAddress)
 
-        setPaymentStep('approval')
-        setStatus('Creating local FHEVM encrypted payment inputs...')
-        const encrypted = await createLocalConfidentialPaymentInputs({
+        setPaymentStep('intent')
+        setStatus('Signing private checkout payment intent...')
+        const intentMessage = privateCheckoutIntentMessage({
           amountMinorUnits,
+          chainId: manifestChainId ?? paymentEnvironment.chain.id,
           chainInvoiceId,
           payerAddress,
+          paymentRailAddress: paymentRail,
+          settlementAddress: settlement,
         })
-        if (getAddress(encrypted.tokenAddress) !== getAddress(token) || getAddress(encrypted.settlementAddress) !== getAddress(settlement)) {
-          throw new Error('Local encrypted input bridge returned addresses outside the checkout manifest.')
-        }
-
-        setStatus('Approving encrypted local cUSDT allowance...')
-        const approveHash = await walletClient.writeContract({
-          address: token,
-          abi: confidentialUsdMockAbi,
-          functionName: 'approve',
-          args: [settlement, encrypted.approval.handle, encrypted.approval.inputProof],
+        const intentSignature = await walletClient.signMessage({
           account: payerAddress,
-          gas: localConfidentialTxGas,
+          message: intentMessage,
         })
-        await publicClient.waitForTransactionReceipt({ hash: approveHash })
 
         setPaymentStep('submit')
-        setStatus(`Submitting encrypted ${amountLabel} payment to ConfidentialInvoiceSettlement...`)
-        const hash = await walletClient.writeContract({
-          address: settlement,
-          abi: confidentialInvoiceSettlementAbi,
-          functionName: 'payInvoice',
-          args: [BigInt(chainInvoiceId), encrypted.payment.handle, encrypted.payment.inputProof],
-          account: payerAddress,
-          gas: localConfidentialTxGas,
+        setStatus(`Relayer is submitting encrypted ${amountLabel} private checkout...`)
+        const result = await submitLocalPrivateCheckout({
+          amountMinorUnits,
+          chainInvoiceId,
+          intentMessage,
+          intentSignature,
+          payerAddress,
         })
-        setPaymentHash(hash)
-
-        setStatus('Waiting for encrypted local payment submission...')
-        const receipt = await publicClient.waitForTransactionReceipt({ hash })
-        const submittedLogs = parseEventLogs({
-          abi: confidentialInvoiceSettlementAbi,
-          eventName: 'InvoicePaymentSubmitted',
-          logs: receipt.logs,
-        })
-        const paymentCheckHandle = submittedLogs[0]?.args.paymentCheckHandle as HexAddress | undefined
-
-        if (!paymentCheckHandle) {
-          throw new Error('Payment transaction confirmed without InvoicePaymentSubmitted event.')
-        }
+        setPaymentHash(result.paymentTxHash)
 
         setPaymentStep('finalize')
-        setStatus('Decrypting only the local paid/rejected boolean...')
-        const proof = await publicDecryptLocalPaymentCheck(paymentCheckHandle)
-
-        if (!proof.accepted) {
+        setStatus('Local relayer decrypted only the paid/rejected boolean...')
+        if (!result.accepted) {
           throw new Error('Encrypted payment was rejected by the settlement proof.')
         }
-
-        setStatus('Finalizing verified local payment on chain...')
-        const finalizeHash = await walletClient.writeContract({
-          address: settlement,
-          abi: confidentialInvoiceSettlementAbi,
-          functionName: 'finalizePayment',
-          args: [BigInt(chainInvoiceId), proof.abiEncodedClearValues, proof.decryptionProof],
-          account: payerAddress,
-          gas: localConfidentialTxGas,
-        })
-        setFinalizeHash(finalizeHash)
-        const finalizeReceipt = await publicClient.waitForTransactionReceipt({ hash: finalizeHash })
-        const paidLogs = parseEventLogs({
-          abi: confidentialInvoiceSettlementAbi,
-          eventName: 'InvoicePaid',
-          logs: finalizeReceipt.logs,
-        })
-
-        if (paidLogs.length === 0) {
-          throw new Error('Payment finalization confirmed without InvoicePaid event.')
-        }
+        setFinalizeHash(result.finalizeTxHash)
 
         setPaymentStep('project')
         setStatus('Payment confirmed on local chain. Projecting backend read model...')
-        await projectFinalizedPayment(finalizeHash)
+        await projectFinalizedPayment(result.finalizeTxHash, chainInvoiceId)
 
         setStatus('Encrypted payment projected. Refreshing fulfillment state...')
         router.refresh()
@@ -317,7 +275,7 @@ export function CheckoutPaymentCard({
       const [selectedAddress] = await walletClient.requestAddresses()
       const payerAddress = getAddress(selectedAddress)
 
-      setPaymentStep('approval')
+      setPaymentStep('intent')
       setStatus('Approving encrypted mcUSD allowance...')
       const encryptedApproval = await encryptPaymentAmount({
         amountMinorUnits: amount,
@@ -499,7 +457,7 @@ export function CheckoutPaymentCard({
         </Button>
         {!isPaid ? (
           <p className="text-center text-xs text-muted-foreground">
-            Wallet signs encrypted cUSDT approval and settlement calls; this checkout does not use a public ERC20 transfer.
+            Wallet signs a payment intent; the relayer submits the private checkout and only the paid result is public.
           </p>
         ) : null}
       </CardFooter>
@@ -565,12 +523,12 @@ function getPaymentSteps({
     },
     {
       description: useLocalConfidentialPayment
-        ? 'Buyer wallet signs encrypted local allowance for the settlement contract.'
+        ? 'Buyer wallet signs a local private checkout intent.'
         : canPay || isPaid
         ? 'Buyer wallet approves encrypted cUSDT allowance for this settlement.'
         : 'Sepolia manifest and token contract are required before wallet approval.',
       state: stepState(2, currentStep, isBusy, error),
-      title: 'Approval',
+      title: useLocalConfidentialPayment ? 'Intent' : 'Approval',
     },
     {
       description: paymentHash

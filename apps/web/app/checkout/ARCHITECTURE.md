@@ -11,6 +11,6 @@ apps/web/app/checkout
 ## Decisions
 
 - `/checkout/[invoiceId]` is a buyer payment surface, so it stays outside `(merchant)` and never inherits dashboard sidebar or account topbar chrome.
-- The page owns only the standalone visual shell: modern full-viewport background, centered payment card, and invoice data loading from Rust plus the contract manifest.
+- The page owns only the standalone visual shell: modern full-viewport background, centered payment card, invoice data loading, and generated contract manifest selection.
 - `CheckoutPaymentCard` owns wallet action, encrypted payment status, and the compact horizontal stage projection.
 - Merchant webhook diagnostics and project operations remain in merchant dashboard routes, not on the buyer checkout.

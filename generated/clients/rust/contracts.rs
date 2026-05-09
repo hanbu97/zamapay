@@ -4,11 +4,13 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
     "network": "localhost",
     "chainId": 31337,
     "contracts": {
-      "MerchantRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-      "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-      "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-      "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-      "ConfidentialInvoiceSettlement": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+      "MerchantRegistry": "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+      "ConfidentialUSDMock": "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c",
+      "SubscriptionPass": "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
+      "PrivateSubscriptionRegistry": "0x59b670e9fA9D0A427751Af201D676719a970857b",
+      "ConfidentialInvoiceSettlement": "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44",
+      "MockConfidentialPaymentRail": "0x4A679253410272dd5232B3Ff7cF5dbB88f295319",
+      "PrivateCheckoutSettlement": "0x7a2088a1bFc9d81c55368AE168C2C02570cB814F"
     },
     "billing": {
       "source": "PrivateSubscriptionRegistry",
@@ -42,7 +44,7 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
         }
       ]
     },
-    "generatedAt": "2026-05-09T01:52:20.836Z",
+    "generatedAt": "2026-05-09T06:50:10.297Z",
     "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
   },
@@ -54,7 +56,9 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
       "ConfidentialUSDMock": "0x473FBc0B9761F1E879c22971D9b77134f03C42bE",
       "SubscriptionPass": null,
       "PrivateSubscriptionRegistry": null,
-      "ConfidentialInvoiceSettlement": "0x6975Bba2F12F47a49028120C6c51fBc9D2Fd6015"
+      "ConfidentialInvoiceSettlement": "0x6975Bba2F12F47a49028120C6c51fBc9D2Fd6015",
+      "MockConfidentialPaymentRail": null,
+      "PrivateCheckoutSettlement": null
     },
     "billing": {
       "source": null,
@@ -74,11 +78,13 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
   "network": "localhost",
   "chainId": 31337,
   "contracts": {
-    "MerchantRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-    "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-    "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-    "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-    "ConfidentialInvoiceSettlement": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+    "MerchantRegistry": "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+    "ConfidentialUSDMock": "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c",
+    "SubscriptionPass": "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
+    "PrivateSubscriptionRegistry": "0x59b670e9fA9D0A427751Af201D676719a970857b",
+    "ConfidentialInvoiceSettlement": "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44",
+    "MockConfidentialPaymentRail": "0x4A679253410272dd5232B3Ff7cF5dbB88f295319",
+    "PrivateCheckoutSettlement": "0x7a2088a1bFc9d81c55368AE168C2C02570cB814F"
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -112,7 +118,7 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
       }
     ]
   },
-  "generatedAt": "2026-05-09T01:52:20.836Z",
+  "generatedAt": "2026-05-09T06:50:10.297Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 }
@@ -127,7 +133,9 @@ pub const SEPOLIA_MANIFEST_JSON: &str = r#"
     "ConfidentialUSDMock": "0x473FBc0B9761F1E879c22971D9b77134f03C42bE",
     "SubscriptionPass": null,
     "PrivateSubscriptionRegistry": null,
-    "ConfidentialInvoiceSettlement": "0x6975Bba2F12F47a49028120C6c51fBc9D2Fd6015"
+    "ConfidentialInvoiceSettlement": "0x6975Bba2F12F47a49028120C6c51fBc9D2Fd6015",
+    "MockConfidentialPaymentRail": null,
+    "PrivateCheckoutSettlement": null
   },
   "billing": {
     "source": null,
@@ -2417,6 +2425,710 @@ pub const CONFIDENTIAL_INVOICE_SETTLEMENT_ABI_JSON: &str = r#"
     "outputs": [
       {
         "internalType": "contract IPrivateSubscriptionRegistry",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
+"#;
+
+pub const MOCK_CONFIDENTIAL_PAYMENT_RAIL_ABI_JSON: &str = r#"
+[
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "handle",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "SenderNotAllowedToUseHandle",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZamaProtocolUnsupported",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "accountCommitment",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "balanceHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ConfidentialBalanceFunded",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "accountCommitment",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "debitCheckHandle",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "balanceHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "ConfidentialDebitSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "settlement",
+        "type": "address"
+      }
+    ],
+    "name": "SettlementUpdated",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "admin",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "accountCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "balanceHandleOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "accountCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "balanceOf",
+    "outputs": [
+      {
+        "internalType": "euint64",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "confidentialProtocolId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "accountCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "debitCheckHandleOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "accountCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "euint64",
+        "name": "amount",
+        "type": "bytes32"
+      }
+    ],
+    "name": "debitExact",
+    "outputs": [
+      {
+        "internalType": "ebool",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "accountCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "externalEuint64",
+        "name": "encryptedAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "inputProof",
+        "type": "bytes"
+      }
+    ],
+    "name": "fund",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "settlementAddress",
+        "type": "address"
+      }
+    ],
+    "name": "setSettlement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "settlement",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
+"#;
+
+pub const PRIVATE_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "paymentRailAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "trustedRelayerAddress",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidKMSSignatures",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "handle",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
+      }
+    ],
+    "name": "SenderNotAllowedToUseHandle",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ZamaProtocolUnsupported",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "PrivateCheckoutCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "PrivateCheckoutExpired",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "accepted",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "paidAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "PrivatePaymentFinalized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "paymentCheckHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "PrivatePaymentSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "bytes32[]",
+        "name": "handlesList",
+        "type": "bytes32[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "abiEncodedCleartexts",
+        "type": "bytes"
+      }
+    ],
+    "name": "PublicDecryptionVerified",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "checkoutCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "checkoutIdOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "confidentialProtocolId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "externalEuint64",
+        "name": "encryptedExpectedAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "inputProof",
+        "type": "bytes"
+      },
+      {
+        "internalType": "uint64",
+        "name": "expiresAt",
+        "type": "uint64"
+      }
+    ],
+    "name": "createPrivateCheckout",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "expectedAmountHandleOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "expirePrivateCheckout",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "expiresAtOf",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "abiEncodedPaymentAccepted",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes",
+        "name": "decryptionProof",
+        "type": "bytes"
+      }
+    ],
+    "name": "finalizePrivatePayment",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "checkoutId",
+        "type": "uint256"
+      }
+    ],
+    "name": "orderCommitmentOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "paidAtOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "paymentCheckHandleOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "paymentNonceUsed",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "paymentRail",
+    "outputs": [
+      {
+        "internalType": "contract IPrivateCheckoutPaymentRail",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "statusOf",
+    "outputs": [
+      {
+        "internalType": "enum PrivateCheckoutSettlement.PaymentStatus",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "accountCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "paymentNonce",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "externalEuint64",
+        "name": "encryptedPaidAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "inputProof",
+        "type": "bytes"
+      }
+    ],
+    "name": "submitPrivatePayment",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "trustedRelayer",
+    "outputs": [
+      {
+        "internalType": "address",
         "name": "",
         "type": "address"
       }

@@ -16,6 +16,7 @@ apps/web
 |   |-- api/checkout/project-finalized-payment/route.ts
 |   |-- api/dev/sign-message/route.ts
 |   |-- api/dev/project-local-growth/route.ts
+|   |-- api/dev/local-private-checkout/pay/route.ts
 |   |-- api/dev/local-confidential-wallet/route.ts
 |   |-- api/dev/local-confidential-payment/inputs/route.ts
 |   |-- api/dev/local-confidential-payment/decrypt/route.ts
@@ -37,7 +38,7 @@ apps/web
 |       `-- merchant-console.png    # Website hero product preview
 |-- components/
 |   |-- auth/LoginCard.tsx          # Wallet connect + nonce/signature flow with gated local-dev signer
-|   |-- checkout/CheckoutPaymentCard.tsx # Centered buyer payment card; Sepolia relayer or local-dev encrypted settlement
+|   |-- checkout/CheckoutPaymentCard.tsx # Centered buyer payment card; local-dev private intent or Sepolia encrypted settlement
 |   |-- commerce/StatusBadge.tsx    # Shared status badge policy
 |   |-- commerce/StatusStepper.tsx  # Shared read-only process stepper policy
 |   |-- dashboard/SettlementDecryptCard.tsx
@@ -89,7 +90,7 @@ apps/web
 - Client auth logic is isolated in `LoginCard.tsx`; it requests nonce, signs, then hands verification to Rust.
 - Login silently reads already-authorized wallet accounts with `eth_accounts`; explicit connect is only used when the browser has a wallet but no project-approved account yet.
 - Hosted checkout renders from Rust read-model APIs in a standalone buyer shell, so dashboard chrome cannot leak into the payment experience.
-- Payments workspace reads the generated contract manifest through Rust, which keeps contract network and address truth out of ad hoc frontend constants.
+- Payments workspace reads generated contract manifest truth; local-dev uses the generated TS manifest directly so a running Rust dev process cannot serve stale private-checkout addresses after redeploy.
 - `NEXT_PUBLIC_CONTRACT_ENV` selects the manifest environment; default `local-dev` keeps local smoke stable while `sepolia` unlocks browser relayer payment.
 - Checkout keeps merchant order identity inside one centered card; buyer-facing payment hides chain invoice, platform fee, merchant net, and finality depth while still paying the canonical read-model amount.
 - Checkout progress uses `commerce/StatusStepper` in horizontal active-detail mode, while merchant setup keeps the vertical all-detail mode.
@@ -106,9 +107,9 @@ apps/web
 - Merchant chrome lives in `app/(merchant)/layout.tsx`, so the public website does not inherit dashboard sidebar or topbar.
 - External merchant applications live outside `apps/web`; the platform app only exposes project config and hosted checkout surfaces.
 - Checkout payment and subscription upgrade use a client-only Zama relayer helper plus static public wasm/worker assets so encrypted input generation, public decrypt, and user decrypt never run during server rendering or initial static module load.
-- `app/api/checkout/project-finalized-payment` is the server-side operator bridge for browser checkout: it verifies `InvoicePaid`, reads optional split-fee evidence, then calls Rust projection and confirmation endpoints.
+- `app/api/checkout/project-finalized-payment` is the server-side operator bridge for browser checkout: it verifies `PrivatePaymentFinalized` for local private checkout or legacy `InvoicePaid`, then calls Rust projection and confirmation endpoints.
 - `app/api/dev/sign-message` is deliberately gated by `lib/dev-signer-gate.ts`; it exists for local browser verification only and stays off unless explicitly enabled.
-- `app/api/dev/project-local-growth` projects Growth entitlement for local browser QA; `app/api/dev/local-confidential-*` keeps local browser checkout on the confidential path by generating local FHEVM mock encrypted inputs, decrypting only the paid/rejected boolean, and projecting finalized `InvoicePaid` through the normal operator bridge.
+- `app/api/dev/project-local-growth` now executes the local chain `PrivateSubscriptionRegistry` upgrade proof before projecting Growth; `app/api/dev/local-private-checkout/pay` verifies the buyer intent and lets the relayer submit/finalize `PrivateCheckoutSettlement`.
 - Project diagnostics include local withdraw recording against paid merchant net; it is a read-model payout reconciliation path, not the future Sepolia private withdraw contract.
 - Invoice amount is created once by the merchant and carried through Rust DTOs, chain invoices, checkout display, confidential approval, and confidential settlement.
 - UI primitives come from the latest shadcn CLI using `base-nova`, Base UI, ReUI, lucide icons, and neutral CSS variables; business screens compose these primitives instead of inventing local widget styles.

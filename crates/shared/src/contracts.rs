@@ -41,6 +41,12 @@ pub struct ContractAddresses {
     pub private_subscription_registry: Option<String>,
     #[serde(rename = "ConfidentialInvoiceSettlement")]
     pub confidential_invoice_settlement: Option<String>,
+    #[serde(rename = "MockConfidentialPaymentRail")]
+    #[serde(default)]
+    pub mock_confidential_payment_rail: Option<String>,
+    #[serde(rename = "PrivateCheckoutSettlement")]
+    #[serde(default)]
+    pub private_checkout_settlement: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

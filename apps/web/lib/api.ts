@@ -1,4 +1,5 @@
 import { publicContractEnvironment } from './contract-environment.ts'
+import { localDevAddresses } from './contracts.ts'
 
 export type NonceResponse = {
   nonce: string
@@ -110,6 +111,8 @@ export type ContractManifest = {
     SubscriptionPass: string | null
     PrivateSubscriptionRegistry: string | null
     ConfidentialInvoiceSettlement: string | null
+    MockConfidentialPaymentRail: string | null
+    PrivateCheckoutSettlement: string | null
   }
   billing?: {
     source: string | null
@@ -525,6 +528,10 @@ async function clearBrowserSessionCookie(): Promise<void> {
 }
 
 export async function getContractManifest(): Promise<ContractManifest> {
+  if (contractEnvironment === 'local-dev') {
+    return localDevAddresses as ContractManifest
+  }
+
   const response = await fetch(`${apiBaseUrl}/api/contracts/${contractEnvironment}`, {
     cache: 'no-store',
   })

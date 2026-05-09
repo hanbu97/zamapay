@@ -6,7 +6,9 @@
     "ConfidentialUSDMock": "0x473FBc0B9761F1E879c22971D9b77134f03C42bE",
     "SubscriptionPass": null,
     "PrivateSubscriptionRegistry": null,
-    "ConfidentialInvoiceSettlement": "0x6975Bba2F12F47a49028120C6c51fBc9D2Fd6015"
+    "ConfidentialInvoiceSettlement": "0x6975Bba2F12F47a49028120C6c51fBc9D2Fd6015",
+    "MockConfidentialPaymentRail": null,
+    "PrivateCheckoutSettlement": null
   },
   "billing": {
     "source": null,

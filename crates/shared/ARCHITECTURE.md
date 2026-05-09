@@ -3,7 +3,7 @@
 ## Scope
 
 - `src/lib.rs` contains transport DTOs shared between the Rust API and the Next.js client contract, including dashboard, invoice, and operator diagnostics payloads.
-- `src/contracts.rs` parses repo-level generated contract manifests through the canonical contract environment map: dev/local aliases resolve to `local-dev`, test/testnet aliases resolve to `sepolia`.
+- `src/contracts.rs` parses repo-level generated contract manifests through the canonical contract environment map: dev/local aliases resolve to `local-dev`, test/testnet aliases resolve to `sepolia`; manifests include both the legacy transparent settlement and the private checkout rail.
 - Billing DTOs define subscription status, billing cycle, private pass metadata, entitlement proof status, operator entitlement projection input, plan catalog entries, subscription payment records, checkout fee basis points, gross amount, platform fee, and merchant net snapshots; `contract_default` means Rust has no paid entitlement proof and must fall back to the free contract default.
 - `contracts.rs` projects fee terms and subscription prices from generated contract manifests for catalog display and upgrade intent creation; the private subscription registry remains the only paid-tier authority.
 - Checkout and invoice DTOs carry amount in minor units, optional chain invoice id, transaction hash, and finality depth because contract truth is created by the merchant wallet/backend bridge and projected into the Rust read model.

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createPublicClient, http, parseEventLogs, type Hex } from 'viem'
-import { confidentialInvoiceSettlementAbi } from '@/lib/contracts'
+import { confidentialInvoiceSettlementAbi, localDevAddresses, privateCheckoutSettlementAbi } from '@/lib/contracts'
 import { contractEnvironmentConfig, contractEnvironmentForChainId, serverContractEnvironment } from '@/lib/contract-environment'
 
 type ProjectionRequest = {
+  chainInvoiceId?: unknown
   paymentTxHash?: string
 }
 
@@ -21,6 +22,7 @@ type ContractManifest = {
   chainId: number | null
   contracts?: {
     ConfidentialInvoiceSettlement?: string
+    PrivateCheckoutSettlement?: string
   }
 }
 
@@ -93,6 +95,14 @@ async function rustJson<T>(pathname: string, body: PaymentProjectionBody | Confi
 }
 
 async function loadSettlementManifest() {
+  if (contractEnvironment === 'local-dev') {
+    return {
+      chainId: localDevAddresses.chainId,
+      privateCheckoutSettlementAddress: localDevAddresses.contracts.PrivateCheckoutSettlement ?? undefined,
+      transparentSettlementAddress: localDevAddresses.contracts.ConfidentialInvoiceSettlement ?? undefined,
+    }
+  }
+
   const response = await fetch(`${rustApiBaseUrl}/api/contracts/${contractEnvironment}`, { cache: 'no-store' })
   const text = await response.text()
 
@@ -101,17 +111,24 @@ async function loadSettlementManifest() {
   }
 
   const manifest = JSON.parse(text) as ContractManifest
-  const settlementAddress = manifest.contracts?.ConfidentialInvoiceSettlement
-  if (!settlementAddress?.startsWith('0x')) {
-    throw new RouteError('ConfidentialInvoiceSettlement is missing from the manifest.', 409)
+  const privateCheckoutSettlementAddress = manifest.contracts?.PrivateCheckoutSettlement
+  const transparentSettlementAddress = manifest.contracts?.ConfidentialInvoiceSettlement
+  if (!privateCheckoutSettlementAddress?.startsWith('0x') && !transparentSettlementAddress?.startsWith('0x')) {
+    throw new RouteError('No supported settlement contract is present in the manifest.', 409)
   }
 
-  return { chainId: manifest.chainId, settlementAddress }
+  return { chainId: manifest.chainId, privateCheckoutSettlementAddress, transparentSettlementAddress }
 }
 
-async function findInvoicePaidEvent(paymentTxHash: Hex, chainId: number | null, settlementAddress: string) {
-  const publicClient = publicClientForChain(chainId)
-  const receipt = await publicClient.getTransactionReceipt({ hash: paymentTxHash }).catch(() => null)
+async function findFinalizedPaymentEvent(input: {
+  chainId: number | null
+  paymentTxHash: Hex
+  privateCheckoutSettlementAddress?: string
+  requestedChainInvoiceId?: number | null
+  transparentSettlementAddress?: string
+}) {
+  const publicClient = publicClientForChain(input.chainId)
+  const receipt = await publicClient.getTransactionReceipt({ hash: input.paymentTxHash }).catch(() => null)
   if (!receipt) {
     throw new RouteError('Finalization transaction receipt was not found.', 404)
   }
@@ -120,6 +137,45 @@ async function findInvoicePaidEvent(paymentTxHash: Hex, chainId: number | null, 
     throw new RouteError('Finalization transaction did not succeed.', 409)
   }
 
+  if (input.privateCheckoutSettlementAddress?.startsWith('0x')) {
+    const privateLogs = receipt.logs.filter(
+      (log) => log.address.toLowerCase() === input.privateCheckoutSettlementAddress?.toLowerCase(),
+    )
+    const finalizedLogs = parseEventLogs({
+      abi: privateCheckoutSettlementAbi,
+      eventName: 'PrivatePaymentFinalized',
+      logs: privateLogs,
+    })
+    const finalizedLog = finalizedLogs[0]
+    if (finalizedLog) {
+      if (!finalizedLog.args.accepted) {
+        throw new RouteError('PrivatePaymentFinalized was rejected.', 409)
+      }
+
+      const chainInvoiceId =
+        input.requestedChainInvoiceId ??
+        Number(
+          await publicClient.readContract({
+            address: input.privateCheckoutSettlementAddress as Hex,
+            abi: privateCheckoutSettlementAbi,
+            functionName: 'checkoutIdOf',
+            args: [finalizedLog.args.orderCommitment],
+          }),
+        )
+
+      return {
+        chainInvoiceId,
+        payerAddress: '0x0000000000000000000000000000000000000000',
+        platformFeeAmountHandle: null,
+        settledAmountHandle: null,
+      }
+    }
+  }
+
+  const settlementAddress = input.transparentSettlementAddress
+  if (!settlementAddress?.startsWith('0x')) {
+    throw new RouteError('PrivatePaymentFinalized event was not emitted by the current settlement contract.', 409)
+  }
   const settlementLogs = receipt.logs.filter((log) => log.address.toLowerCase() === settlementAddress.toLowerCase())
   const paidLogs = parseEventLogs({
     abi: confidentialInvoiceSettlementAbi,
@@ -164,10 +220,20 @@ export async function POST(request: Request) {
   if (!isHexHash(body.paymentTxHash)) {
     return NextResponse.json({ error: 'paymentTxHash must be a 32-byte hex transaction hash.' }, { status: 400 })
   }
+  const requestedChainInvoiceId =
+    typeof body.chainInvoiceId === 'number' && Number.isSafeInteger(body.chainInvoiceId) && body.chainInvoiceId >= 0
+      ? body.chainInvoiceId
+      : null
 
   try {
-    const { chainId, settlementAddress } = await loadSettlementManifest()
-    const paid = await findInvoicePaidEvent(body.paymentTxHash, chainId, settlementAddress)
+    const { chainId, privateCheckoutSettlementAddress, transparentSettlementAddress } = await loadSettlementManifest()
+    const paid = await findFinalizedPaymentEvent({
+      chainId,
+      paymentTxHash: body.paymentTxHash,
+      privateCheckoutSettlementAddress,
+      requestedChainInvoiceId,
+      transparentSettlementAddress,
+    })
     const { projected, finality } = await projectPayment(body.paymentTxHash, paid.chainInvoiceId, paid.payerAddress)
 
     return NextResponse.json({

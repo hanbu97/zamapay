@@ -32,11 +32,11 @@ src/
 - Fulfillment release is idempotent: the first finality-safe release writes one job id and later reads reuse that audit instead of creating duplicate artifacts.
 - Diagnostics are computed from invoice snapshots plus the API-owned operator auth rejection count; indexer cursor state is derived from projected chain invoice ids and payment tx hashes, so operator pages do not become a parallel incident database.
 - Amount truth is stored with the invoice record; checkout and chain calls consume it instead of accepting buyer-supplied payment amounts.
-- Project checkout sessions use caller-supplied chain invoice id/hash when a local or merchant backend already created the contract invoice; otherwise storage falls back to a local read-model id for dev-only contractless paths.
+- Project checkout sessions use caller-supplied chain invoice id/hash when a local or merchant backend already created the private checkout or legacy contract invoice; otherwise storage falls back to a local read-model id for dev-only contractless paths.
 - The contract manifest is the catalog source; storage applies the free `contract_default` plan until an operator-projected anchored entitlement supplies non-empty pass, tx, handle, and version evidence.
 - Subscription payments are stored as an owner-scoped ledger for historical read-model display and are appended idempotently from operator entitlement projection.
 - Project withdrawals are local payout records against already paid merchant net; they reduce withdrawable read-model balance without pretending to be the later private chain withdraw path.
-- Upgrade intents read charge amount and term length from the generated contract manifest before the browser writes the encrypted subscription change directly to the chain.
+- Upgrade intents read charge amount and term length from the generated contract manifest; local-dev projects Growth by executing the private subscription registry proof before the operator projection writes the read model.
 - Private entitlement metadata is accepted only from the operator projection boundary after chain verification; the chain registry remains the authority for encrypted fee terms.
 - `DATABASE_URL` is required for portal invoices, projects, checkout sessions, webhook state, subscriptions, and withdrawal read models; this is the shared local Docker and hosted Postgres/Supabase contract.
 - `MERMER_PORTAL_STATE_KEY` may namespace isolated local verification rows, but it stays inside the same normalized Postgres schema and does not introduce a second storage backend.

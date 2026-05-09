@@ -29,12 +29,14 @@ export type FulfillmentSnapshot = {
 }
 
 export type ConfidentialWalletSnapshot = {
+  accountCommitment?: string
   address: string
   balanceHandle: string
   balanceLabel: string
   balanceMinorUnits: string
   mintedMinorUnits: string
   mintTxHash: string | null
+  paymentRailAddress?: string
   tokenAddress: string
 }
 
@@ -92,9 +94,20 @@ async function readErrorBody(response: Response): Promise<ErrorBody> {
   const text = await response.text()
 
   try {
-    return JSON.parse(text) as ErrorBody
+    const body = JSON.parse(text) as ErrorBody
+    return body.message ? { ...body, message: cleanNestedError(body.message) } : body
   } catch {
-    return { message: text }
+    return { message: cleanNestedError(text) }
+  }
+}
+
+function cleanNestedError(message: string): string {
+  try {
+    const parsed = JSON.parse(message) as { error?: unknown; message?: unknown }
+    const nested = parsed.error ?? parsed.message
+    return typeof nested === 'string' ? nested : message
+  } catch {
+    return message
   }
 }
 

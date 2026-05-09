@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { getAddress, keccak256, toBytes } from 'viem'
+import { getAddress } from 'viem'
 import { serverContractEnvironment } from '@/lib/contract-environment'
 import { canUseDevSigner } from '@/lib/dev-signer-gate'
+import { upgradeLocalGrowthSubscription } from '@/lib/local-fhevm-dev'
 import type { BillingCycle } from '@/lib/api'
 
 type LocalGrowthRequest = {
@@ -41,10 +42,6 @@ function billingCycle(value: unknown): BillingCycle {
   return value === 'annual' ? 'annual' : 'monthly'
 }
 
-function evidenceHash(label: string, ownerAddress: string, version: number) {
-  return keccak256(toBytes(`local-dev:${label}:${ownerAddress}:${version}`))
-}
-
 async function projectSubscription(ownerAddress: string, body: SubscriptionProjectionBody) {
   const response = await fetch(`${rustApiBaseUrl}/api/operator/subscription-entitlements/${ownerAddress}/projection`, {
     method: 'POST',
@@ -75,14 +72,18 @@ export async function POST(request: Request) {
 
   try {
     const ownerAddress = getAddress(payload.ownerAddress)
-    const entitlementVersion = Date.now()
+    const cycle = billingCycle(payload.billingCycle)
+    const proof = await upgradeLocalGrowthSubscription({
+      billingCycle: cycle,
+      ownerAddress,
+    })
     const body: SubscriptionProjectionBody = {
-      billingCycle: billingCycle(payload.billingCycle),
-      entitlementTxHash: evidenceHash('growth-tx', ownerAddress, entitlementVersion),
-      entitlementVersion,
-      passId: `local-pass-${ownerAddress.slice(2, 10).toLowerCase()}`,
+      billingCycle: cycle,
+      entitlementTxHash: proof.entitlementTxHash,
+      entitlementVersion: proof.entitlementVersion,
+      passId: proof.passId,
       plan: 'growth',
-      subscriptionCheckHandle: evidenceHash('growth-check', ownerAddress, entitlementVersion),
+      subscriptionCheckHandle: proof.subscriptionCheckHandle,
     }
     const subscription = await projectSubscription(ownerAddress, body)
 

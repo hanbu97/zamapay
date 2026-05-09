@@ -2,17 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import {
-  ArrowDownToLineIcon,
-  ArrowUpFromLineIcon,
-  CalendarClockIcon,
   EyeIcon,
   EyeOffIcon,
-  Grid2X2Icon,
   PlusIcon,
   PlugZapIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
-  WalletCardsIcon,
 } from 'lucide-react'
 import type { CardForgeConfig } from '@/lib/config'
 import {
@@ -20,7 +15,6 @@ import {
   type ConfidentialWalletSnapshot,
   getConfidentialWallet,
 } from '@/lib/cardforge-api'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -58,7 +52,7 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
   const [address, setAddress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
-  const [status, setStatus] = useState('Connect MetaMask to display the app-rendered confidential cUSDT balance.')
+  const [status, setStatus] = useState('Connect wallet to reveal balance')
   const [wallet, setWallet] = useState<ConfidentialWalletSnapshot | null>(null)
   const didAutoConnect = useRef(false)
 
@@ -143,108 +137,61 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
 
   const balanceLabel = wallet?.balanceLabel ?? '-- cUSDT'
   const hasWallet = Boolean(address)
+  const walletHandle = address ? shortHex(address) : 'Not connected'
 
   return (
     <Card className={cn('min-w-0', className)}>
       <CardContent className="grid gap-4 p-4 xl:p-0">
-        <section className="w-full max-w-full rounded-[1.75rem] border border-[#dbe600] bg-[#f4ff00] p-5 text-black shadow-sm">
-          <div className="flex min-w-0 items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-black/75">
-              <span>Total balance</span>
-              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-black/5">
-                <RefreshCwIcon className="size-4" />
-              </span>
-            </div>
+        <section className="w-full max-w-full overflow-hidden rounded-[1.75rem] border border-[#dbe600] bg-[#f4ff00] p-4 text-black shadow-sm 2xl:p-5">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <span className="min-w-0 truncate text-sm font-medium text-black/75">{walletHandle}</span>
             <Badge className="shrink-0 border-black/10 bg-black/10 text-black hover:bg-black/10" variant="outline">
               <EyeOffIcon data-icon="inline-start" />
               private
             </Badge>
           </div>
 
-          <div className="mt-6 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+          <div className="mt-5 flex min-w-0 items-center gap-2 text-sm font-medium text-black/70">
+            <span>Total balance</span>
+            <button
+              aria-label="Refresh confidential balance"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-black/5 transition-colors hover:bg-black/10 disabled:opacity-50"
+              disabled={isBusy || !address}
+              onClick={() => void refreshWallet()}
+              type="button"
+            >
+              <RefreshCwIcon className="size-4" />
+            </button>
+          </div>
+
+          <div className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_2.75rem] items-center gap-2">
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="min-w-0 truncate text-[2rem] font-semibold leading-none tracking-normal 2xl:text-[2.25rem]">
+                <span className="min-w-0 truncate text-[1.75rem] font-semibold leading-none tracking-normal 2xl:text-[2.1rem]">
                   {balanceLabel}
                 </span>
-                <EyeIcon className="size-6 shrink-0 text-black/75" />
+                <EyeIcon className="size-5 shrink-0 text-black/75 2xl:size-6" />
               </div>
             </div>
 
             <button
               aria-label={hasWallet ? 'Reconnect wallet' : 'Connect wallet'}
-              className="inline-flex size-12 shrink-0 items-center justify-center rounded-full bg-black text-[#f4ff00] shadow-sm transition-colors hover:bg-black/85 disabled:opacity-50"
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-black text-[#f4ff00] shadow-sm transition-colors hover:bg-black/85 disabled:opacity-50"
               disabled={isBusy}
               onClick={() => void connectWallet()}
               type="button"
             >
-              <PlusIcon className="size-6" />
+              <PlusIcon className="size-5" />
             </button>
           </div>
 
-          <div className="mt-3 flex max-w-full items-center gap-2 rounded-full bg-black/5 px-3 py-1.5 text-sm text-black/70">
+          <div className="mt-3 flex max-w-full items-center gap-2 rounded-full bg-black/5 px-2.5 py-1.5 text-xs text-black/70 2xl:px-3 2xl:text-sm">
             <ShieldCheckIcon className="size-4 shrink-0 text-black/60" />
-            <span className="min-w-0 truncate">
-              {hasWallet ? 'Ready for encrypted checkout' : 'Connect wallet to reveal balance'}
-            </span>
-          </div>
-
-          <div className="mt-7 grid grid-cols-4 gap-2 text-center text-[11px] font-medium text-black/75">
-            <WalletAction active icon={ArrowUpFromLineIcon} label="Deposit" onClick={() => void connectWallet()} />
-            <WalletAction
-              icon={ArrowDownToLineIcon}
-              label="Withdraw"
-              onClick={() =>
-                setStatus(
-                  hasWallet
-                    ? 'Withdraw is intentionally held behind Mermer Pay settlement controls.'
-                    : 'Connect wallet before withdrawing confidential balance.',
-                )
-              }
-            />
-            <WalletAction
-              icon={CalendarClockIcon}
-              label="Auto"
-              onClick={() => setStatus('Encrypted checkout is the active automatic payment path for this demo.')}
-            />
-            <WalletAction
-              icon={Grid2X2Icon}
-              label="More"
-              onClick={() => setStatus('Project controls stay in the Mermer Pay console.')}
-            />
+            <span className="min-w-0 truncate">{error ?? status}</span>
           </div>
         </section>
 
-        <section className="grid w-full max-w-full gap-3 rounded-xl border bg-card p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="font-semibold leading-none">Buyer wallet</h2>
-              <p className="mt-2 text-sm leading-5 text-muted-foreground">
-                MetaMask signs checkout actions; CardForge renders only the confidential balance projection.
-              </p>
-            </div>
-            <WalletCardsIcon className="mt-0.5 shrink-0 text-muted-foreground" />
-          </div>
-
-          <div className="grid gap-2 text-xs text-muted-foreground">
-            <DetailRow label="Account" value={address ? shortHex(address) : 'not connected'} />
-            <DetailRow label="Balance handle" value={wallet ? shortHex(wallet.balanceHandle) : 'encrypted'} />
-          </div>
-        </section>
-
-        <Alert>
-          <AlertTitle>Confidential balance source</AlertTitle>
-          <AlertDescription>{status}</AlertDescription>
-        </Alert>
-
-        {error ? (
-          <Alert variant="destructive">
-            <AlertTitle>Wallet panel failed</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid gap-2 2xl:grid-cols-2">
           <Button disabled={isBusy} onClick={connectWallet} type="button">
             <PlugZapIcon data-icon="inline-start" />
             {hasWallet ? 'Reconnect' : 'Connect wallet'}
@@ -256,41 +203,6 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
         </div>
       </CardContent>
     </Card>
-  )
-}
-
-function WalletAction({
-  active = false,
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  active?: boolean
-  icon: typeof ArrowUpFromLineIcon
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <button className="group grid min-w-0 justify-items-center gap-2" onClick={onClick} type="button">
-      <span
-        className={cn(
-          'inline-flex size-12 items-center justify-center rounded-full border border-black/5 bg-black/5 transition-colors group-hover:bg-black/10',
-          active && 'bg-black text-[#f4ff00] group-hover:bg-black/85',
-        )}
-      >
-        <Icon className="size-5" />
-      </span>
-      <span className="max-w-full truncate">{label}</span>
-    </button>
-  )
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 items-center justify-between gap-3">
-      <span>{label}</span>
-      <span className="truncate font-medium text-foreground">{value}</span>
-    </div>
   )
 }
 

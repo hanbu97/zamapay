@@ -36,12 +36,20 @@ pub(crate) fn project_environment(
         .ok()
         .flatten();
     let chain_id = manifest.as_ref().and_then(|manifest| manifest.chain_id);
-    let settlement_contract = manifest
-        .as_ref()
-        .and_then(|manifest| manifest.contracts.confidential_invoice_settlement.clone());
-    let token_contract = manifest
-        .as_ref()
-        .and_then(|manifest| manifest.contracts.confidential_usd_mock.clone());
+    let settlement_contract = manifest.as_ref().and_then(|manifest| {
+        manifest
+            .contracts
+            .private_checkout_settlement
+            .clone()
+            .or_else(|| manifest.contracts.confidential_invoice_settlement.clone())
+    });
+    let token_contract = manifest.as_ref().and_then(|manifest| {
+        manifest
+            .contracts
+            .mock_confidential_payment_rail
+            .clone()
+            .or_else(|| manifest.contracts.confidential_usd_mock.clone())
+    });
 
     PaymentProjectEnvironment {
         environment_id: environment_id.to_string(),

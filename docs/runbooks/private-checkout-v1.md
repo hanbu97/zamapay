@@ -11,7 +11,7 @@ The demo must prove one clean case:
 - `PrivateCheckoutSettlement` storage and events do not expose the amount.
 - Mermer Pay can still know whether a checkout was paid and can trigger CardForge fulfillment.
 
-This is a **Private Checkout Proof MVP**, not a full private settlement network. It proves encrypted amount validation and a private fulfillment trigger. It does not, by itself, prove irreversible asset movement unless the selected payment rail also debits or transfers value.
+This is a **Private Checkout Proof MVP**, not a full private settlement network. It proves encrypted amount validation and a private fulfillment trigger. Local-dev now uses `MockConfidentialPaymentRail`, so the demo also proves a mock confidential cUSDT debit without making cUSDT a MetaMask ERC20 token.
 
 The privacy claim is scoped to `PrivateCheckoutSettlement`. Token wrapping, funding, gas payment, and any future confidential-token transfer can still leak address relationships if their own contracts expose `from`, `to`, or receiver events. Mermer Pay may keep the checkout/order mapping needed for the demo. A future merchant-only data model can remove that trust assumption.
 
@@ -20,7 +20,7 @@ The privacy claim is scoped to `PrivateCheckoutSettlement`. Token wrapping, fund
 | Layer | What it proves | v1 position |
 | --- | --- | --- |
 | Private Checkout Proof | `expectedAmount` and `paidAmount` stay encrypted, the contract checks `FHE.eq`, and only `accepted` becomes public. | Required for the hackathon demo. |
-| Payment Rail | The buyer has actually paid, or the demo has honestly simulated that settlement. | Must be explicitly declared as demo balance, mock confidential cUSDT, or real confidential token transfer. |
+| Payment Rail | The buyer has actually paid, or the demo has honestly simulated that settlement. | Implemented as mock confidential cUSDT balance on local-dev. |
 | Merchant Settlement / Withdraw | Merchant net, platform fee, and payout can be closed without per-order public disclosure. | Not in v1; keep as a future settlement hook. |
 
 ## Privacy Model
@@ -218,7 +218,7 @@ euint64 encryptedPlatformPending;
 | Rail | What it proves | Use in hackathon |
 | --- | --- | --- |
 | Mermer Pay demo balance | Mermer Pay checked or debited an off-chain demo balance before relaying. | Fastest path. Label it mock settlement. |
-| Mock cUSDT confidential balance | Buyer has a demo confidential balance and payment submission records or deducts an encrypted debit. | Recommended hard MVP if time allows. |
+| Mock cUSDT confidential balance | Buyer has a demo confidential balance and payment submission records or deducts an encrypted debit. | Implemented local-dev path. |
 | ERC-7984 / confidential wrapper transfer | Confidential token balance or transfer amount moves through a token contract. | Post-MVP unless address-linkage and operator semantics are deliberately handled. |
 
 If the rail is mock/demo balance, the product name should be `Private Checkout Proof MVP`. If the rail actually debits mock cUSDT, the demo can claim private checkout plus demo confidential payment rail. Do not claim full merchant settlement until withdraw and asset finality exist.
@@ -228,8 +228,8 @@ If the rail is mock/demo balance, the product name should be `Private Checkout P
 1. CardForge creates an order; Mermer Pay derives `orderCommitment`.
 2. Mermer Pay derives a rotating `settlementBucketCommitment`.
 3. Mermer Pay encrypts `expectedAmount` with the Relayer SDK / local fhevm input helper and calls `createPrivateCheckout` with `encryptedExpectedAmount + inputProof`.
-4. The buyer encrypts `paidAmount` on the checkout page and signs a payment intent.
-5. Mermer Pay verifies the payment intent and selected payment rail: demo balance, mock cUSDT confidential debit, or real confidential token transfer.
+4. The buyer signs a payment intent on the checkout page. In local-dev, Mermer Pay encrypts `paidAmount` with the local FHEVM helper before relaying.
+5. Mermer Pay verifies the payment intent and selected payment rail: `MockConfidentialPaymentRail` confidential debit on local-dev, or a future real confidential token transfer.
 6. The Mermer Pay relayer submits the transaction; on-chain `msg.sender` is the relayer, not the buyer.
 7. The contract imports the encrypted input with `FHE.fromExternal` and checks:
 
@@ -248,9 +248,9 @@ flowchart TD
     B --> C["Rotate settlementBucketCommitment"]
     C --> D["Encrypt expectedAmount + inputProof"]
     D --> E["createPrivateCheckout"]
-    E --> F["Buyer encrypts paidAmount + signs intent"]
+    E --> F["Buyer signs payment intent"]
     F --> G["Verify intent and payment rail"]
-    G --> H["Relayer submitPrivatePayment"]
+    G --> H["Relayer encrypts paidAmount and submitPrivatePayment"]
     H --> I["FHE.fromExternal + FHE.eq"]
     I --> J["Public decrypt only accepted ebool"]
     J --> K["PrivatePaymentFinalized(orderCommitment, accepted)"]
@@ -335,11 +335,11 @@ Do not decrypt per-order gross, merchant net, or platform fee in the normal chec
 - Bind signed payment intents to `orderCommitment`, encrypted amount handle, asset, chain id, settlement contract, nonce, and `expiresAt`.
 - Reject expired checkouts, reused payment nonces, resubmission after final status, and double finalization.
 - Treat Mermer Pay relayer as the protocol-fee payer in the demo.
-- Keep the old transparent `ConfidentialInvoiceSettlement` path for regression tests until the private checkout path is proven.
+- Keep the old transparent `ConfidentialInvoiceSettlement` path only for regression tests; local-dev checkout uses `PrivateCheckoutSettlement`.
 
 ## Implementation Direction
 
-Add a new demo contract instead of mutating the current settlement contract in place:
+The private checkout path is implemented as a separate contract instead of mutating the current settlement contract in place:
 
 ```text
 PrivateCheckoutSettlement
@@ -347,7 +347,7 @@ PrivateCheckoutSettlement
 
 The current `ConfidentialInvoiceSettlement` stores `merchant`, `payoutWallet`, `payer`, and `amountDue` in public fields. That shape cannot satisfy the v1 privacy requirement without a structural rewrite. A separate contract keeps the demo focused and avoids breaking the existing local-dev payment rail while the private design is being proven.
 
-If time allows, add a second demo component:
+The local-dev payment rail is implemented as:
 
 ```text
 MockConfidentialPaymentRail

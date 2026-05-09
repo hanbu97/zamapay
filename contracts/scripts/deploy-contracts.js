@@ -44,6 +44,15 @@ async function main() {
   await settlement.waitForDeployment()
   await (await subscriptionRegistry.setSettlement(await settlement.getAddress())).wait()
 
+  const paymentRailFactory = await ethers.getContractFactory('MockConfidentialPaymentRail')
+  const paymentRail = await paymentRailFactory.deploy()
+  await paymentRail.waitForDeployment()
+
+  const privateCheckoutFactory = await ethers.getContractFactory('PrivateCheckoutSettlement')
+  const privateCheckout = await privateCheckoutFactory.deploy(await paymentRail.getAddress(), deployer.address)
+  await privateCheckout.waitForDeployment()
+  await (await paymentRail.setSettlement(await privateCheckout.getAddress())).wait()
+
   const network = await ethers.provider.getNetwork()
   const billing = await readBillingProtocol({ settlement, subscriptionRegistry })
   const manifest = {
@@ -55,6 +64,8 @@ async function main() {
       SubscriptionPass: await pass.getAddress(),
       PrivateSubscriptionRegistry: await subscriptionRegistry.getAddress(),
       ConfidentialInvoiceSettlement: await settlement.getAddress(),
+      MockConfidentialPaymentRail: await paymentRail.getAddress(),
+      PrivateCheckoutSettlement: await privateCheckout.getAddress(),
     },
     billing,
     generatedAt: new Date().toISOString(),
@@ -70,6 +81,8 @@ async function main() {
       SubscriptionPass: await hre.artifacts.readArtifact('SubscriptionPass'),
       PrivateSubscriptionRegistry: await hre.artifacts.readArtifact('PrivateSubscriptionRegistry'),
       ConfidentialInvoiceSettlement: await hre.artifacts.readArtifact('ConfidentialInvoiceSettlement'),
+      MockConfidentialPaymentRail: await hre.artifacts.readArtifact('MockConfidentialPaymentRail'),
+      PrivateCheckoutSettlement: await hre.artifacts.readArtifact('PrivateCheckoutSettlement'),
     },
     manifest,
   )

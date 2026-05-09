@@ -24,8 +24,8 @@ export default function CardForgePage() {
   ]
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 xl:mr-[420px]">
+    <div className="min-h-screen bg-background xl:[--wallet-rail:clamp(340px,25vw,400px)]">
+      <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 xl:mr-[var(--wallet-rail)]">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4 md:px-8">
           <a className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'min-w-0 justify-start')} href="/">
             <HomeIcon data-icon="inline-start" />
@@ -42,7 +42,7 @@ export default function CardForgePage() {
         </div>
       </header>
 
-      <main className="min-h-[calc(100vh-3.5rem)] px-4 py-5 md:px-8 md:py-8 xl:mr-[420px]">
+      <main className="min-h-[calc(100vh-3.5rem)] px-4 py-5 md:px-8 md:py-8 xl:mr-[var(--wallet-rail)]">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
           <header className="flex flex-col gap-4 border-b pb-5">
             <div className="flex flex-col gap-2">
@@ -122,7 +122,7 @@ export default function CardForgePage() {
         </div>
       </main>
 
-      <aside className="px-4 pb-6 md:px-8 xl:fixed xl:right-0 xl:top-0 xl:z-30 xl:flex xl:h-screen xl:w-[420px] xl:flex-col xl:overflow-y-auto xl:border-l xl:bg-background xl:px-5 xl:py-6">
+      <aside className="px-4 pb-6 md:px-8 xl:fixed xl:right-0 xl:top-0 xl:z-30 xl:flex xl:h-screen xl:w-[var(--wallet-rail)] xl:flex-col xl:overflow-y-auto xl:border-l xl:bg-background xl:px-4 xl:py-6">
         <ConfidentialWalletPanel
           className="xl:h-full xl:rounded-none xl:border-0 xl:bg-transparent xl:shadow-none"
           config={config}

@@ -7,6 +7,8 @@
 - `SubscriptionPass.sol` owns the soulbound merchant subscription NFT; it is identity, not transferable value.
 - `PrivateSubscriptionRegistry.sol` owns encrypted subscription terms, monthly/annual private self-serve upgrade checks, and settlement-only fee entitlement reads.
 - `ConfidentialInvoiceSettlement.sol` owns invoice creation, payment truth, encrypted merchant-net and platform-fee handles, and two-step payment finalization; it snapshots encrypted fee terms from the private registry at invoice creation and never accepts public fee bps from checkout callers.
+- `MockConfidentialPaymentRail.sol` owns the local-dev app-rendered cUSDT balance keyed by account commitment; it debits encrypted amounts without exposing buyer, merchant, payout wallet, or plaintext amount in checkout settlement events.
+- `PrivateCheckoutSettlement.sol` owns Private Checkout v1: commitment-only checkout storage, encrypted expected/paid equality, relayer-only submission, replay/expiry guards, and public decrypt of only `accepted`.
 - ABI and address exports generated from this directory will become the only contract truth consumed by web and Rust.
 - `scripts/sync-generated.js` and `scripts/deploy-contracts.js` are the bridge from artifact output into repo-level generated clients and address manifests.
 - `scripts/project-finalized-payment.js` is the operator bridge from finalized chain payment into Rust projection for demos before a persistent indexer exists.
@@ -18,3 +20,4 @@
 
 - `test/merchant-registry.js` locks the merchant registry write path.
 - `test/confidential-invoice-settlement.js` locks invoice lifecycle, soulbound pass issuance, monthly and annual private Growth upgrade acceptance/rejection, invoice fee snapshot behavior, exact encrypted split settlement, rejected underpayment retry, public payment-check finalization, platform fee ACL, and merchant-net decrypt behavior.
+- `test/private-checkout-settlement.js` locks the private checkout proof path, mock confidential rail debit, no buyer/merchant/payout/amount event exposure, rejected amount handling, replay prevention, expiry, and double-finalize rejection.
