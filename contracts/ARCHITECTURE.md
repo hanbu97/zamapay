@@ -2,22 +2,21 @@
 
 ## Scope
 
-- `MerchantRegistry.sol` owns merchant identity and payout wallet truth.
-- `ConfidentialUSDMock.sol` is the local confidential settlement token for test and demo flows; exact settlement transfers are conditional on encrypted allowance, balance, amount checks, and settlement split checks.
+- `MerchantRegistry.sol` owns merchant identity and payout-wallet metadata for local product tests.
+- `ConfidentialUSDMock.sol` is the local encrypted charge token used by `PrivateSubscriptionRegistry` Growth upgrades.
 - `SubscriptionPass.sol` owns the soulbound merchant subscription NFT; it is identity, not transferable value.
-- `PrivateSubscriptionRegistry.sol` owns encrypted subscription terms, monthly/annual private self-serve upgrade checks, and settlement-only fee entitlement reads.
-- `ConfidentialInvoiceSettlement.sol` owns invoice creation, payment truth, encrypted merchant-net and platform-fee handles, and two-step payment finalization; it snapshots encrypted fee terms from the private registry at invoice creation and never accepts public fee bps from checkout callers.
-- `MockConfidentialPaymentRail.sol` owns the local-dev app-rendered cUSDT balance keyed by account commitment; it debits encrypted amounts without exposing buyer, merchant, payout wallet, or plaintext amount in checkout settlement events.
+- `PrivateSubscriptionRegistry.sol` owns encrypted subscription terms, local Growth self-serve checks, and pass issuance.
+- `MockConfidentialPaymentRail.sol` owns the local-dev app-rendered cUSDT balance keyed by account commitment; it debits encrypted amounts for private checkout demos.
 - `PrivateCheckoutSettlement.sol` owns Private Checkout v1: commitment-only checkout storage, encrypted expected/paid equality, relayer-only submission, replay/expiry guards, and public decrypt of only `accepted`.
-- ABI and address exports generated from this directory will become the only contract truth consumed by web and Rust.
-- `scripts/sync-generated.js` and `scripts/deploy-contracts.js` are the bridge from artifact output into repo-level generated clients and address manifests.
-- `scripts/project-finalized-payment.js` is the operator bridge from finalized chain payment into Rust projection for demos before a persistent indexer exists.
-- `scripts/verify-sepolia-readiness.js` is the testnet readiness gate for RPC, deployer funds, manifest, bytecode, and Rust API agreement.
-- Hardhat now exposes ephemeral local, persistent localhost, and Sepolia deploy lanes so Phase 2 can target a stable local chain before testnet.
-- Hardhat loads the repo-root `.env` with a dependency-free parser before network resolution, and only treats `DEPLOYER_PRIVATE_KEY` as a signer when it is a real 32-byte hex key; placeholders stay out of network config so readiness can report missing or malformed inputs cleanly.
+- `scripts/sync-generated.js` and `scripts/deploy-contracts.js` are the bridge from Hardhat artifacts into generated clients and the single local-dev address manifest.
+
+## Decisions
+
+- Public-testnet deployment and the old transparent invoice settlement are not active paths. Public network support waits until Zama protocol-fee and relayer funding policy are explicit.
+- Generated ABI/address clients expose only local-dev active contracts. `ConfidentialUSDMock` remains because subscription charging still uses it locally; checkout payment uses `MockConfidentialPaymentRail`.
+- Hardhat keeps ephemeral local and persistent localhost lanes only.
 
 ## Verification
 
 - `test/merchant-registry.js` locks the merchant registry write path.
-- `test/confidential-invoice-settlement.js` locks invoice lifecycle, soulbound pass issuance, monthly and annual private Growth upgrade acceptance/rejection, invoice fee snapshot behavior, exact encrypted split settlement, rejected underpayment retry, public payment-check finalization, platform fee ACL, and merchant-net decrypt behavior.
 - `test/private-checkout-settlement.js` locks the private checkout proof path, mock confidential rail debit, no buyer/merchant/payout/amount event exposure, rejected amount handling, replay prevention, expiry, and double-finalize rejection.

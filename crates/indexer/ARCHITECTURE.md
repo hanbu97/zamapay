@@ -2,12 +2,11 @@
 
 ## Scope
 
-- `src/lib.rs` decodes `InvoicePaid` logs into operator projection requests, applies confirmation counts, and projects operator incident events into payment/finality/decrypt/fulfillment state.
-- Fee split events are evidence for contract/operator tooling; the indexer projection key remains the stable `InvoicePaid(invoiceId, merchant, payer)` topic.
+- `src/lib.rs` owns payment/finality/decrypt/fulfillment state transitions after an operator has already verified local private checkout evidence.
 - This crate owns reorg handling, invoice expiry projection, finality transitions, and incident-state transitions.
 
 ## Boundary
 
-- Input: canonical chain observations.
+- Input: canonical operator observations and confirmation counts.
 - Output: `domain::SettlementSnapshot` plus operator-facing queue and exception states.
-- This crate does not own webhook delivery, decrypt execution, or artifact release.
+- This crate no longer decodes the removed transparent invoice log path; web/server code verifies `PrivatePaymentFinalized` before posting projection.

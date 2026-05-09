@@ -512,7 +512,7 @@ export function PaymentProjectConsole({
               </CardAction>
               <CardTitle>Withdraw</CardTitle>
               <CardDescription>
-                Local-dev records payout settlement from paid merchant net; Sepolia private withdraw remains a later contract path.
+                Local-dev records payout settlement from paid merchant net; private public-network withdraw remains a later contract path.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">

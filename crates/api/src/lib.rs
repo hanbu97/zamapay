@@ -17,8 +17,8 @@ use shared::{
     DecryptCallbackRequest, FulfillmentResponse, InvoiceRecord, NonceRequest, NonceResponse,
     OperatorDiagnostics, OperatorSettlementEventRequest, PaymentConfirmationsRequest,
     PaymentProjectionRequest, SessionResponse, VerifyRequest, WebhookDeliveryRequest,
-    WebhookDispatchResponse, WebhookEventPayload, WebhookSignatureHeaders, contract_manifest,
-    local_dev_contract_manifest, normalize_contract_environment,
+    WebhookDispatchResponse, WebhookEventPayload, WebhookSignatureHeaders,
+    local_dev_contract_manifest,
 };
 use storage::{AuthStore, DecryptRequestProjection, PortalStore, StoredSession};
 use tokio::sync::RwLock;
@@ -91,7 +91,6 @@ pub fn app(state: AppState) -> Router {
         .merge(billing::routes())
         .merge(projects::routes())
         .route("/api/contracts/local-dev", get(local_dev_contracts))
-        .route("/api/contracts/{environment}", get(environment_contracts))
         .route("/api/dashboard/overview", get(dashboard_overview))
         .route("/api/invoices", post(create_invoice))
         .route(
@@ -242,15 +241,6 @@ async fn dashboard_overview(
 async fn local_dev_contracts() -> Result<Json<AddressManifest>, ApiError> {
     let manifest = local_dev_contract_manifest()
         .map_err(|_| ApiError::internal("generated contract manifest is invalid"))?;
-    Ok(Json(manifest))
-}
-
-async fn environment_contracts(
-    Path(environment): Path<String>,
-) -> Result<Json<AddressManifest>, ApiError> {
-    let manifest = contract_manifest(&environment)
-        .map_err(|_| ApiError::internal("generated contract manifest map is invalid"))?
-        .ok_or(ApiError::not_found("contract manifest not found"))?;
     Ok(Json(manifest))
 }
 
@@ -632,23 +622,7 @@ fn webhook_secret() -> Result<String, ApiError> {
         .filter(|secret| !secret.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_WEBHOOK_SECRET.to_string());
 
-    if contract_environment() == "sepolia" && secret == DEFAULT_WEBHOOK_SECRET {
-        return Err(ApiError::locked(
-            "Sepolia webhook dispatch requires a non-default MERMER_WEBHOOK_SECRET",
-        ));
-    }
-
     Ok(secret)
-}
-
-fn contract_environment() -> String {
-    let raw = std::env::var("MERMER_CONTRACT_ENV")
-        .or_else(|_| std::env::var("NEXT_PUBLIC_CONTRACT_ENV"))
-        .unwrap_or_else(|_| "local-dev".to_string());
-
-    normalize_contract_environment(&raw)
-        .map(str::to_string)
-        .unwrap_or_else(|| raw.trim().to_string())
 }
 
 fn keyed_digest(secret: &str, message: &str) -> String {

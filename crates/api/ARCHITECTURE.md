@@ -27,6 +27,6 @@
 - Subscription upgrade is split: dashboard sessions can create encrypted chain intents, but only the operator/indexer can project anchored chain entitlement into Rust.
 - Upgrade intent responses expose registry/token coordinates plus manifest-projected plan code, charge amount, period length, and expected fee needed for the merchant wallet to encrypt the subscription change; the resulting tier is read from chain in the browser.
 - Project checkout API responses include buyer-payable hosted checkout URL only after chain invoice authority and billing split have both been recorded.
-- Project withdraw records are session-authenticated and capped by paid merchant net minus prior withdrawals; they are local payout reconciliation, not Sepolia private settlement.
+- Project withdraw records are session-authenticated and capped by paid merchant net minus prior withdrawals; they are local payout reconciliation, not private public-network settlement.
 - Generated contract truth is served from here so frontend code does not need to inspect Hardhat artifact folders directly.
-- Contract manifests are available through `/api/contracts/{environment}` with local aliases resolving to `local-dev`.
+- The only contract manifest route is `/api/contracts/local-dev`; aliases and public-testnet manifests are not served.

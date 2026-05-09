@@ -11,7 +11,7 @@ import {
   LockKeyholeIcon,
   MinusIcon,
 } from 'lucide-react'
-import { createPublicClient, createWalletClient, custom, getAddress, http, type Hex } from 'viem'
+import { createPublicClient, getAddress, http, type Hex } from 'viem'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,32 +27,17 @@ import { Separator } from '@/components/ui/separator'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  createBillingUpgradeIntent,
   type BillingCycle,
   type BillingPlan,
   type BillingPlanCatalogEntry,
   type BillingSubscriptionResponse,
-  type BillingUpgradeIntentResponse,
 } from '@/lib/api'
-import {
-  confidentialUsdMockAbi,
-  privateSubscriptionRegistryAbi,
-} from '@/lib/contracts'
+import { privateSubscriptionRegistryAbi } from '@/lib/contracts'
 import {
   contractEnvironmentConfig,
-  publicContractEnvironment,
-  sepoliaContractEnvironment,
-  type ContractEnvironment,
   type ContractEnvironmentConfig,
 } from '@/lib/contract-environment'
-import {
-  encryptPaymentAmount,
-  encryptSubscriptionChange,
-  publicDecryptPaymentCheck,
-  userDecryptSubscriptionTerms,
-} from '@/lib/fhevm'
 import { cn } from '@/lib/utils'
-import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
 type MerchantBillingPanelProps = {
   initialBilling: BillingSubscriptionResponse
@@ -131,7 +116,7 @@ const planViews: PlanView[] = [
     title: 'Growth',
     summary: 'Lower take rate with a private Zama subscription proof.',
     featured: true,
-    features: ['Private subscription pass', 'Immutable checkout snapshots', 'Webhook retry outbox', 'Sepolia proof support'],
+    features: ['Private subscription pass', 'Immutable checkout snapshots', 'Webhook retry outbox', 'Local-dev proof support'],
   },
   {
     plan: 'enterprise',
@@ -161,7 +146,7 @@ function buildCompareSections(plansByKey: Map<BillingPlan, BillingPlanCatalogEnt
       title: 'Privacy and settlement',
       rows: [
         { label: 'Encrypted subscription proof', free: false, growth: true, enterprise: true },
-        { label: 'Zama Sepolia browser proof', free: 'Local only', growth: true, enterprise: true },
+        { label: 'Local-dev private proof', free: 'Default fee', growth: true, enterprise: true },
         { label: 'Contract fee terms', free: true, growth: true, enterprise: 'Review' },
         { label: 'Custom settlement policy', free: false, growth: false, enterprise: true },
       ],
@@ -248,8 +233,8 @@ function defaultChainState(plansByKey: Map<BillingPlan, BillingPlanCatalogEntry>
   }
 }
 
-function chainConfigForEnvironment(environment: ContractEnvironment): BillingChainConfig {
-  const config = contractEnvironmentConfig(environment)
+function chainConfigForEnvironment(): BillingChainConfig {
+  const config = contractEnvironmentConfig('local-dev')
   const manifest = config.manifest
   const registry = ensureHexAddress(manifest?.contracts.PrivateSubscriptionRegistry ?? null, 'PrivateSubscriptionRegistry')
 
@@ -281,16 +266,6 @@ function chainReadErrorMessage(caught: unknown, config: BillingChainConfig | nul
   return message
 }
 
-function planFromFeeBps(feeBps: number, plansByKey: Map<BillingPlan, BillingPlanCatalogEntry>): BillingPlan {
-  for (const plan of planViews) {
-    if (plansByKey.get(plan.plan)?.checkoutFeeBps === feeBps) {
-      return plan.plan
-    }
-  }
-
-  return 'free'
-}
-
 export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantBillingPanelProps) {
   const router = useRouter()
   const plansByKey = useMemo(() => new Map(initialBilling.plans.map((plan) => [plan.plan, plan])), [initialBilling.plans])
@@ -307,8 +282,6 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const contractEnvironment = publicContractEnvironment()
-  const activeContractConfig = contractEnvironmentConfig(contractEnvironment)
 
   const currentPlan = chainSubscription.plan
   const currentCycle = chainSubscription.billingCycle
@@ -323,25 +296,22 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
   const isCurrentSelection = currentPlan === selectedPlan && currentCycle === selectedCycle
   const selectedBusy = busyKey === `${selectedPlan}:${selectedCycle}`
   const periodLabel = selectedCycle === 'annual' ? '365 days' : '30 days'
-  const isLocalDev = contractEnvironment === 'local-dev'
-  const canUseLocalProjection = isLocalDev && selectedPlan === 'growth'
-  const upgradeDisabled =
-    selectedBusy || selectedPlan === 'enterprise' || (!activeContractConfig.browserRelayer && !canUseLocalProjection)
+  const canUseLocalProjection = selectedPlan === 'growth'
+  const upgradeDisabled = selectedBusy || selectedPlan === 'enterprise' || !canUseLocalProjection
   const upgradeLabels: Array<[boolean, string]> = [
     [isCurrentSelection, 'Current entitlement'],
     [selectedBusy, 'Processing...'],
     [canUseLocalProjection, 'Project local-dev Growth'],
-    [!activeContractConfig.browserRelayer, 'Sepolia required'],
     [selectedPlan === 'enterprise', 'Review required'],
   ]
-  const upgradeLabel = upgradeLabels.find(([matches]) => matches)?.[1] ?? 'Pay privately'
+  const upgradeLabel = upgradeLabels.find(([matches]) => matches)?.[1] ?? 'Project local-dev Growth'
 
   const refreshChainSubscription = useCallback(
-    async (options?: { decrypt?: boolean }) => {
+    async () => {
       let config: BillingChainConfig | null = null
 
       try {
-        config = chainConfigForEnvironment(contractEnvironment)
+        config = chainConfigForEnvironment()
         const publicClient = createPublicClient({ chain: config.chain, transport: http() })
         const registryBytecode = await publicClient.getBytecode({ address: config.registry })
 
@@ -384,66 +354,17 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
           args: [passId],
         })) as bigint
 
-        if (!options?.decrypt) {
-          setChainSubscription((current) => ({
-            status: current.status === 'anchored' ? 'anchored' : 'encrypted',
-            plan: current.status === 'anchored' ? current.plan : 'free',
-            billingCycle: current.billingCycle,
-            passId: passId.toString(),
-            feeBps: current.status === 'anchored' ? current.feeBps : null,
-            message: `Subscription pass #${passId.toString()} found on chain; encrypted terms v${termsVersion.toString()}.`,
-          }))
-          return
-        }
-
-        const provider = ensureEthereumProvider()
-        await ensureWalletChain(provider, config.walletChain)
-        const walletClient = createWalletClient({ chain: config.chain, transport: custom(provider) })
-        const [selectedAddress] = await walletClient.requestAddresses()
-        const selectedWallet = getAddress(selectedAddress)
-
-        if (selectedWallet.toLowerCase() !== ownerAddress.toLowerCase()) {
-          throw new Error('Selected wallet must match the signed-in merchant wallet.')
-        }
-
-        const [feeBpsHandle, validUntilHandle] = await Promise.all([
-          publicClient.readContract({
-            address: config.registry,
-            abi: privateSubscriptionRegistryAbi,
-            functionName: 'feeBpsOf',
-            args: [passId],
-          }),
-          publicClient.readContract({
-            address: config.registry,
-            abi: privateSubscriptionRegistryAbi,
-            functionName: 'validUntilOf',
-            args: [passId],
-          }),
-        ])
-        const terms = await userDecryptSubscriptionTerms({
-          contractAddress: config.registry,
-          feeBpsHandle: feeBpsHandle as Hex,
-          validUntilHandle: validUntilHandle as Hex,
-          provider,
-          signTypedData: (payload) =>
-            walletClient.signTypedData({
-              account: selectedWallet,
-              domain: payload.domain,
-              message: payload.message,
-              primaryType: 'UserDecryptRequestVerification',
-              types: payload.types,
-            }),
-          userAddress: selectedWallet,
-        })
-
-        setChainSubscription({
-          status: 'anchored',
-          plan: planFromFeeBps(terms.feeBps, plansByKey),
-          billingCycle,
+        setChainSubscription((current) => ({
+          status: current.status === 'anchored' ? 'anchored' : 'encrypted',
+          plan: initialBilling.subscription.plan,
+          billingCycle: initialBilling.subscription.billingCycle,
           passId: passId.toString(),
-          feeBps: terms.feeBps,
-          message: `Chain terms decrypted from subscription pass #${passId.toString()}.`,
-        })
+          feeBps:
+            current.status === 'anchored'
+              ? current.feeBps
+              : plansByKey.get(initialBilling.subscription.plan)?.checkoutFeeBps ?? null,
+          message: `Subscription pass #${passId.toString()} found on local-dev; encrypted terms v${termsVersion.toString()}.`,
+        }))
       } catch (caught) {
         setChainSubscription({
           status: caught instanceof Error && caught.message.includes('PrivateSubscriptionRegistry') ? 'unavailable' : 'error',
@@ -455,7 +376,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
         })
       }
     },
-    [billingCycle, contractEnvironment, ownerAddress, plansByKey],
+    [initialBilling.subscription.billingCycle, initialBilling.subscription.plan, ownerAddress, plansByKey],
   )
 
   useEffect(() => {
@@ -497,129 +418,11 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
         return
       }
 
-      const intent = await createBillingUpgradeIntent({ plan: selectedPlan, billingCycle: selectedCycle })
-      const proof = await submitPrivateSubscriptionUpgrade(intent)
-      setChainSubscription({
-        status: 'anchored',
-        plan: selectedPlan,
-        billingCycle: intent.billingCycle,
-        passId: proof.passId,
-        feeBps: intent.expectedFeeBps,
-        message: `Chain subscription pass #${proof.passId} finalized in ${proof.chainTxHash.slice(0, 10)}...`,
-      })
-      setBillingCycle(intent.billingCycle)
-      setSelectedPlan(intent.plan)
-      setStatus(
-        `Private ${intent.billingCycle} entitlement anchored for ${formatPlan(intent.plan)}. The page state now comes from the wallet and contract pass, not the backend.`,
-      )
+      throw new Error('Only local-dev Growth projection is enabled in this MVP.')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Subscription update failed.')
     } finally {
       setBusyKey(null)
-    }
-  }
-
-  async function submitPrivateSubscriptionUpgrade(intent: BillingUpgradeIntentResponse) {
-    if (!activeContractConfig.browserRelayer) {
-      throw new Error('Private subscription upgrades require Zama Sepolia; local-dev cannot change paid entitlement.')
-    }
-
-    const registry = ensureHexAddress(intent.subscriptionRegistryContract, 'PrivateSubscriptionRegistry')
-    const token = ensureHexAddress(intent.chargeTokenContract, 'ConfidentialUSDMock')
-    const provider = ensureEthereumProvider()
-    const paymentEnvironment = sepoliaContractEnvironment
-
-    setStatus('Switching wallet to Zama Sepolia for private subscription payment...')
-    await ensureWalletChain(provider, paymentEnvironment.walletChain)
-
-    const walletClient = createWalletClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
-    const publicClient = createPublicClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
-    const [selectedAddress] = await walletClient.requestAddresses()
-    const merchantAddress = getAddress(selectedAddress)
-
-    if (merchantAddress.toLowerCase() !== ownerAddress.toLowerCase()) {
-      throw new Error('Selected wallet must match the signed-in merchant wallet.')
-    }
-
-    const priceMinorUnits = BigInt(intent.priceMinorUnits)
-    if (priceMinorUnits > 0n) {
-      setStatus('Approving encrypted subscription charge...')
-      const encryptedApproval = await encryptPaymentAmount({
-        amountMinorUnits: priceMinorUnits,
-        contractAddress: token,
-        payerAddress: merchantAddress,
-        provider,
-      })
-      const approveHash = await walletClient.writeContract({
-        address: token,
-        abi: confidentialUsdMockAbi,
-        functionName: 'approve',
-        args: [registry, encryptedApproval.handle, encryptedApproval.inputProof],
-        account: merchantAddress,
-      })
-      await publicClient.waitForTransactionReceipt({ hash: approveHash })
-    }
-
-    setStatus('Ensuring soulbound subscription pass...')
-    const ensureHash = await walletClient.writeContract({
-      address: registry,
-      abi: privateSubscriptionRegistryAbi,
-      functionName: 'ensureMerchantPass',
-      args: [merchantAddress],
-      account: merchantAddress,
-    })
-    await publicClient.waitForTransactionReceipt({ hash: ensureHash })
-    const passId = (await publicClient.readContract({
-      address: registry,
-      abi: privateSubscriptionRegistryAbi,
-      functionName: 'passOfMerchant',
-      args: [merchantAddress],
-    })) as bigint
-
-    setStatus('Encrypting subscription tier and payment amount...')
-    const encryptedUpgrade = await encryptSubscriptionChange({
-      contractAddress: registry,
-      merchantAddress,
-      paidAmountMinorUnits: priceMinorUnits,
-      planCode: intent.planCode,
-      provider,
-    })
-    const requestHash = await walletClient.writeContract({
-      address: registry,
-      abi: privateSubscriptionRegistryAbi,
-      functionName: 'requestSubscriptionChange',
-      args: [passId, encryptedUpgrade.planCodeHandle, encryptedUpgrade.paidAmountHandle, encryptedUpgrade.inputProof],
-      account: merchantAddress,
-    })
-    await publicClient.waitForTransactionReceipt({ hash: requestHash })
-
-    const subscriptionCheckHandle = (await publicClient.readContract({
-      address: registry,
-      abi: privateSubscriptionRegistryAbi,
-      functionName: 'subscriptionCheckHandleOf',
-      args: [passId],
-    })) as Hex
-
-    setStatus('Publicly decrypting subscription acceptance proof...')
-    const proof = await publicDecryptPaymentCheck(provider, subscriptionCheckHandle)
-    if (!proof.accepted) {
-      throw new Error('Private subscription upgrade was rejected by the encrypted proof.')
-    }
-
-    setStatus('Finalizing private subscription entitlement...')
-    const finalizeHash = await walletClient.writeContract({
-      address: registry,
-      abi: privateSubscriptionRegistryAbi,
-      functionName: 'finalizeSubscriptionChange',
-      args: [passId, proof.abiEncodedClearValues, proof.decryptionProof],
-      account: merchantAddress,
-    })
-    await publicClient.waitForTransactionReceipt({ hash: finalizeHash })
-
-    return {
-      chainTxHash: finalizeHash,
-      passId: passId.toString(),
-      subscriptionCheckHandle,
     }
   }
 
@@ -649,7 +452,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
               <h1 className="text-3xl font-semibold tracking-tight">Upgrade Mermer Pay</h1>
               <p className="text-sm text-muted-foreground">
                 Pick the account plan that controls new checkout fee snapshots. The selected tier is proven through a
-                private Zama subscription pass in Sepolia mode.
+                local-dev private Zama subscription pass.
               </p>
             </div>
           </div>
@@ -740,15 +543,6 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
                 {chainSubscription.status === 'anchored' ? 'Chain tier' : 'Chain source'}
               </Badge>
               <span>{chainSubscription.message}</span>
-              {chainSubscription.status === 'encrypted' ? (
-                <button
-                  className="font-medium text-foreground underline-offset-4 hover:underline"
-                  onClick={() => void refreshChainSubscription({ decrypt: true })}
-                  type="button"
-                >
-                  Decrypt tier
-                </button>
-              ) : null}
             </div>
           </div>
 

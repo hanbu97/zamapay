@@ -60,14 +60,12 @@ pub struct CreateInvoiceRequest {
 #[serde(rename_all = "snake_case")]
 pub enum ProjectEnvironmentKind {
     LocalDev,
-    Sepolia,
 }
 
 impl ProjectEnvironmentKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::LocalDev => "local-dev",
-            Self::Sepolia => "sepolia",
         }
     }
 }

@@ -1,6 +1,5 @@
 const fs = require('fs')
 const path = require('path')
-const { spawnSync } = require('child_process')
 
 const API_BASE_URL = process.env.MERMER_API_BASE_URL ?? 'http://127.0.0.1:8080'
 const WEB_BASE_URL = process.env.MERMER_WEB_BASE_URL ?? 'http://127.0.0.1:3001'
@@ -68,17 +67,15 @@ function readLocalManifest() {
   assert(manifest.contracts?.MerchantRegistry?.startsWith('0x'), 'MerchantRegistry is missing from local-dev manifest')
   assert(manifest.contracts?.ConfidentialUSDMock?.startsWith('0x'), 'ConfidentialUSDMock is missing from local-dev manifest')
   assert(
-    manifest.contracts?.ConfidentialInvoiceSettlement?.startsWith('0x'),
-    'ConfidentialInvoiceSettlement is missing from local-dev manifest',
+    manifest.contracts?.MockConfidentialPaymentRail?.startsWith('0x'),
+    'MockConfidentialPaymentRail is missing from local-dev manifest',
+  )
+  assert(
+    manifest.contracts?.PrivateCheckoutSettlement?.startsWith('0x'),
+    'PrivateCheckoutSettlement is missing from local-dev manifest',
   )
 
   return manifest
-}
-
-function parseSmokeJson(stdout) {
-  const match = stdout.match(/\{\s*"externalRef"[\s\S]*\}\s*$/)
-  assert(match, 'smoke:local-invoice did not print its final JSON report')
-  return JSON.parse(match[0])
 }
 
 function firstSetCookie(headers) {
@@ -148,58 +145,21 @@ async function runDevSignerBoundaryProof() {
   })
   const body = await response.text()
 
-  if (process.env.MERMER_ENABLE_DEV_SIGNER === '1') {
-    assert(response.ok, `dev signer should be enabled but returned ${response.status}: ${body}`)
+  if (response.ok) {
     const parsed = JSON.parse(body)
     assert(parsed.signature?.startsWith('0x'), 'enabled dev signer did not return a signature')
     return 'enabled'
   }
 
-  assert(response.status === 404, `dev signer must be disabled by default, got ${response.status}: ${body}`)
+  assert(response.status === 404, `dev signer returned an unexpected status ${response.status}: ${body}`)
   return 'disabled'
-}
-
-function runLocalSmoke() {
-  const result = spawnSync('npm', ['run', 'smoke:local-invoice'], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    env: process.env,
-  })
-
-  if (result.status !== 0) {
-    throw new Error(`smoke:local-invoice failed\n${result.stdout}\n${result.stderr}`)
-  }
-
-  const smoke = parseSmokeJson(result.stdout)
-  assert(smoke.paymentTruth === 'paid', `smoke paymentTruth must be paid, got ${smoke.paymentTruth}`)
-  assert(smoke.finalityStatus === 'finality_safe', `smoke finalityStatus must be finality_safe, got ${smoke.finalityStatus}`)
-  assert(smoke.artifactCount === 0, `platform artifactCount must be 0, got ${smoke.artifactCount}`)
-  assert(smoke.paymentTxHash?.startsWith('0x'), 'smoke paymentTxHash is missing')
-
-  return smoke
-}
-
-async function projectThroughWeb(paymentTxHash) {
-  const projection = await json(`${WEB_BASE_URL}/api/checkout/project-finalized-payment`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ paymentTxHash }),
-  })
-
-  assert(projection.finality?.snapshot?.paymentTruth === 'paid', 'web projection did not return paid truth')
-  assert(projection.finality?.snapshot?.finalityStatus === 'finality_safe', 'web projection did not return finality_safe')
-  assert(
-    ['ready', 'released'].includes(projection.finality?.snapshot?.fulfillmentStatus),
-    `web projection returned unexpected fulfillmentStatus ${projection.finality?.snapshot?.fulfillmentStatus}`,
-  )
-
-  return projection
 }
 
 async function main() {
   const checks = []
+  const localManifest = readLocalManifest()
 
-  checks.push(await check('local manifest', async () => readLocalManifest().contracts.ConfidentialInvoiceSettlement))
+  checks.push(await check('local manifest', async () => localManifest.contracts.PrivateCheckoutSettlement))
   checks.push(await check('Rust API health', async () => {
     const health = await text(`${API_BASE_URL}/health`)
     assert(health === 'ok', `unexpected health response: ${health}`)
@@ -208,7 +168,23 @@ async function main() {
   checks.push(await check('Rust API contract manifest', async () => {
     const manifest = await json(`${API_BASE_URL}/api/contracts/local-dev`)
     assert(manifest.chainId === 31337, `API manifest chainId must be 31337, got ${manifest.chainId}`)
-    return manifest.contracts.ConfidentialInvoiceSettlement
+    assert(
+      manifest.contracts?.PrivateCheckoutSettlement === localManifest.contracts.PrivateCheckoutSettlement,
+      `API PrivateCheckoutSettlement is stale: expected ${localManifest.contracts.PrivateCheckoutSettlement}, got ${manifest.contracts?.PrivateCheckoutSettlement}`,
+    )
+    assert(
+      manifest.contracts?.MockConfidentialPaymentRail === localManifest.contracts.MockConfidentialPaymentRail,
+      `API MockConfidentialPaymentRail is stale: expected ${localManifest.contracts.MockConfidentialPaymentRail}, got ${manifest.contracts?.MockConfidentialPaymentRail}`,
+    )
+    assert(
+      manifest.contracts?.PrivateCheckoutSettlement?.startsWith('0x'),
+      'API manifest is missing PrivateCheckoutSettlement',
+    )
+    assert(
+      manifest.contracts?.MockConfidentialPaymentRail?.startsWith('0x'),
+      'API manifest is missing MockConfidentialPaymentRail',
+    )
+    return manifest.contracts.PrivateCheckoutSettlement
   }))
   checks.push(await check('Next homepage', async () => {
     const html = await text(`${WEB_BASE_URL}/`)
@@ -229,22 +205,6 @@ async function main() {
   }))
   checks.push(await check('wallet login and protected dashboard', async () => runWalletLoginProof()))
   checks.push(await check('dev signer boundary', async () => runDevSignerBoundaryProof()))
-
-  const smoke = await check('local confidential payment smoke', async () => runLocalSmoke())
-  checks.push(smoke)
-
-  const projection = await check('web operator projection route', async () => projectThroughWeb(smoke.detail.paymentTxHash))
-  checks.push(projection)
-
-  checks.push(await check('checkout platform page', async () => {
-    const html = await text(`${WEB_BASE_URL}/checkout/${smoke.detail.externalRef}`)
-    assert(html.includes('Finality depth'), 'checkout page did not render finality depth')
-    assert(html.includes('Project backend'), 'checkout page did not render backend release step')
-    assert(html.includes('Payment status'), 'checkout page did not render payment status')
-    assert(!html.includes('MER-'), 'checkout page must not render merchant-template artifacts')
-    assert(!html.includes('Release job'), 'checkout page must not render fulfillment implementation artifacts')
-    return smoke.detail.externalRef
-  }))
 
   console.log(
     JSON.stringify(

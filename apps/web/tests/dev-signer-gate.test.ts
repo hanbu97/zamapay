@@ -26,7 +26,7 @@ test('dev signer stays off without explicit opt-in', () => {
   )
 })
 
-test('dev signer stays off in production and Sepolia', () => {
+test('dev signer stays off in production and unsupported environments', () => {
   assert.equal(
     canUseDevSigner({
       contractEnv: 'local-dev',
@@ -38,7 +38,7 @@ test('dev signer stays off in production and Sepolia', () => {
   )
   assert.equal(
     canUseDevSigner({
-      contractEnv: 'sepolia',
+      contractEnv: 'testnet',
       enableDevSigner: '1',
       nodeEnv: 'development',
       requestUrl: 'http://127.0.0.1:3001/api/dev/sign-message',

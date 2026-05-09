@@ -333,7 +333,7 @@ function CreateProjectDialog({
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <FieldDescription>Local dev is deterministic. Sepolia requires funded signer and deployed contract config.</FieldDescription>
+              <FieldDescription>Local dev is deterministic. Public testnets are paused until protocol-fee policy is explicit.</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="project-webhook">Webhook URL</FieldLabel>

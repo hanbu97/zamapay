@@ -1,4 +1,3 @@
-import { publicContractEnvironment } from './contract-environment.ts'
 import { localDevAddresses } from './contracts.ts'
 
 export type NonceResponse = {
@@ -110,7 +109,6 @@ export type ContractManifest = {
     ConfidentialUSDMock: string | null
     SubscriptionPass: string | null
     PrivateSubscriptionRegistry: string | null
-    ConfidentialInvoiceSettlement: string | null
     MockConfidentialPaymentRail: string | null
     PrivateCheckoutSettlement: string | null
   }
@@ -130,7 +128,7 @@ export type ContractManifest = {
   }
 }
 
-export type ProjectEnvironmentKind = 'local_dev' | 'sepolia'
+export type ProjectEnvironmentKind = 'local_dev'
 export type ProjectStatus = 'active' | 'disabled'
 export type CheckoutSessionStatus = 'created' | 'open' | 'paid' | 'expired' | 'cancelled' | 'failed'
 export type BillingPlan = 'free' | 'growth' | 'enterprise'
@@ -420,7 +418,6 @@ export class ApiRequestError extends Error {
 }
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
-const contractEnvironment = publicContractEnvironment()
 
 export function isUnauthorizedApiError(error: unknown): boolean {
   return error instanceof ApiRequestError && (error.status === 401 || error.status === 403)
@@ -528,19 +525,7 @@ async function clearBrowserSessionCookie(): Promise<void> {
 }
 
 export async function getContractManifest(): Promise<ContractManifest> {
-  if (contractEnvironment === 'local-dev') {
-    return localDevAddresses as ContractManifest
-  }
-
-  const response = await fetch(`${apiBaseUrl}/api/contracts/${contractEnvironment}`, {
-    cache: 'no-store',
-  })
-
-  if (!response.ok) {
-    throw new Error(`Contract manifest lookup failed with ${response.status}.`)
-  }
-
-  return response.json()
+  return localDevAddresses as ContractManifest
 }
 
 export async function getInvoiceRecord(invoiceId: string): Promise<InvoiceRecord | null> {

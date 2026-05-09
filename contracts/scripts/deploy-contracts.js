@@ -34,16 +34,6 @@ async function main() {
   await subscriptionRegistry.waitForDeployment()
   await (await pass.setMinter(await subscriptionRegistry.getAddress())).wait()
 
-  const settlementFactory = await ethers.getContractFactory('ConfidentialInvoiceSettlement')
-  const settlement = await settlementFactory.deploy(
-    await registry.getAddress(),
-    await subscriptionRegistry.getAddress(),
-    await token.getAddress(),
-    platformFeeWallet,
-  )
-  await settlement.waitForDeployment()
-  await (await subscriptionRegistry.setSettlement(await settlement.getAddress())).wait()
-
   const paymentRailFactory = await ethers.getContractFactory('MockConfidentialPaymentRail')
   const paymentRail = await paymentRailFactory.deploy()
   await paymentRail.waitForDeployment()
@@ -52,9 +42,10 @@ async function main() {
   const privateCheckout = await privateCheckoutFactory.deploy(await paymentRail.getAddress(), deployer.address)
   await privateCheckout.waitForDeployment()
   await (await paymentRail.setSettlement(await privateCheckout.getAddress())).wait()
+  await (await subscriptionRegistry.setSettlement(await privateCheckout.getAddress())).wait()
 
   const network = await ethers.provider.getNetwork()
-  const billing = await readBillingProtocol({ settlement, subscriptionRegistry })
+  const billing = await readBillingProtocol({ subscriptionRegistry })
   const manifest = {
     network: hre.network.name,
     chainId: Number(network.chainId),
@@ -63,7 +54,6 @@ async function main() {
       ConfidentialUSDMock: await token.getAddress(),
       SubscriptionPass: await pass.getAddress(),
       PrivateSubscriptionRegistry: await subscriptionRegistry.getAddress(),
-      ConfidentialInvoiceSettlement: await settlement.getAddress(),
       MockConfidentialPaymentRail: await paymentRail.getAddress(),
       PrivateCheckoutSettlement: await privateCheckout.getAddress(),
     },
@@ -80,7 +70,6 @@ async function main() {
       ConfidentialUSDMock: await hre.artifacts.readArtifact('ConfidentialUSDMock'),
       SubscriptionPass: await hre.artifacts.readArtifact('SubscriptionPass'),
       PrivateSubscriptionRegistry: await hre.artifacts.readArtifact('PrivateSubscriptionRegistry'),
-      ConfidentialInvoiceSettlement: await hre.artifacts.readArtifact('ConfidentialInvoiceSettlement'),
       MockConfidentialPaymentRail: await hre.artifacts.readArtifact('MockConfidentialPaymentRail'),
       PrivateCheckoutSettlement: await hre.artifacts.readArtifact('PrivateCheckoutSettlement'),
     },
@@ -90,9 +79,8 @@ async function main() {
   console.log(JSON.stringify(manifest, null, 2))
 }
 
-async function readBillingProtocol({ settlement, subscriptionRegistry }) {
+async function readBillingProtocol({ subscriptionRegistry }) {
   const [
-    defaultFeeBps,
     freePlanCode,
     growthPlanCode,
     freeFeeBps,
@@ -102,7 +90,6 @@ async function readBillingProtocol({ settlement, subscriptionRegistry }) {
     monthlyPeriodSeconds,
     annualPeriodSeconds,
   ] = await Promise.all([
-    settlement.DEFAULT_FEE_BPS(),
     subscriptionRegistry.FREE_PLAN_CODE(),
     subscriptionRegistry.GROWTH_PLAN_CODE(),
     subscriptionRegistry.FREE_FEE_BPS(),
@@ -115,7 +102,7 @@ async function readBillingProtocol({ settlement, subscriptionRegistry }) {
 
   return {
     source: 'PrivateSubscriptionRegistry',
-    defaultFeeBps: Number(defaultFeeBps),
+    defaultFeeBps: Number(freeFeeBps),
     monthlyPeriodSeconds: Number(monthlyPeriodSeconds),
     annualPeriodSeconds: Number(annualPeriodSeconds),
     plans: [

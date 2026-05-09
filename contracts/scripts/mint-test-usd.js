@@ -58,7 +58,7 @@ async function main() {
   const [owner] = signers
 
   if (!owner) {
-    throw new Error('No token owner signer configured. Set DEPLOYER_PRIVATE_KEY for Sepolia.')
+    throw new Error('No local token owner signer is configured.')
   }
 
   await assertSafePublicNetworkSigner(hre, owner, 'token owner')

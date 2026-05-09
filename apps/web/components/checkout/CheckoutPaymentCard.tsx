@@ -3,19 +3,14 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2Icon, CreditCardIcon, LockKeyholeIcon, ShieldCheckIcon } from 'lucide-react'
-import { createPublicClient, createWalletClient, custom, getAddress, parseEventLogs } from 'viem'
+import { createWalletClient, custom, getAddress } from 'viem'
 import { StatusStepper, type StatusStepperItem } from '@/components/commerce/StatusStepper'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
-import { confidentialInvoiceSettlementAbi, confidentialUsdMockAbi } from '@/lib/contracts'
 import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib/contract-environment'
-import {
-  encryptPaymentAmount,
-  publicDecryptPaymentCheck,
-} from '@/lib/fhevm'
 import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
 type HexAddress = `0x${string}`
@@ -158,16 +153,12 @@ export function CheckoutPaymentCard({
   const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus))
 
   const manifestEnvironment = contractEnvironmentForChainId(manifestChainId)
-  const isSepoliaManifest = manifestEnvironment === 'sepolia'
   const isLocalDevManifest = manifestEnvironment === 'local-dev'
   const isPaid = isPaymentComplete(paymentTruth, finalityStatus)
   const isPayable = paymentTruth === 'pending_payment' && chainInvoiceId !== null
-  const canPayOnSepolia = isPayable && isSepoliaManifest && Boolean(settlementAddress) && Boolean(tokenAddress)
   const canPayOnLocalDev = isPayable && isLocalDevManifest && Boolean(settlementAddress) && Boolean(tokenAddress)
-  const canPay = canPayOnSepolia || canPayOnLocalDev
-  const paymentReadyLabel = canPayOnLocalDev ? 'Local-dev ready' : 'Sepolia ready'
-  const paymentWaitingLabel = isLocalDevManifest ? 'Awaiting invoice' : 'Awaiting manifest'
-  const paymentBadgeLabel = isPaid ? 'Payment verified' : canPay ? paymentReadyLabel : paymentWaitingLabel
+  const canPay = canPayOnLocalDev
+  const paymentBadgeLabel = isPaid ? 'Payment verified' : canPay ? 'Local-dev ready' : 'Awaiting local-dev invoice'
   const paymentSteps = getPaymentSteps({
     canPay,
     chainInvoiceId,
@@ -178,7 +169,6 @@ export function CheckoutPaymentCard({
     paymentHash,
     paymentStep,
     paymentTruth,
-    useLocalConfidentialPayment: isLocalDevManifest,
   })
 
   useEffect(() => {
@@ -206,7 +196,6 @@ export function CheckoutPaymentCard({
         throw new Error('Invoice amount must be greater than zero.')
       }
 
-      const amount = BigInt(amountMinorUnits)
       const provider = ensureEthereumProvider()
 
       if (canPayOnLocalDev) {
@@ -263,101 +252,7 @@ export function CheckoutPaymentCard({
         return
       }
 
-      const settlement = ensureHexAddress(settlementAddress, 'ConfidentialInvoiceSettlement')
-      const token = ensureHexAddress(tokenAddress, 'ConfidentialUSDMock')
-      const paymentEnvironment = contractEnvironmentConfigs.sepolia
-
-      setStatus('Switching wallet to Zama Sepolia...')
-      await ensureWalletChain(provider, paymentEnvironment.walletChain)
-
-      const walletClient = createWalletClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
-      const publicClient = createPublicClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
-      const [selectedAddress] = await walletClient.requestAddresses()
-      const payerAddress = getAddress(selectedAddress)
-
-      setPaymentStep('intent')
-      setStatus('Approving encrypted mcUSD allowance...')
-      const encryptedApproval = await encryptPaymentAmount({
-        amountMinorUnits: amount,
-        contractAddress: token,
-        payerAddress,
-        provider,
-      })
-      const approveHash = await walletClient.writeContract({
-        address: token,
-        abi: confidentialUsdMockAbi,
-        functionName: 'approve',
-        args: [settlement, encryptedApproval.handle, encryptedApproval.inputProof],
-        account: payerAddress,
-      })
-      await publicClient.waitForTransactionReceipt({ hash: approveHash })
-
-      setPaymentStep('submit')
-      setStatus('Encrypting settlement amount with the Zama relayer...')
-      const encrypted = await encryptPaymentAmount({
-        amountMinorUnits: amount,
-        contractAddress: settlement,
-        payerAddress,
-        provider,
-      })
-
-      setStatus('Submitting ConfidentialInvoiceSettlement.payInvoice...')
-      const hash = await walletClient.writeContract({
-        address: settlement,
-        abi: confidentialInvoiceSettlementAbi,
-        functionName: 'payInvoice',
-        args: [BigInt(chainInvoiceId), encrypted.handle, encrypted.inputProof],
-        account: payerAddress,
-      })
-      setPaymentHash(hash)
-
-      setStatus('Waiting for encrypted payment submission...')
-      const receipt = await publicClient.waitForTransactionReceipt({ hash })
-      const submittedLogs = parseEventLogs({
-        abi: confidentialInvoiceSettlementAbi,
-        eventName: 'InvoicePaymentSubmitted',
-        logs: receipt.logs,
-      })
-      const paymentCheckHandle = submittedLogs[0]?.args.paymentCheckHandle as HexAddress | undefined
-
-      if (!paymentCheckHandle) {
-        throw new Error('Payment transaction confirmed without InvoicePaymentSubmitted event.')
-      }
-
-      setPaymentStep('finalize')
-      setStatus('Publicly decrypting the payment validity proof...')
-      const proof = await publicDecryptPaymentCheck(provider, paymentCheckHandle)
-
-      if (!proof.accepted) {
-        throw new Error('Encrypted payment was rejected by the settlement proof.')
-      }
-
-      setStatus('Finalizing verified payment on chain...')
-      const finalizeHash = await walletClient.writeContract({
-        address: settlement,
-        abi: confidentialInvoiceSettlementAbi,
-        functionName: 'finalizePayment',
-        args: [BigInt(chainInvoiceId), proof.abiEncodedClearValues, proof.decryptionProof],
-        account: payerAddress,
-      })
-      setFinalizeHash(finalizeHash)
-      const finalizeReceipt = await publicClient.waitForTransactionReceipt({ hash: finalizeHash })
-      const paidLogs = parseEventLogs({
-        abi: confidentialInvoiceSettlementAbi,
-        eventName: 'InvoicePaid',
-        logs: finalizeReceipt.logs,
-      })
-
-      if (paidLogs.length === 0) {
-        throw new Error('Payment finalization confirmed without InvoicePaid event.')
-      }
-
-      setPaymentStep('project')
-      setStatus('Payment confirmed on chain. Projecting backend read model...')
-      await projectFinalizedPayment(finalizeHash)
-
-      setStatus('Payment projected. Refreshing fulfillment state...')
-      router.refresh()
+      throw new Error('This build only supports local-dev private checkout.')
     } catch (caught) {
       setError(readableError(caught))
       setStatus('Encrypted payment did not complete.')
@@ -441,11 +336,11 @@ export function CheckoutPaymentCard({
           </Alert>
         ) : null}
 
-        {!isSepoliaManifest && !isLocalDevManifest ? (
+        {!isLocalDevManifest ? (
           <Alert>
             <AlertTitle>Browser payment locked</AlertTitle>
             <AlertDescription>
-              Browser relayer payment needs a Zama Sepolia manifest and funded confidential token balance.
+              Browser payment is limited to the local-dev private checkout rail in this MVP.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -487,7 +382,6 @@ function getPaymentSteps({
   paymentHash,
   paymentStep,
   paymentTruth,
-  useLocalConfidentialPayment,
 }: {
   canPay: boolean
   chainInvoiceId: number | null
@@ -498,7 +392,6 @@ function getPaymentSteps({
   paymentHash: string | null
   paymentStep: PaymentStep
   paymentTruth: string
-  useLocalConfidentialPayment: boolean
 }): StatusStepperItem[] {
   const isPaid = isPaymentComplete(paymentTruth, finalityStatus)
   const currentStep = error
@@ -522,29 +415,23 @@ function getPaymentSteps({
       title: 'Invoice',
     },
     {
-      description: useLocalConfidentialPayment
+      description: canPay || isPaid
         ? 'Buyer wallet signs a local private checkout intent.'
-        : canPay || isPaid
-        ? 'Buyer wallet approves encrypted cUSDT allowance for this settlement.'
-        : 'Sepolia manifest and token contract are required before wallet approval.',
+        : 'Local-dev private checkout manifest is required before buyer payment.',
       state: stepState(2, currentStep, isBusy, error),
-      title: useLocalConfidentialPayment ? 'Intent' : 'Approval',
+      title: 'Intent',
     },
     {
       description: paymentHash
         ? `${paymentHash.slice(0, 18)}...`
-        : useLocalConfidentialPayment
-          ? 'Encrypted local payment amount is submitted to the settlement contract.'
-          : 'Encrypted payment amount is submitted to the settlement contract.',
+        : 'Encrypted local payment amount is submitted to the settlement contract.',
       state: paymentHash || isPaid ? 'complete' : stepState(3, currentStep, isBusy, error),
       title: 'Payment',
     },
     {
       description: finalizeHash
         ? `${finalizeHash.slice(0, 18)}...`
-        : useLocalConfidentialPayment
-          ? 'Local FHEVM mock decrypts only the paid/rejected boolean, then finalizes on chain.'
-          : 'Public decrypt proves the encrypted check, then finalizes payment on chain.',
+        : 'Local FHEVM mock decrypts only the paid/rejected boolean, then finalizes on chain.',
       state: finalizeHash || isPaid ? 'complete' : stepState(4, currentStep, isBusy, error),
       title: 'Verify',
     },

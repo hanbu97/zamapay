@@ -5,16 +5,16 @@
 ```text
 generated
 |-- clients/
-|   |-- ts/contracts.ts            # Frontend-facing ABI and address manifest exports
-|   `-- rust/contracts.rs          # Rust-facing ABI and address manifest constants
+|   |-- ts/contracts.ts
+|   `-- rust/contracts.rs
 `-- contracts/
-    |-- abi/*.json                 # Canonical ABI snapshots copied from Hardhat artifacts
-    `-- addresses/*.json           # Environment manifests such as local-dev.json and sepolia.json
+    |-- abi/*.json
+    `-- addresses/local-dev.json
 ```
 
 ## Decisions
 
 - `generated/*` is the only cross-runtime contract truth consumed by the app.
-- Hardhat artifact paths stay private to `contracts/`; every other layer reads copied ABI and address manifests from here.
-- Address manifests are additive by environment; syncing ABI must not erase a deployed environment address book.
-- Settlement ABI changes are propagated here first, including exact-amount invoice creation, payment-check events, and finalization calls.
+- Hardhat artifact paths stay private to `contracts/`; every other layer reads copied ABI and the local-dev address manifest from here.
+- Sync exposes only the local-dev manifest and active private checkout contracts so stale generated clients cannot reintroduce old paths.
+- Billing terms flow from deployed subscription contract constants into the generated manifest, then into Rust/UI projections.

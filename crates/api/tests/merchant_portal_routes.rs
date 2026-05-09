@@ -87,7 +87,7 @@ async fn local_dev_contract_manifest_route_returns_generated_truth() {
             .is_some_and(|network| !network.is_empty())
     );
     assert!(
-        json["contracts"]["MerchantRegistry"]
+        json["contracts"]["PrivateCheckoutSettlement"]
             .as_str()
             .is_some_and(|address| address.starts_with("0x"))
     );
@@ -102,7 +102,7 @@ async fn local_dev_contract_manifest_route_returns_generated_truth() {
         )
         .await
         .unwrap();
-    assert_eq!(alias.status(), StatusCode::OK);
+    assert_eq!(alias.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

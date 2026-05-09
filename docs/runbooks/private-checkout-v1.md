@@ -227,7 +227,7 @@ If the rail is mock/demo balance, the product name should be `Private Checkout P
 
 1. CardForge creates an order; Mermer Pay derives `orderCommitment`.
 2. Mermer Pay derives a rotating `settlementBucketCommitment`.
-3. Mermer Pay encrypts `expectedAmount` with the Relayer SDK / local fhevm input helper and calls `createPrivateCheckout` with `encryptedExpectedAmount + inputProof`.
+3. Mermer Pay encrypts `expectedAmount` with the local FHEVM input helper and calls `createPrivateCheckout` with `encryptedExpectedAmount + inputProof`.
 4. The buyer signs a payment intent on the checkout page. In local-dev, Mermer Pay encrypts `paidAmount` with the local FHEVM helper before relaying.
 5. Mermer Pay verifies the payment intent and selected payment rail: `MockConfidentialPaymentRail` confidential debit on local-dev, or a future real confidential token transfer.
 6. The Mermer Pay relayer submits the transaction; on-chain `msg.sender` is the relayer, not the buyer.
@@ -266,8 +266,8 @@ sequenceDiagram
     participant MP as Mermer Pay API + relayer
     participant B as Buyer browser
     participant C as PrivateCheckoutSettlement
-    participant R as Relayer SDK / fhevm input helper
-    participant Z as Zama Gateway / KMS
+    participant R as Local FHEVM input helper
+    participant Z as Local FHEVM decrypt helper
 
     CF->>MP: Create checkout with business order
     MP->>MP: Build orderCommitment and settlementBucketCommitment
@@ -335,17 +335,17 @@ Do not decrypt per-order gross, merchant net, or platform fee in the normal chec
 - Bind signed payment intents to `orderCommitment`, encrypted amount handle, asset, chain id, settlement contract, nonce, and `expiresAt`.
 - Reject expired checkouts, reused payment nonces, resubmission after final status, and double finalization.
 - Treat Mermer Pay relayer as the protocol-fee payer in the demo.
-- Keep the old transparent `ConfidentialInvoiceSettlement` path only for regression tests; local-dev checkout uses `PrivateCheckoutSettlement`.
+- Keep local-dev clean: no transparent settlement fallback and no public-testnet branch in the active app.
 
 ## Implementation Direction
 
-The private checkout path is implemented as a separate contract instead of mutating the current settlement contract in place:
+The private checkout path is implemented as:
 
 ```text
 PrivateCheckoutSettlement
 ```
 
-The current `ConfidentialInvoiceSettlement` stores `merchant`, `payoutWallet`, `payer`, and `amountDue` in public fields. That shape cannot satisfy the v1 privacy requirement without a structural rewrite. A separate contract keeps the demo focused and avoids breaking the existing local-dev payment rail while the private design is being proven.
+The old transparent invoice settlement has been removed from the active local-dev path because it stored merchant, payout, payer, and amount fields publicly. Keeping it available as a fallback would make the privacy claim ambiguous.
 
 The local-dev payment rail is implemented as:
 

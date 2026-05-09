@@ -19,10 +19,6 @@ const CONTRACTS = [
     artifactPath: 'artifacts/contracts/PrivateSubscriptionRegistry.sol/PrivateSubscriptionRegistry.json',
   },
   {
-    name: 'ConfidentialInvoiceSettlement',
-    artifactPath: 'artifacts/contracts/ConfidentialInvoiceSettlement.sol/ConfidentialInvoiceSettlement.json',
-  },
-  {
     name: 'MockConfidentialPaymentRail',
     artifactPath: 'artifacts/contracts/MockConfidentialPaymentRail.sol/MockConfidentialPaymentRail.json',
   },
@@ -50,7 +46,6 @@ function defaultManifest() {
       ConfidentialUSDMock: null,
       SubscriptionPass: null,
       PrivateSubscriptionRegistry: null,
-      ConfidentialInvoiceSettlement: null,
       MockConfidentialPaymentRail: null,
       PrivateCheckoutSettlement: null,
     },
@@ -66,10 +61,6 @@ function defaultManifest() {
 }
 
 function manifestFileName(manifest) {
-  if (manifest.chainId === 11155111 || manifest.network === 'sepolia') {
-    return 'sepolia.json'
-  }
-
   return 'local-dev.json'
 }
 
@@ -98,7 +89,7 @@ function readExistingManifests(projectRoot) {
   return Object.fromEntries(
     fs
       .readdirSync(addressDir)
-      .filter((fileName) => fileName.endsWith('.json'))
+      .filter((fileName) => fileName === 'local-dev.json')
       .map((fileName) => [fileName, readManifest(path.join(addressDir, fileName))])
       .filter((entry) => entry[1] !== null),
   )
@@ -169,7 +160,7 @@ function writeGeneratedClients(projectRoot, artifacts, manifest) {
     })
     .join('\n')
 
-  const tsSource = `export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'ConfidentialInvoiceSettlement', 'MockConfidentialPaymentRail', 'PrivateCheckoutSettlement'] as const
+  const tsSource = `export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'MockConfidentialPaymentRail', 'PrivateCheckoutSettlement'] as const
 
 export type ContractName = (typeof contractNames)[number]
 
@@ -200,7 +191,6 @@ export const merchantRegistryAbi = ${JSON.stringify(artifacts.MerchantRegistry.a
 export const confidentialUsdMockAbi = ${JSON.stringify(artifacts.ConfidentialUSDMock.abi, null, 2)} as const
 export const subscriptionPassAbi = ${JSON.stringify(artifacts.SubscriptionPass.abi, null, 2)} as const
 export const privateSubscriptionRegistryAbi = ${JSON.stringify(artifacts.PrivateSubscriptionRegistry.abi, null, 2)} as const
-export const confidentialInvoiceSettlementAbi = ${JSON.stringify(artifacts.ConfidentialInvoiceSettlement.abi, null, 2)} as const
 export const mockConfidentialPaymentRailAbi = ${JSON.stringify(artifacts.MockConfidentialPaymentRail.abi, null, 2)} as const
 export const privateCheckoutSettlementAbi = ${JSON.stringify(artifacts.PrivateCheckoutSettlement.abi, null, 2)} as const
 
@@ -209,7 +199,6 @@ export const abis = {
   ConfidentialUSDMock: confidentialUsdMockAbi,
   SubscriptionPass: subscriptionPassAbi,
   PrivateSubscriptionRegistry: privateSubscriptionRegistryAbi,
-  ConfidentialInvoiceSettlement: confidentialInvoiceSettlementAbi,
   MockConfidentialPaymentRail: mockConfidentialPaymentRailAbi,
   PrivateCheckoutSettlement: privateCheckoutSettlementAbi,
 } as const
@@ -252,10 +241,6 @@ ${JSON.stringify(artifacts.SubscriptionPass.abi, null, 2)}
 
 pub const PRIVATE_SUBSCRIPTION_REGISTRY_ABI_JSON: &str = r#"
 ${JSON.stringify(artifacts.PrivateSubscriptionRegistry.abi, null, 2)}
-"#;
-
-pub const CONFIDENTIAL_INVOICE_SETTLEMENT_ABI_JSON: &str = r#"
-${JSON.stringify(artifacts.ConfidentialInvoiceSettlement.abi, null, 2)}
 "#;
 
 pub const MOCK_CONFIDENTIAL_PAYMENT_RAIL_ABI_JSON: &str = r#"

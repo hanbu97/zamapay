@@ -14,13 +14,6 @@
     "test:web": "npm --workspace apps/web run test",
     "test:contracts": "npm --workspace contracts run test",
     "verify:local": "node scripts/local-readiness.js",
-    "verify:local:full": "node scripts/local-full-verify.js",
-    "verify:merchant-loop": "node scripts/merchant-project-loop.js",
-    "smoke:local-invoice": "npm --workspace contracts run smoke:local-invoice",
-    "sepolia:handoff": "node scripts/sepolia-handoff.js",
-    "deploy:sepolia": "npm --workspace contracts run deploy:sepolia",
-    "mint:test-usd:sepolia": "npm --workspace contracts run mint:test-usd:sepolia",
-    "verify:sepolia": "npm --workspace contracts run verify:sepolia",
-    "project:payment:sepolia": "npm --workspace contracts run project:payment:sepolia"
+    "verify:local:full": "node scripts/local-full-verify.js"
   }
 }

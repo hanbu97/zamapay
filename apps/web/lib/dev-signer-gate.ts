@@ -23,7 +23,7 @@ export function canUseDevSigner(input: DevSignerGateInput): boolean {
   )
 }
 
-function safeContractEnvironment(value: string | undefined): 'local-dev' | 'sepolia' | 'invalid' {
+function safeContractEnvironment(value: string | undefined): 'local-dev' | 'invalid' {
   try {
     return normalizeContractEnvironment(value)
   } catch {

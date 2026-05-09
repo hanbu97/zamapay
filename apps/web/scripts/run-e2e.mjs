@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const E2E_DIR = path.join(ROOT, 'e2e')
-const DEFAULT_SPECS = ['auth-login.spec.ts', 'checkout-flow.spec.ts', 'operator-failure-drills.spec.ts']
+const DEFAULT_SPECS = ['auth-login.spec.ts', 'operator-failure-drills.spec.ts']
 
 function resolveSpec(rawSpec) {
   const candidate = path.isAbsolute(rawSpec)

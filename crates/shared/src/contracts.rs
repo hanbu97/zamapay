@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 
 use crate::{BillingCycle, BillingPlan, BillingPlanCatalogEntry};
@@ -39,8 +37,6 @@ pub struct ContractAddresses {
     #[serde(rename = "PrivateSubscriptionRegistry")]
     #[serde(default)]
     pub private_subscription_registry: Option<String>,
-    #[serde(rename = "ConfidentialInvoiceSettlement")]
-    pub confidential_invoice_settlement: Option<String>,
     #[serde(rename = "MockConfidentialPaymentRail")]
     #[serde(default)]
     pub mock_confidential_payment_rail: Option<String>,
@@ -163,7 +159,6 @@ pub fn normalize_contract_environment(environment: &str) -> Option<&'static str>
         "" | "dev" | "development" | "hardhat" | "local" | "localhost" | "local-dev" => {
             Some("local-dev")
         }
-        "sepolia" | "test" | "testnet" | "zama-sepolia" => Some("sepolia"),
         _ => None,
     }
 }
@@ -173,13 +168,15 @@ pub fn local_dev_contract_manifest() -> Result<AddressManifest, serde_json::Erro
 }
 
 pub fn contract_manifest(environment: &str) -> Result<Option<AddressManifest>, serde_json::Error> {
-    let manifests: HashMap<String, AddressManifest> =
-        serde_json::from_str(generated_contracts::ADDRESS_MANIFESTS_JSON)?;
     let Some(normalized) = normalize_contract_environment(environment) else {
         return Ok(None);
     };
 
-    Ok(manifests.get(normalized).cloned())
+    if normalized == "local-dev" {
+        return local_dev_contract_manifest().map(Some);
+    }
+
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -222,8 +219,8 @@ mod tests {
             normalize_contract_environment("local_dev"),
             Some("local-dev")
         );
-        assert_eq!(normalize_contract_environment("test"), Some("sepolia"));
-        assert_eq!(normalize_contract_environment("testnet"), Some("sepolia"));
+        assert_eq!(normalize_contract_environment("test"), None);
+        assert_eq!(normalize_contract_environment("testnet"), None);
         assert_eq!(normalize_contract_environment("unknown"), None);
     }
 }

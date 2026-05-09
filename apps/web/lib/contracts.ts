@@ -1,14 +1,12 @@
 import { defineChain } from 'viem'
 import type { AddressManifest } from '../../../generated/clients/ts/contracts.ts'
 import {
-  confidentialInvoiceSettlementAbi,
   confidentialUsdMockAbi,
   merchantRegistryAbi,
   localDevAddresses,
   mockConfidentialPaymentRailAbi,
   privateCheckoutSettlementAbi,
   privateSubscriptionRegistryAbi,
-  sepoliaAddresses,
   subscriptionPassAbi,
 } from '../../../generated/clients/ts/contracts.ts'
 
@@ -30,13 +28,11 @@ export const localHardhat = defineChain({
 })
 
 export {
-  confidentialInvoiceSettlementAbi,
   confidentialUsdMockAbi,
   localDevAddresses,
   merchantRegistryAbi,
   mockConfidentialPaymentRailAbi,
   privateCheckoutSettlementAbi,
   privateSubscriptionRegistryAbi,
-  sepoliaAddresses,
   subscriptionPassAbi,
 }

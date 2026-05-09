@@ -33,25 +33,12 @@ loadRootEnv();
 require("@fhevm/hardhat-plugin");
 require("@nomicfoundation/hardhat-toolbox");
 
-function isHexPrivateKey(value) {
-  return /^0x[0-9a-fA-F]{64}$/u.test(value || "");
-}
-
-const sepoliaRpcUrl = process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com";
-const rawDeployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY;
-const deployerPrivateKey = isHexPrivateKey(rawDeployerPrivateKey) ? rawDeployerPrivateKey : undefined;
-
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   networks: {
     localhost: {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
-    },
-    sepolia: {
-      url: sepoliaRpcUrl,
-      chainId: 11155111,
-      accounts: deployerPrivateKey ? [deployerPrivateKey] : [],
     },
   },
   solidity: {

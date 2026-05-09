@@ -63,7 +63,7 @@ export const docsPages: DocsPage[] = [
             title: "Open the docs and console",
           },
           {
-            detail: "Create a project with `local-dev` for smoke tests or `sepolia` for browser wallet proof. Add the merchant backend webhook URL during creation when possible.",
+            detail: "Create a project with `local-dev`. Add the merchant backend webhook URL during creation when possible.",
             title: "Create a payment project",
           },
           {
@@ -229,9 +229,9 @@ export function verifyMermerWebhook(headers, body, secret) {
       },
       {
         body: [
-          "Use the built-in deterministic verifier when you need proof that project creation, key creation, CardForge checkout, hosted checkout, payment projection, signed webhook, and dashboard stats agree.",
+          "Use the local readiness gate for service truth, then run the browser CardForge flow for the private checkout proof. The old direct payment-projection script is intentionally removed.",
         ],
-        code: `npm run verify:merchant-loop`,
+        code: `npm run verify:local`,
         id: "closed-loop-proof",
         title: "Closed loop proof",
       },
@@ -591,15 +591,15 @@ struct PrivateCheckout {
     sections: [
       {
         body: [
-          "`local-dev` is deterministic and should pass before any public wallet run. `sepolia` adds real RPC, deployed contracts, faucet balances, and browser wallet requirements.",
-          "Keep environment explicit in projects, API keys, checkout sessions, webhook endpoints, events, and delivery records.",
+          "`local-dev` is the only active environment in this hackathon build. Public testnets are intentionally disabled until Zama protocol-fee handling is designed.",
+          "Keep environment explicit in projects, API keys, checkout sessions, webhook endpoints, events, and delivery records even while the only accepted value is `local-dev`.",
         ],
         id: "environment-policy",
         table: {
           headers: ["Environment", "Use", "Required proof"],
           rows: [
-            ["local-dev", "Fast product loop and CI smoke.", "npm run verify:merchant-loop"],
-            ["sepolia", "Browser wallet and public testnet demo.", "npm run verify:sepolia plus wallet payment proof."],
+            ["local-dev", "Fast product loop and CI smoke.", "npm run verify:local"],
+            ["public testnet", "Paused.", "Re-enable only after protocol-fee and relayer funding policy is explicit."],
             ["production", "Not enabled in this hackathon build.", "Real merchant signer custody, public HTTPS webhook, monitoring, and rate limits."],
           ],
         },
@@ -607,11 +607,11 @@ struct PrivateCheckout {
       },
       {
         body: [
-          "A Sepolia browser proof requires an injected EIP-1193 wallet. Funding and contract manifests can be ready while the in-app browser remains blocked because it has no wallet provider.",
+          "Local-dev must stay clean: private checkout uses `PrivateCheckoutSettlement`, mock cUSDT uses `MockConfidentialPaymentRail`, and there is no transparent invoice fallback.",
         ],
-        code: `npm run verify:sepolia`,
-        id: "sepolia-readiness",
-        title: "Sepolia readiness",
+        code: `npm run verify:local`,
+        id: "local-readiness",
+        title: "Local readiness",
       },
     ],
   },
@@ -640,6 +640,6 @@ export const docsChecklist = [
   {
     icon: ClipboardCheckIcon,
     title: "Local proof",
-    value: "The deterministic loop must pass before Sepolia browser demos.",
+    value: "The deterministic loop must pass before any public-testnet browser demo.",
   },
 ]

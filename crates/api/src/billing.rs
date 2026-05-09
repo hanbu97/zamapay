@@ -5,14 +5,12 @@ use axum::{Json, Router};
 use axum_extra::extract::cookie::CookieJar;
 use shared::{
     BillingSubscriptionResponse, BillingUpgradeIntentRequest, BillingUpgradeIntentResponse,
-    SubscriptionEntitlementProjectionRequest, UpgradeBillingSubscriptionRequest, contract_manifest,
+    SubscriptionEntitlementProjectionRequest, UpgradeBillingSubscriptionRequest,
+    local_dev_contract_manifest,
 };
 use storage::BillingSubscriptionError;
 
-use super::{
-    ApiError, AppState, contract_environment, normalize_address, require_operator_key,
-    session_from_cookie,
-};
+use super::{ApiError, AppState, normalize_address, require_operator_key, session_from_cookie};
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -36,16 +34,14 @@ async fn current_subscription(
     jar: CookieJar,
 ) -> Result<Json<BillingSubscriptionResponse>, ApiError> {
     let session = require_session(&state, &jar).await?;
-    let environment = contract_environment();
-    let manifest = contract_manifest(&environment)
-        .map_err(|_| ApiError::internal("generated contract manifest map is invalid"))?;
+    let manifest = active_manifest()?;
 
     Ok(Json(
         state
             .portal
             .billing_subscription_for_manifest(
                 &session.user.address,
-                manifest.as_ref(),
+                Some(&manifest),
                 chrono::Utc::now(),
             )
             .await,
@@ -58,16 +54,14 @@ async fn upgrade_intent(
     Json(payload): Json<BillingUpgradeIntentRequest>,
 ) -> Result<Json<BillingUpgradeIntentResponse>, ApiError> {
     let session = require_session(&state, &jar).await?;
-    let environment = contract_environment();
-    let manifest = contract_manifest(&environment)
-        .map_err(|_| ApiError::internal("generated contract manifest map is invalid"))?;
+    let manifest = active_manifest()?;
     let intent = state
         .portal
         .billing_upgrade_intent(
             &session.user.address,
             payload.plan,
             payload.billing_cycle,
-            manifest.as_ref(),
+            Some(&manifest),
             chrono::Utc::now(),
         )
         .await
@@ -97,15 +91,13 @@ async fn project_subscription_entitlement(
 ) -> Result<Json<BillingSubscriptionResponse>, ApiError> {
     require_operator_key(&state, &headers).await?;
     let owner_wallet = normalize_address(&owner_wallet)?;
-    let environment = contract_environment();
-    let manifest = contract_manifest(&environment)
-        .map_err(|_| ApiError::internal("generated contract manifest map is invalid"))?;
+    let manifest = active_manifest()?;
     let subscription = state
         .portal
         .project_subscription_entitlement(
             &owner_wallet,
             payload,
-            manifest.as_ref(),
+            Some(&manifest),
             chrono::Utc::now(),
         )
         .await
@@ -126,6 +118,11 @@ fn billing_projection_error(error: BillingSubscriptionError) -> ApiError {
             ApiError::bad_request("subscription projection requires non-empty chain evidence")
         }
     }
+}
+
+fn active_manifest() -> Result<shared::AddressManifest, ApiError> {
+    local_dev_contract_manifest()
+        .map_err(|_| ApiError::internal("generated local-dev contract manifest is invalid"))
 }
 
 async fn require_session(

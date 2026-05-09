@@ -97,12 +97,12 @@ type LocalPrivateCheckoutSettlement = {
   ): Promise<LocalTx>
 }
 
-export type LocalEncryptedInput = {
+type LocalEncryptedInput = {
   handle: Hex
   inputProof: Hex
 }
 
-export type LocalPublicDecryptBool = {
+type LocalPublicDecryptBool = {
   accepted: boolean
   abiEncodedClearValues: Hex
   decryptionProof: Hex
@@ -144,28 +144,6 @@ const zeroHandle = `0x${'0'.repeat(64)}` as Hex
 
 let hardhatPromise: Promise<{ hre: HardhatRuntime; mockUtils: MockUtils }> | null = null
 let localOperationQueue: Promise<void> = Promise.resolve()
-
-export async function createLocalEncrypted64(input: {
-  amountMinorUnits: bigint
-  contractAddress: Hex
-  userAddress: Hex
-}): Promise<LocalEncryptedInput> {
-  return runExclusiveLocalFhevm(async () => {
-    if (input.amountMinorUnits <= 0n) {
-      throw new Error('Encrypted amount must be greater than zero.')
-    }
-
-    const { hre } = await localHardhatRuntime()
-    return encryptLocal64(hre, input)
-  })
-}
-
-export async function publicDecryptLocalBool(handle: Hex): Promise<LocalPublicDecryptBool> {
-  return runExclusiveLocalFhevm(async () => {
-    const { hre } = await localHardhatRuntime()
-    return publicDecryptLocalBoolWithRuntime(hre, handle)
-  })
-}
 
 export async function readLocalConfidentialWallet(input: {
   address: string

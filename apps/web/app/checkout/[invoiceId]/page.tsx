@@ -32,9 +32,9 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
         manifestChainId={manifest.chainId}
         merchantName={invoice.merchantName}
         paymentTruth={invoice.snapshot.paymentTruth}
-        settlementAddress={manifest.contracts.PrivateCheckoutSettlement ?? manifest.contracts.ConfidentialInvoiceSettlement}
+        settlementAddress={manifest.contracts.PrivateCheckoutSettlement}
         title={invoice.title}
-        tokenAddress={manifest.contracts.MockConfidentialPaymentRail ?? manifest.contracts.ConfidentialUSDMock}
+        tokenAddress={manifest.contracts.MockConfidentialPaymentRail}
       />
     </main>
   )

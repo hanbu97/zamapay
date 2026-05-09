@@ -8,13 +8,7 @@
     "sync:generated": "node scripts/sync-generated.js",
     "deploy:local": "HOME=.hardhat-home hardhat run scripts/deploy-contracts.js",
     "deploy:localhost": "HOME=.hardhat-home hardhat run scripts/deploy-contracts.js --network localhost",
-    "deploy:sepolia": "HOME=.hardhat-home hardhat run scripts/deploy-contracts.js --network sepolia",
-    "mint:test-usd:localhost": "HOME=.hardhat-home hardhat run scripts/mint-test-usd.js --network localhost",
-    "mint:test-usd:sepolia": "HOME=.hardhat-home hardhat run scripts/mint-test-usd.js --network sepolia",
-    "project:payment:localhost": "HOME=.hardhat-home hardhat run scripts/project-finalized-payment.js --network localhost",
-    "project:payment:sepolia": "HOME=.hardhat-home hardhat run scripts/project-finalized-payment.js --network sepolia",
-    "verify:sepolia": "HOME=.hardhat-home hardhat run scripts/verify-sepolia-readiness.js --network sepolia",
-    "smoke:local-invoice": "HOME=.hardhat-home hardhat run scripts/smoke-local-invoice.js --network localhost"
+    "mint:test-usd:localhost": "HOME=.hardhat-home hardhat run scripts/mint-test-usd.js --network localhost"
   },
   "devDependencies": {
     "@fhevm/hardhat-plugin": "^0.4.2",

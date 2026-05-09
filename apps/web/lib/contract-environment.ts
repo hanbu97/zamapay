@@ -1,10 +1,9 @@
 import type { Chain } from 'viem'
-import { sepolia } from 'viem/chains'
-import { localDevAddresses, localHardhat, sepoliaAddresses, type AddressManifest } from './contracts.ts'
-import { localHardhatWalletChain, sepoliaWalletChain, type WalletChain } from './wallet.ts'
+import { localDevAddresses, localHardhat, type AddressManifest } from './contracts.ts'
+import { localHardhatWalletChain, type WalletChain } from './wallet.ts'
 
-export type ContractEnvironment = 'local-dev' | 'sepolia'
-export type ProjectEnvironmentValue = 'local_dev' | 'sepolia'
+export type ContractEnvironment = 'local-dev'
+export type ProjectEnvironmentValue = 'local_dev'
 
 export type ContractEnvironmentConfig = {
   key: ContractEnvironment
@@ -30,16 +29,6 @@ export const contractEnvironmentConfigs: Record<ContractEnvironment, ContractEnv
     manifest: localDevAddresses,
     browserRelayer: false,
   },
-  sepolia: {
-    key: 'sepolia',
-    label: 'Zama Sepolia',
-    projectEnvironment: 'sepolia',
-    manifestRoute: 'sepolia',
-    chain: sepolia,
-    walletChain: sepoliaWalletChain,
-    manifest: sepoliaAddresses,
-    browserRelayer: true,
-  },
 }
 
 export const projectEnvironmentOptions = [
@@ -47,13 +36,7 @@ export const projectEnvironmentOptions = [
     label: contractEnvironmentConfigs['local-dev'].label,
     value: contractEnvironmentConfigs['local-dev'].projectEnvironment,
   },
-  {
-    label: contractEnvironmentConfigs.sepolia.label,
-    value: contractEnvironmentConfigs.sepolia.projectEnvironment,
-  },
 ] as const
-
-export const sepoliaContractEnvironment = contractEnvironmentConfigs.sepolia
 
 export function normalizeContractEnvironment(value: string | null | undefined): ContractEnvironment {
   if (!value?.trim()) {
@@ -69,13 +52,8 @@ export function normalizeContractEnvironment(value: string | null | undefined): 
     case 'localhost':
     case 'local-dev':
       return 'local-dev'
-    case 'sepolia':
-    case 'test':
-    case 'testnet':
-    case 'zama-sepolia':
-      return 'sepolia'
     default:
-      throw new Error(`Unsupported contract environment "${value}". Use "local-dev" or "sepolia".`)
+      throw new Error(`Unsupported contract environment "${value}". Use "local-dev".`)
   }
 }
 
@@ -92,20 +70,9 @@ export function contractEnvironmentConfig(environment: string | null | undefined
 }
 
 export function contractEnvironmentForChainId(chainId: number | null | undefined): ContractEnvironment | null {
-  if (chainId === contractEnvironmentConfigs['local-dev'].chain.id) {
-    return 'local-dev'
-  }
-  if (chainId === contractEnvironmentConfigs.sepolia.chain.id) {
-    return 'sepolia'
-  }
-
-  return null
+  return chainId === contractEnvironmentConfigs['local-dev'].chain.id ? 'local-dev' : null
 }
 
 export function labelForProjectEnvironment(value: ProjectEnvironmentValue | null | undefined): string {
-  if (!value) {
-    return 'No environment'
-  }
-
-  return value === 'sepolia' ? contractEnvironmentConfigs.sepolia.label : contractEnvironmentConfigs['local-dev'].label
+  return value ? contractEnvironmentConfigs['local-dev'].label : 'No environment'
 }

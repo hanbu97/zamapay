@@ -36,20 +36,12 @@ pub(crate) fn project_environment(
         .ok()
         .flatten();
     let chain_id = manifest.as_ref().and_then(|manifest| manifest.chain_id);
-    let settlement_contract = manifest.as_ref().and_then(|manifest| {
-        manifest
-            .contracts
-            .private_checkout_settlement
-            .clone()
-            .or_else(|| manifest.contracts.confidential_invoice_settlement.clone())
-    });
-    let token_contract = manifest.as_ref().and_then(|manifest| {
-        manifest
-            .contracts
-            .mock_confidential_payment_rail
-            .clone()
-            .or_else(|| manifest.contracts.confidential_usd_mock.clone())
-    });
+    let settlement_contract = manifest
+        .as_ref()
+        .and_then(|manifest| manifest.contracts.private_checkout_settlement.clone());
+    let token_contract = manifest
+        .as_ref()
+        .and_then(|manifest| manifest.contracts.mock_confidential_payment_rail.clone());
 
     PaymentProjectEnvironment {
         environment_id: environment_id.to_string(),
@@ -125,31 +117,21 @@ struct BillingTotals {
 }
 
 pub(crate) fn signer_address(environment: &ProjectEnvironmentKind) -> String {
+    let _ = environment;
     std::env::var("MERMER_PAY_PROJECT_SIGNER_ADDRESS")
         .ok()
         .filter(|address| !address.trim().is_empty())
-        .unwrap_or_else(|| match environment {
-            ProjectEnvironmentKind::LocalDev => DEFAULT_LOCAL_SIGNER_ADDRESS.to_string(),
-            ProjectEnvironmentKind::Sepolia => String::new(),
-        })
+        .unwrap_or_else(|| DEFAULT_LOCAL_SIGNER_ADDRESS.to_string())
 }
 
 pub(crate) fn signer_key_ref(environment: &ProjectEnvironmentKind) -> String {
-    match environment {
-        ProjectEnvironmentKind::LocalDev => "local-dev-project-signer".to_string(),
-        ProjectEnvironmentKind::Sepolia => std::env::var("MERMER_PAY_PROJECT_SIGNER_KEY_REF")
-            .unwrap_or_else(|_| "env:MERMER_PAY_PROJECT_SIGNER_PRIVATE_KEY".to_string()),
-    }
+    let _ = environment;
+    "local-dev-project-signer".to_string()
 }
 
 pub(crate) fn merchant_registered(environment: &ProjectEnvironmentKind) -> bool {
-    match environment {
-        ProjectEnvironmentKind::LocalDev => true,
-        ProjectEnvironmentKind::Sepolia => std::env::var("MERMER_PAY_PROJECT_SIGNER_PRIVATE_KEY")
-            .ok()
-            .filter(|key| !key.trim().is_empty())
-            .is_some(),
-    }
+    let _ = environment;
+    true
 }
 
 pub(crate) fn hash_secret(secret: &str) -> String {
@@ -183,9 +165,6 @@ pub(crate) fn clean_base_url(value: &str) -> String {
 }
 
 pub(crate) fn parse_environment(value: &str) -> ProjectEnvironmentKind {
-    if value == "sepolia" {
-        ProjectEnvironmentKind::Sepolia
-    } else {
-        ProjectEnvironmentKind::LocalDev
-    }
+    let _ = value;
+    ProjectEnvironmentKind::LocalDev
 }

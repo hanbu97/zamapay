@@ -46,19 +46,12 @@ npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 
 ```bash
 curl http://127.0.0.1:8080/api/contracts/local-dev
-curl http://127.0.0.1:8080/api/contracts/localhost
 curl -I http://127.0.0.1:3001/dashboard
 curl -I http://127.0.0.1:3002
 curl http://127.0.0.1:8080/api/invoices/demo-card-001
 ```
 
-8. Smoke a full merchant-owned invoice creation and settlement path:
-
-```bash
-npm --workspace contracts run smoke:local-invoice
-```
-
-9. Run the full local readiness gate after Hardhat, Rust API, and Next web are all running:
+8. Run the local readiness gate after Hardhat, Rust API, and Next web are all running:
 
 ```bash
 npm run verify:local
@@ -73,7 +66,7 @@ npm run verify:local
 - `NEXT_PUBLIC_CONTRACT_ENV=local-dev` is the default frontend manifest selector.
 - `demo/cardforge` is the independent card issuing merchant example. It starts from Mermer Pay project config and calls the configured Mermer Pay API/checkout URLs.
 - Browser-created platform checkouts ask the injected wallet to switch or add chain `31337` before writing merchant registry or settlement transactions.
-- `/api/checkout/project-finalized-payment` can project a finalized local payment tx after verifying `InvoicePaid` from the current settlement contract; the CLI projection script is still useful for deterministic smoke runs.
-- `smoke:local-invoice` signs the Rust nonce with the Hardhat merchant wallet, writes `createInvoice` with a canonical minor-unit amount, mints confidential test USD to the buyer, encrypts buyer approval against the token contract, encrypts payment against settlement, publicly decrypts the payment-check handle, calls `finalizePayment`, projects by chain invoice id, advances confirmations past the finality threshold, then confirms demo card-code fulfillment release.
-- `verify:local` wraps the full local payment boundary: manifest, Rust API, Next pages, local confidential payment smoke, browser projection route, and checkout card-code rendering.
-- Local smoke is deterministic and does not require browser relayer setup.
+- `/api/checkout/project-finalized-payment` projects only finalized `PrivatePaymentFinalized` transactions from `PrivateCheckoutSettlement`.
+- The old transparent invoice smoke and public-testnet readiness scripts are intentionally removed; local-dev is the only active environment until Zama protocol-fee handling is designed.
+- `verify:local` checks the local manifest, Rust API, Next pages, wallet login, and dev-signer boundary.
+- Browser payment uses the hosted checkout page: wallet signs a local private intent, the Mermer Pay relayer submits encrypted payment, local FHEVM decrypts only `accepted`, then Rust projects finality and fulfillment.
