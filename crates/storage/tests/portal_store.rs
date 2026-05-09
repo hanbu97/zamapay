@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{TimeDelta, Utc};
 use domain::{FinalityStatus, FulfillmentStatus, PaymentTruth};
 use shared::{
     BillingCycle, BillingEntitlementStatus, BillingPlan, CreateCheckoutSessionRequest,
@@ -429,6 +429,71 @@ async fn project_api_key_checkout_and_outbox_are_project_scoped() {
     assert_eq!(
         overview.webhook_events[0].event_type,
         "invoice.fulfillment_ready"
+    );
+}
+
+#[tokio::test]
+async fn project_overview_sorts_checkout_sessions_by_latest_activity() {
+    let store = test_store().await;
+    let now = Utc::now();
+    let created = store
+        .create_project(
+            "0x00000000000000000000000000000000000000aa",
+            "Activity ordered merchant",
+            ProjectEnvironmentKind::LocalDev,
+            Some("http://127.0.0.1:8092/api/mermer-pay/webhook"),
+            now,
+        )
+        .await;
+    let project_id = created.project.project_id;
+    let api_key = store
+        .create_project_api_key(
+            &project_id,
+            ProjectEnvironmentKind::LocalDev,
+            "CardForge",
+            now,
+        )
+        .await
+        .expect("project key should be issued")
+        .api_key;
+
+    let older = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "order-older-paid",
+            checkout_payload("order-older-paid", 120_000_000),
+            "http://127.0.0.1:3001",
+            now - TimeDelta::minutes(2),
+        )
+        .await
+        .expect("older checkout should be created");
+    let newer = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "order-newer-open",
+            checkout_payload("order-newer-open", 120_000_000),
+            "http://127.0.0.1:3001",
+            now - TimeDelta::minutes(1),
+        )
+        .await
+        .expect("newer checkout should be created");
+
+    finalize_checkout(&store, older.chain_invoice_id, "0xactivity").await;
+
+    let overview = store
+        .project_overview(&project_id)
+        .await
+        .expect("project overview should exist");
+    assert_eq!(overview.checkout_sessions.len(), 2);
+    assert_eq!(
+        overview.checkout_sessions[0].checkout_session_id,
+        older.checkout_session_id
+    );
+    assert_eq!(
+        overview.checkout_sessions[1].checkout_session_id,
+        newer.checkout_session_id
     );
 }
 

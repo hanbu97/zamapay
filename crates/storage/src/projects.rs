@@ -739,13 +739,16 @@ impl PortalStore {
     }
 
     async fn checkout_sessions_by_project(&self, project_id: &str) -> Vec<CheckoutSession> {
-        self.checkout_sessions
+        let mut sessions: Vec<_> = self
+            .checkout_sessions
             .read()
             .await
             .values()
             .filter(|session| session.project_id == project_id)
             .cloned()
-            .collect()
+            .collect();
+        sessions.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        sessions
     }
 
     async fn webhook_events_by_project(&self, project_id: &str) -> Vec<WebhookEventRecord> {

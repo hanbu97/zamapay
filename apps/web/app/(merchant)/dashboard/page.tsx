@@ -83,12 +83,14 @@ export default async function DashboardPage() {
 
 function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
   const summary = summarizeAccount(snapshots)
-  const sessions = snapshots.flatMap(({ overview, project }) =>
-    (overview?.checkoutSessions ?? []).map((session) => ({
-      project,
-      session,
-    })),
-  )
+  const sessions = snapshots
+    .flatMap(({ overview, project }) =>
+      (overview?.checkoutSessions ?? []).map((session) => ({
+        project,
+        session,
+      })),
+    )
+    .sort((left, right) => compareSessionsByActivity(left.session, right.session))
   const todaySessions = sessions.filter(({ session }) => isToday(session.createdAt))
   const todayVolumeMinorUnits = todaySessions.reduce(
     (volume, { session }) => (session.status === 'paid' ? volume + session.amountMinorUnits : volume),
@@ -134,6 +136,7 @@ function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
                             {session.title}
                           </Link>
                           <span className="truncate font-mono text-xs text-muted-foreground">{session.merchantOrderId}</span>
+                          <span className="text-xs text-muted-foreground">Updated {formatActivityTime(session.updatedAt)}</span>
                         </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
@@ -264,6 +267,37 @@ function isToday(value: string) {
     date.getMonth() === today.getMonth() &&
     date.getDate() === today.getDate()
   )
+}
+
+function compareSessionsByActivity(
+  left: ProjectDashboardOverview['checkoutSessions'][number],
+  right: ProjectDashboardOverview['checkoutSessions'][number],
+) {
+  return activityTime(right) - activityTime(left)
+}
+
+function activityTime(session: ProjectDashboardOverview['checkoutSessions'][number]) {
+  const updatedAt = Date.parse(session.updatedAt)
+  if (!Number.isNaN(updatedAt)) {
+    return updatedAt
+  }
+
+  const createdAt = Date.parse(session.createdAt)
+  return Number.isNaN(createdAt) ? 0 : createdAt
+}
+
+function formatActivityTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 'unknown'
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
 }
 
 function formatMinorUnits(value: number) {
