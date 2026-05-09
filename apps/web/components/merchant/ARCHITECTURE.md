@@ -17,7 +17,7 @@ apps/web/components/merchant
 - Merchant components own platform configuration, not demo fulfillment logic.
 - `MerchantProjectsOverview` is a client island for project inventory only: project creation, first API-key reveal, search, status filter, sort, and project entry.
 - `MerchantBillingOverview` is read-only account billing: current plan, cycle, entitlement evidence, upgrade entry, and prior subscription payments.
-- `MerchantBillingPanel` is the upgrade island: it renders plan selection, monthly/annual cycle toggle, comparison tables from billing catalog terms, and private Zama payment flow.
+- `MerchantBillingPanel` is the upgrade island: it renders plan selection, reads the chain pass, executes the browser-wallet Growth cUSDT approval/charge, finalizes the encrypted boolean, and then projects chain evidence.
 - `PaymentProjectConsole` is a client island for one project: key issuance, webhook tests, delivery resend, project checkouts, and diagnostics.
 - Console leaf components and formatting live in `PaymentProjectConsoleParts.tsx`; this removes duplicate status badge logic and keeps the main control plane small enough to read.
 - Subscription controls new checkout fee entitlement; billing cards stay off the Projects page, while payment rows render Rust-projected gross, platform fee, and merchant net totals from contract-manifest terms without accepting client-selected rates.

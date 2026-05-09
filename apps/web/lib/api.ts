@@ -109,7 +109,6 @@ export type ContractManifest = {
     ConfidentialUSDMock: string | null
     SubscriptionPass: string | null
     PrivateSubscriptionRegistry: string | null
-    MockConfidentialPaymentRail: string | null
     PrivateCheckoutSettlement: string | null
   }
   billing?: {

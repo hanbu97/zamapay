@@ -11,7 +11,7 @@ import {
   LockKeyholeIcon,
   MinusIcon,
 } from 'lucide-react'
-import { createPublicClient, getAddress, http, type Hex } from 'viem'
+import { createPublicClient, createWalletClient, custom, getAddress, http, type Hex } from 'viem'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -32,12 +32,19 @@ import {
   type BillingPlanCatalogEntry,
   type BillingSubscriptionResponse,
 } from '@/lib/api'
-import { privateSubscriptionRegistryAbi } from '@/lib/contracts'
+import { confidentialUsdMockAbi, privateSubscriptionRegistryAbi } from '@/lib/contracts'
 import {
   contractEnvironmentConfig,
   type ContractEnvironmentConfig,
 } from '@/lib/contract-environment'
+import {
+  decryptLocalEuint64Handle,
+  encryptLocalEuint64,
+  encryptLocalSubscriptionChange,
+  publicDecryptLocalBool,
+} from '@/lib/local-fhevm-browser'
 import { cn } from '@/lib/utils'
+import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
 type MerchantBillingPanelProps = {
   initialBilling: BillingSubscriptionResponse
@@ -75,15 +82,25 @@ type ChainSubscriptionState = {
 
 type BillingChainConfig = {
   chain: ContractEnvironmentConfig['chain']
+  token: Hex
   walletChain: ContractEnvironmentConfig['walletChain']
   registry: Hex
 }
 
-async function projectLocalGrowthEntitlement(ownerAddress: string, billingCycle: BillingCycle) {
+type SubscriptionProjectionPayload = {
+  billingCycle: BillingCycle
+  entitlementTxHash: Hex
+  entitlementVersion: number
+  passId: string
+  plan: 'growth'
+  subscriptionCheckHandle: Hex
+}
+
+async function projectLocalGrowthEntitlement(ownerAddress: string, payload: SubscriptionProjectionPayload) {
   const response = await fetch('/api/dev/project-local-growth', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ billingCycle, ownerAddress }),
+    body: JSON.stringify({ ownerAddress, ...payload }),
   })
   const text = await response.text()
 
@@ -194,6 +211,14 @@ function formatMinorUnits(value: number) {
   return `${(value / 1_000000).toLocaleString('en-US', { maximumFractionDigits: 2 })} cUSDT`
 }
 
+function formatMinorUnitsBigInt(value: bigint) {
+  const whole = value / 1_000000n
+  const fraction = value % 1_000000n
+  const fractionText = fraction.toString().padStart(6, '0').replace(/0+$/, '')
+
+  return `${whole.toLocaleString('en-US')}${fractionText ? `.${fractionText}` : ''} cUSDT`
+}
+
 function formatBps(value: number | null | undefined) {
   if (value === null || value === undefined) {
     return 'Contract required'
@@ -237,9 +262,11 @@ function chainConfigForEnvironment(): BillingChainConfig {
   const config = contractEnvironmentConfig('local-dev')
   const manifest = config.manifest
   const registry = ensureHexAddress(manifest?.contracts.PrivateSubscriptionRegistry ?? null, 'PrivateSubscriptionRegistry')
+  const token = ensureHexAddress(manifest?.contracts.ConfidentialUSDMock ?? null, 'ConfidentialUSDMock')
 
   return {
     chain: config.chain,
+    token,
     walletChain: config.walletChain,
     registry,
   }
@@ -401,13 +428,181 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
 
     try {
       if (canUseLocalProjection) {
-        const projected = await projectLocalGrowthEntitlement(ownerAddress, selectedCycle)
+        if (selectedIntentAmount === null || selectedIntentAmount <= 0 || !Number.isSafeInteger(selectedIntentAmount)) {
+          throw new Error('Growth subscription price is not available in the contract manifest.')
+        }
+
+        const config = chainConfigForEnvironment()
+        const rpcUrl = config.walletChain.rpcUrls[0]
+        if (!rpcUrl) {
+          throw new Error('Hardhat RPC URL is missing from the local-dev wallet chain.')
+        }
+
+        const provider = ensureEthereumProvider()
+        const merchantAddress = getAddress(ownerAddress)
+        const priceMinorUnits = BigInt(selectedIntentAmount)
+
+        setStatus('Switching wallet to Hardhat Local...')
+        await ensureWalletChain(provider, config.walletChain)
+
+        const walletClient = createWalletClient({ chain: config.chain, transport: custom(provider) })
+        const publicClient = createPublicClient({ chain: config.chain, transport: http(rpcUrl) })
+        const [selectedAddress] = await walletClient.requestAddresses()
+        if (!selectedAddress) {
+          throw new Error('No wallet account selected.')
+        }
+
+        const signerAddress = getAddress(selectedAddress)
+        if (signerAddress !== merchantAddress) {
+          throw new Error(`Switch MetaMask to the merchant wallet ${merchantAddress.slice(0, 6)}...${merchantAddress.slice(-4)} before upgrading.`)
+        }
+
+        const [registryCode, tokenCode] = await Promise.all([
+          publicClient.getBytecode({ address: config.registry }),
+          publicClient.getBytecode({ address: config.token }),
+        ])
+        if (!registryCode || registryCode === '0x') {
+          throw new Error(contractUnavailableMessage(config))
+        }
+        if (!tokenCode || tokenCode === '0x') {
+          throw new Error(`ConfidentialUSDMock is not deployed at ${config.token} on ${config.chain.name}.`)
+        }
+
+        setStatus('Ensuring the merchant subscription pass on chain...')
+        let passId = (await publicClient.readContract({
+          address: config.registry,
+          abi: privateSubscriptionRegistryAbi,
+          functionName: 'passOfMerchant',
+          args: [merchantAddress],
+        })) as bigint
+        if (passId === 0n) {
+          const passTxHash = await walletClient.writeContract({
+            account: signerAddress,
+            address: config.registry,
+            abi: privateSubscriptionRegistryAbi,
+            functionName: 'ensureMerchantPass',
+            args: [merchantAddress],
+          })
+          await publicClient.waitForTransactionReceipt({ hash: passTxHash })
+          passId = (await publicClient.readContract({
+            address: config.registry,
+            abi: privateSubscriptionRegistryAbi,
+            functionName: 'passOfMerchant',
+            args: [merchantAddress],
+          })) as bigint
+        }
+
+        setStatus(`Reading encrypted cUSDT balance for ${signerAddress.slice(0, 6)}...${signerAddress.slice(-4)}...`)
+        let balanceHandle = (await publicClient.readContract({
+          address: config.token,
+          abi: confidentialUsdMockAbi,
+          functionName: 'balanceOf',
+          args: [signerAddress],
+        })) as Hex
+        let balance = await decryptLocalEuint64Handle(rpcUrl, balanceHandle)
+        if (balance < priceMinorUnits) {
+          setStatus(`Claiming local cUSDT faucet balance for ${formatMinorUnitsBigInt(priceMinorUnits)} subscription charge...`)
+          const claimTxHash = await walletClient.writeContract({
+            account: signerAddress,
+            address: config.token,
+            abi: confidentialUsdMockAbi,
+            functionName: 'claimTestTokens',
+          })
+          await publicClient.waitForTransactionReceipt({ hash: claimTxHash })
+          balanceHandle = (await publicClient.readContract({
+            address: config.token,
+            abi: confidentialUsdMockAbi,
+            functionName: 'balanceOf',
+            args: [signerAddress],
+          })) as Hex
+          balance = await decryptLocalEuint64Handle(rpcUrl, balanceHandle)
+        }
+        if (balance < priceMinorUnits) {
+          throw new Error(`Encrypted cUSDT balance is ${formatMinorUnitsBigInt(balance)}; ${formatMinorUnitsBigInt(priceMinorUnits)} is required.`)
+        }
+
+        setStatus(`Encrypting and approving ${formatMinorUnitsBigInt(priceMinorUnits)} cUSDT for the subscription registry...`)
+        const approval = await encryptLocalEuint64({
+          amountMinorUnits: priceMinorUnits,
+          chainId: config.chain.id,
+          contractAddress: config.token,
+          rpcUrl,
+          userAddress: signerAddress,
+        })
+        const approvalTxHash = await walletClient.writeContract({
+          account: signerAddress,
+          address: config.token,
+          abi: confidentialUsdMockAbi,
+          functionName: 'approve',
+          args: [config.registry, approval.handle, approval.inputProof],
+        })
+        await publicClient.waitForTransactionReceipt({ hash: approvalTxHash })
+
+        setStatus('Submitting encrypted Growth plan code and cUSDT charge...')
+        const encryptedUpgrade = await encryptLocalSubscriptionChange({
+          chainId: config.chain.id,
+          contractAddress: config.registry,
+          paidAmount: priceMinorUnits,
+          planCode: 2n,
+          rpcUrl,
+          userAddress: signerAddress,
+        })
+        const requestTxHash = await walletClient.writeContract({
+          account: signerAddress,
+          address: config.registry,
+          abi: privateSubscriptionRegistryAbi,
+          functionName: 'requestSubscriptionChange',
+          args: [passId, encryptedUpgrade.planCodeHandle, encryptedUpgrade.paidAmountHandle, encryptedUpgrade.inputProof],
+        })
+        await publicClient.waitForTransactionReceipt({ hash: requestTxHash })
+
+        setStatus('Decrypting only the accepted/rejected subscription boolean...')
+        const subscriptionCheckHandle = (await publicClient.readContract({
+          address: config.registry,
+          abi: privateSubscriptionRegistryAbi,
+          functionName: 'subscriptionCheckHandleOf',
+          args: [passId],
+        })) as Hex
+        const proof = await publicDecryptLocalBool(rpcUrl, subscriptionCheckHandle)
+        if (!proof.accepted) {
+          throw new Error('Encrypted Growth subscription charge was rejected by the contract.')
+        }
+
+        const finalizeTxHash = await walletClient.writeContract({
+          account: signerAddress,
+          address: config.registry,
+          abi: privateSubscriptionRegistryAbi,
+          functionName: 'finalizeSubscriptionChange',
+          args: [passId, proof.abiEncodedClearValues, proof.decryptionProof],
+        })
+        await publicClient.waitForTransactionReceipt({ hash: finalizeTxHash })
+        const entitlementVersion = Number(
+          await publicClient.readContract({
+            address: config.registry,
+            abi: privateSubscriptionRegistryAbi,
+            functionName: 'termsVersionOf',
+            args: [passId],
+          }),
+        )
+        if (!Number.isSafeInteger(entitlementVersion) || entitlementVersion <= 0) {
+          throw new Error('Subscription terms version is invalid after finalization.')
+        }
+
+        setStatus('Projecting finalized chain entitlement into the merchant read model...')
+        const projected = await projectLocalGrowthEntitlement(merchantAddress, {
+          billingCycle: selectedCycle,
+          entitlementTxHash: finalizeTxHash,
+          entitlementVersion,
+          passId: passId.toString(),
+          plan: 'growth',
+          subscriptionCheckHandle,
+        })
         const projectedPlan = projected.plans.find((plan) => plan.plan === 'growth')
         setChainSubscription({
           status: 'anchored',
           plan: 'growth',
           billingCycle: projected.subscription.billingCycle,
-          passId: projected.subscription.passId ?? 'local-dev',
+          passId: projected.subscription.passId ?? passId.toString(),
           feeBps: projectedPlan?.checkoutFeeBps ?? null,
           message: `Local-dev Growth entitlement projected from ${projected.subscription.entitlementTxHash?.slice(0, 10) ?? 'operator'}...`,
         })

@@ -3,12 +3,7 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "paymentRailAddress",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "trustedRelayerAddress",
+        "name": "paymentTokenAddress",
         "type": "address"
       }
     ],
@@ -144,6 +139,19 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "checkoutCreator",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -372,10 +380,10 @@
   },
   {
     "inputs": [],
-    "name": "paymentRail",
+    "name": "paymentToken",
     "outputs": [
       {
-        "internalType": "contract IPrivateCheckoutPaymentRail",
+        "internalType": "contract IPrivateCheckoutToken",
         "name": "",
         "type": "address"
       }
@@ -411,11 +419,6 @@
       },
       {
         "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
         "name": "paymentNonce",
         "type": "bytes32"
       },
@@ -439,19 +442,6 @@
       }
     ],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "trustedRelayer",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   }
 ]

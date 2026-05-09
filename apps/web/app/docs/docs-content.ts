@@ -248,8 +248,8 @@ export function verifyMermerWebhook(headers, body, secret) {
       {
         body: [
           "Private Checkout v1 is a Private Checkout Proof MVP. It proves that a checkout contract can validate encrypted amount equality and emit only a fulfillment-safe paid/rejected result.",
-          "The implemented local-dev rail is MockConfidentialPaymentRail: an application-rendered confidential cUSDT balance keyed by accountCommitment. It is not a MetaMask ERC20 token and should not be tested through a public ERC20 transfer.",
-          "The privacy claim is scoped to PrivateCheckoutSettlement storage and events. Public observers should not see buyer wallet, merchant wallet, payout wallet, project id, order id, or amount there. Token funding, wrapping, gas, or a future transfer rail must be reviewed separately.",
+          "The implemented local-dev token is ConfidentialUSDMock: an official-style mintable confidential cUSDT mock keyed by wallet address. It is not a MetaMask ERC20 token and should not be tested through a public ERC20 transfer.",
+          "The privacy claim is scoped to business data in PrivateCheckoutSettlement storage and events. Public observers should not see merchant wallet, payout wallet, project id, order id, or amount there. In the direct-wallet MVP, the buyer wallet is still visible as the EVM transaction sender.",
         ],
         id: "privacy-target",
         table: {
@@ -257,8 +257,8 @@ export function verifyMermerWebhook(headers, body, secret) {
           rows: [
             [
               "Buyer wallet",
-              "Not submitted to PrivateCheckoutSettlement as msg.sender; relayer submits",
-              "Buyer and Mermer Pay if product flow identifies them",
+              "Direct-wallet MVP submits as msg.sender; not stored as an order field",
+              "Public chain observers can see tx sender; Mermer Pay can map the checkout",
             ],
             ["Merchant / payout wallet", "Not stored or emitted by the settlement contract", "Mermer Pay and merchant backend"],
             ["Project / order id", "Hashed into orderCommitment", "Mermer Pay and merchant backend"],
@@ -283,7 +283,7 @@ export function verifyMermerWebhook(headers, body, secret) {
             ],
             [
               "Payment Rail",
-              "The buyer actually paid, or the demo honestly simulated settlement before relaying.",
+              "The buyer actually paid, or the demo honestly simulated settlement before finalization.",
               "Implemented as mock confidential cUSDT balance on local-dev.",
             ],
             [
@@ -376,17 +376,10 @@ export function verifyMermerWebhook(headers, body, secret) {
             ],
             [
               "On-chain public",
-              "relayer address",
+              "buyer tx sender",
               "address",
-              "Transaction sender, not buyer.",
-              "Public because of EVM mechanics; relayer address must not identify buyer.",
-            ],
-            [
-              "Never public on-chain",
-              "buyer address",
-              "address",
-              "Actual buyer wallet.",
-              "Do not use as msg.sender, calldata, storage, or event data.",
+              "Wallet that submits submitPrivatePayment in the direct MVP.",
+              "Public because of EVM mechanics; do not claim payer-address privacy in this MVP.",
             ],
             [
               "Never public on-chain",
@@ -449,10 +442,9 @@ export function verifyMermerWebhook(headers, body, secret) {
         table: {
           headers: ["Rail", "What it proves", "Use in hackathon"],
           rows: [
-            ["Mermer Pay demo balance", "Backend checked or debited an off-chain demo balance before relaying.", "Fastest path; label it mock settlement."],
             [
-              "Mock cUSDT confidential balance",
-              "Buyer has a demo confidential balance and payment submission records or deducts an encrypted debit.",
+              "Direct mock cUSDT confidential balance",
+              "Buyer has a demo confidential balance and the buyer-submitted transaction deducts an encrypted amount.",
               "Implemented local-dev path.",
             ],
             [
@@ -467,14 +459,14 @@ export function verifyMermerWebhook(headers, body, secret) {
       {
         body: [
           "Use on-chain encryption when the contract must compute over a value. Use commitments when the chain only needs a stable reference and should not learn the raw identity or business id.",
-          "In this design, amounts are encrypted because the settlement contract compares paidAmount with expectedAmount. Buyer, merchant, payout wallet, project id, and order id stay out of PrivateCheckoutSettlement storage and events.",
+          "In this design, amounts are encrypted because the settlement contract compares paidAmount with expectedAmount. Merchant, payout wallet, project id, and order id stay out of PrivateCheckoutSettlement storage and events. Buyer address privacy is not claimed while the buyer submits the EVM transaction directly.",
         ],
         id: "encrypted-vs-hidden",
         table: {
           headers: ["Concept", "Use it for", "Rule"],
           rows: [
             ["On-chain encrypted", "expectedAmount, paidAmount, paymentCheck", "Chain can compute, observers cannot read"],
-            ["Not public on-chain", "buyer, merchant, payout wallet, projectId, orderId", "Raw value never appears in storage, events, or calldata"],
+            ["Not public on-chain", "merchant, payout wallet, projectId, orderId", "Raw value never appears in storage, events, or calldata"],
             ["Commitment", "orderCommitment, settlementBucketCommitment", "Hash high-entropy salted business data; rotate settlement buckets"],
           ],
         },
@@ -483,7 +475,7 @@ export function verifyMermerWebhook(headers, body, secret) {
       {
         body: [
           "The normal checkout path decrypts only accepted, an ebool. Per-order gross, merchant net, and platform fee stay encrypted and can be handled by settlement batches later.",
-          "Expected and paid amounts are encrypted as external inputs with input proofs, then imported by the contract. In local-dev, the buyer wallet signs the payment intent and the relayer submits the encrypted paidAmount after checking the mock confidential rail.",
+          "Expected and paid amounts are encrypted as external inputs with input proofs, then imported by the contract. In local-dev, the buyer browser encrypts paidAmount through Hardhat/FHEVM mock RPC and the buyer wallet submits the encrypted payment directly.",
         ],
         code: `accepted = FHE.eq(paidAmount, expectedAmount)`,
         id: "payment-flow",
@@ -492,9 +484,9 @@ export function verifyMermerWebhook(headers, body, secret) {
   B --> C["Rotate settlementBucketCommitment"]
   C --> D["Encrypt expectedAmount + inputProof"]
   D --> E["createPrivateCheckout"]
-  E --> F["Buyer signs payment intent"]
-  F --> G["Verify intent and payment rail"]
-  G --> H["Relayer encrypts paidAmount and submitPrivatePayment"]
+  E --> F["Buyer connects wallet"]
+  F --> G["Browser encrypts paidAmount + inputProof"]
+  G --> H["Buyer wallet submits submitPrivatePayment"]
   H --> I["FHE.fromExternal + FHE.eq"]
   I --> J["Public decrypt only accepted ebool"]
   J --> K["PrivatePaymentFinalized(orderCommitment, accepted)"]
@@ -539,8 +531,8 @@ struct PrivateCheckout {
           rows: [
             [
               "Payment intent binding",
-              "Bind orderCommitment, encrypted amount handle, asset, chainId, settlement contract, nonce, and expiresAt.",
-              "Relayer replaying one valid encrypted amount against another checkout.",
+              "Bind orderCommitment, encrypted amount handle, asset, chainId, settlement contract, nonce, and expiresAt when a future relayed mode is added.",
+              "Replaying one valid encrypted amount against another checkout.",
             ],
             ["Expiry", "Reject payment submission after expiresAt.", "Late payment after merchant order is stale."],
             ["Nonce reuse", "Reject reused payment nonce or already-submitted intent.", "Duplicate payment attempts and replay."],
@@ -552,7 +544,7 @@ struct PrivateCheckout {
       },
       {
         body: [
-          "The demo contract should be new, not a small patch over the current transparent settlement contract. The current contract exposes merchant, payoutWallet, payer, and amountDue by design.",
+          "The demo contract should stay separate from the old transparent settlement shape. Transparent settlement exposed merchant, payoutWallet, payer, and amountDue by design.",
           "Private Checkout v1 succeeds when PrivateCheckoutSettlement events expose only commitments, encrypted handles, status, and timestamps, while CardForge still receives a fulfillment-ready webhook.",
         ],
         id: "acceptance",
@@ -562,11 +554,11 @@ struct PrivateCheckout {
             title: "Create private checkout",
           },
           {
-            detail: "Submit payment through the Mermer Pay relayer so public tx sender is not the buyer wallet.",
-            title: "Relay buyer payment",
+            detail: "Submit encrypted payment directly from the buyer wallet in local-dev. This keeps the platform relayer out of the MVP.",
+            title: "Submit buyer payment",
           },
           {
-            detail: "Verify MockConfidentialPaymentRail, then use FHE equality to compare encrypted paidAmount with encrypted expectedAmount.",
+            detail: "Verify the ConfidentialUSDMock debit, then use FHE equality to compare encrypted paidAmount with encrypted expectedAmount.",
             title: "Validate privately",
           },
           {
@@ -591,7 +583,7 @@ struct PrivateCheckout {
     sections: [
       {
         body: [
-          "`local-dev` is the only active environment in this hackathon build. Public testnets are intentionally disabled until Zama protocol-fee handling is designed.",
+          "`local-dev` is the only active environment in this hackathon build. Public testnets are intentionally disabled until the Sepolia path is wired through Zama official relayer/gateway surfaces.",
           "Keep environment explicit in projects, API keys, checkout sessions, webhook endpoints, events, and delivery records even while the only accepted value is `local-dev`.",
         ],
         id: "environment-policy",
@@ -599,7 +591,7 @@ struct PrivateCheckout {
           headers: ["Environment", "Use", "Required proof"],
           rows: [
             ["local-dev", "Fast product loop and CI smoke.", "npm run verify:local"],
-            ["public testnet", "Paused.", "Re-enable only after protocol-fee and relayer funding policy is explicit."],
+            ["public testnet", "Paused.", "Re-enable through Zama official relayer/gateway surfaces, not a Mermer Pay platform relayer."],
             ["production", "Not enabled in this hackathon build.", "Real merchant signer custody, public HTTPS webhook, monitoring, and rate limits."],
           ],
         },
@@ -607,7 +599,7 @@ struct PrivateCheckout {
       },
       {
         body: [
-          "Local-dev must stay clean: private checkout uses `PrivateCheckoutSettlement`, mock cUSDT uses `MockConfidentialPaymentRail`, and there is no transparent invoice fallback.",
+          "Local-dev must stay clean: private checkout uses `PrivateCheckoutSettlement`, mock cUSDT uses `ConfidentialUSDMock`, and there is no transparent invoice fallback.",
         ],
         code: `npm run verify:local`,
         id: "local-readiness",

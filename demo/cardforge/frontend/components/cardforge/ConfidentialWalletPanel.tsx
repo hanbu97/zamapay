@@ -5,25 +5,23 @@ import {
   EyeIcon,
   EyeOffIcon,
   PlusIcon,
-  PlugZapIcon,
   RefreshCwIcon,
   ShieldCheckIcon,
 } from 'lucide-react'
-import type { CardForgeConfig } from '@/lib/config'
+import { getAddress } from 'viem'
 import {
-  CardForgeApiError,
+  claimLocalTestCusd,
+  readConfidentialWallet,
   type ConfidentialWalletSnapshot,
-  getConfidentialWallet,
-} from '@/lib/cardforge-api'
+} from '@/lib/local-confidential-wallet'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
 type EthereumProvider = {
   request(args: { method: string; params?: unknown[] | object }): Promise<unknown>
-  on?(event: 'accountsChanged', handler: (accounts: string[]) => void): void
-  removeListener?(event: 'accountsChanged', handler: (accounts: string[]) => void): void
+  on?(event: 'accountsChanged' | 'chainChanged', handler: (...args: unknown[]) => void): void
+  removeListener?(event: 'accountsChanged' | 'chainChanged', handler: (...args: unknown[]) => void): void
 }
 
 declare global {
@@ -33,7 +31,6 @@ declare global {
 }
 
 type ConfidentialWalletPanelProps = {
-  config: CardForgeConfig
   className?: string
 }
 
@@ -48,24 +45,23 @@ const hardhatChain = {
   rpcUrls: ['http://127.0.0.1:8545'],
 }
 
-export function ConfidentialWalletPanel({ className, config }: ConfidentialWalletPanelProps) {
+export function ConfidentialWalletPanel({ className }: ConfidentialWalletPanelProps) {
   const [address, setAddress] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
   const [status, setStatus] = useState('Connect wallet to reveal balance')
   const [wallet, setWallet] = useState<ConfidentialWalletSnapshot | null>(null)
-  const didAutoConnect = useRef(false)
+  const didHydrateWallet = useRef(false)
 
   async function connectWallet() {
     setIsBusy(true)
     setError(null)
-    setStatus('Switching MetaMask to Hardhat Local...')
+    setStatus('Opening MetaMask wallet connection...')
 
     try {
       const provider = ensureProvider()
       await ensureHardhatLocal(provider)
-      const accounts = await requestAccounts(provider)
-      const selected = accounts[0]
+      const selected = await requestSelectedAccount(provider)
       if (!selected) {
         throw new Error('MetaMask returned no selected account.')
       }
@@ -75,6 +71,55 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
     } catch (caught) {
       setError(readableError(caught))
       setStatus('Wallet connection did not complete.')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  async function switchWallet() {
+    setIsBusy(true)
+    setError(null)
+    setStatus('Opening MetaMask account selection...')
+
+    try {
+      const provider = ensureProvider()
+      await revokeAccounts(provider)
+      await ensureHardhatLocal(provider)
+      const selected = await requestSelectedAccount(provider)
+      if (!selected) {
+        throw new Error('MetaMask returned no selected account.')
+      }
+
+      setAddress(selected)
+      await refreshWallet(selected)
+    } catch (caught) {
+      setError(readableError(caught))
+      setStatus('Wallet switch did not complete.')
+    } finally {
+      setIsBusy(false)
+    }
+  }
+
+  async function claimTestTokens() {
+    setIsBusy(true)
+    setError(null)
+    setStatus('Confirm the 1000 cUSDT test-token transaction in MetaMask...')
+
+    try {
+      const provider = ensureProvider()
+      await ensureHardhatLocal(provider)
+      const selected = address ?? (await requestSelectedAccount(provider))
+      if (!selected) {
+        throw new Error('Connect a wallet before claiming local cUSDT.')
+      }
+
+      setAddress(selected)
+      const claim = await claimLocalTestCusd(provider, selected)
+      setStatus(`Claimed ${formatMinorUnits(claim.amountMinorUnits)}. Refreshing private balance...`)
+      await refreshWallet(selected)
+    } catch (caught) {
+      setError(readableError(caught))
+      setStatus('Local cUSDT claim did not complete.')
     } finally {
       setIsBusy(false)
     }
@@ -90,17 +135,15 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
     setStatus('Reading local confidential cUSDT balance...')
 
     try {
-      const snapshot = await getConfidentialWallet(config, selectedAddress)
+      const snapshot = await readConfidentialWallet(selectedAddress)
       setWallet(snapshot)
       setStatus(
-        BigInt(snapshot.mintedMinorUnits) > 0n
-          ? `Funded local confidential wallet with ${formatMinorUnits(snapshot.mintedMinorUnits)}.`
-          : 'Confidential wallet balance is ready for encrypted checkout.',
+        BigInt(snapshot.balanceMinorUnits) > 0n
+          ? 'Confidential wallet balance is ready for encrypted checkout.'
+          : 'No local cUSDT balance is available for this wallet.',
       )
     } catch (caught) {
-      if (caught instanceof CardForgeApiError && caught.code === 'wallet_read_failed') {
-        setStatus('CardForge backend could not read the Mermer Pay confidential wallet projection.')
-      }
+      setStatus('Browser could not read the local confidential balance from Hardhat RPC.')
       setError(readableError(caught))
     } finally {
       setIsBusy(false)
@@ -108,12 +151,25 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
   }
 
   useEffect(() => {
-    if (didAutoConnect.current) {
+    if (didHydrateWallet.current) {
       return
     }
 
-    didAutoConnect.current = true
-    void connectWallet()
+    didHydrateWallet.current = true
+    const provider = window.ethereum
+    if (!provider) {
+      return
+    }
+
+    void (async () => {
+      const selected = firstWalletAccount(await readAccounts(provider))
+      if (!selected) {
+        return
+      }
+
+      setAddress(selected)
+      await refreshWallet(selected)
+    })()
   }, [])
 
   useEffect(() => {
@@ -122,8 +178,9 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
       return
     }
 
-    const handleAccountsChanged = (accounts: string[]) => {
-      const selected = accounts[0] ?? null
+    const handleAccountsChanged = (...args: unknown[]) => {
+      const accounts = Array.isArray(args[0]) ? args[0] : []
+      const selected = firstWalletAccount(accounts)
       setAddress(selected)
       setWallet(null)
       if (selected) {
@@ -131,22 +188,48 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
       }
     }
 
-    provider.on('accountsChanged', handleAccountsChanged)
-    return () => provider.removeListener?.('accountsChanged', handleAccountsChanged)
-  }, [])
+    const handleChainChanged = () => {
+      if (address) {
+        void refreshWallet(address)
+      }
+    }
 
-  const balanceLabel = wallet?.balanceLabel ?? '-- cUSDT'
+    provider.on('accountsChanged', handleAccountsChanged)
+    provider.on('chainChanged', handleChainChanged)
+    return () => {
+      provider.removeListener?.('accountsChanged', handleAccountsChanged)
+      provider.removeListener?.('chainChanged', handleChainChanged)
+    }
+  }, [address])
+
+  const balanceLabel = wallet ? formatMinorUnits(wallet.balanceMinorUnits) : '-- cUSDT'
   const hasWallet = Boolean(address)
   const canConnectWallet = !isBusy
   const canRefreshWallet = hasWallet && !isBusy
+  const canClaimTokens = !isBusy
   const walletHandle = address ? shortHex(address) : 'Not connected'
+  const walletActionLabel = hasWallet ? walletHandle : 'Connect wallet'
 
   return (
     <Card className={cn('min-w-0', className)}>
       <CardContent className="grid gap-4 p-4 xl:p-0">
         <section className="w-full max-w-full overflow-hidden rounded-[1.75rem] border border-[#dbe600] bg-[#f4ff00] p-4 text-black shadow-[0_22px_70px_rgb(0_0_0/0.42)] 2xl:p-5">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-sm font-medium text-black/75">{walletHandle}</span>
+            <button
+              aria-label={hasWallet ? 'Switch wallet' : 'Connect wallet'}
+              className={cn(
+                'inline-flex min-w-0 max-w-[68%] items-center justify-center truncate rounded-full border px-3 py-1.5 text-sm font-semibold shadow-sm transition-colors disabled:cursor-default disabled:opacity-60',
+                hasWallet
+                  ? 'border-black/10 bg-black/10 text-black hover:bg-black/15'
+                  : 'border-black bg-black text-[#f4ff00] hover:bg-black/85',
+              )}
+              disabled={!canConnectWallet}
+              onClick={() => void (hasWallet ? switchWallet() : connectWallet())}
+              suppressHydrationWarning
+              type="button"
+            >
+              {walletActionLabel}
+            </button>
             <Badge className="shrink-0 border-black/10 bg-black/10 text-black hover:bg-black/10" variant="outline">
               <EyeOffIcon data-icon="inline-start" />
               private
@@ -178,10 +261,10 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
             </div>
 
             <button
-              aria-label={hasWallet ? 'Reconnect wallet' : 'Connect wallet'}
+              aria-label={hasWallet ? 'Claim 1000 test cUSDT' : 'Connect wallet'}
               className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-black text-[#f4ff00] shadow-sm transition-colors hover:bg-black/85 disabled:opacity-50"
-              disabled={!canConnectWallet}
-              onClick={() => void connectWallet()}
+              disabled={!canClaimTokens}
+              onClick={() => void (hasWallet ? claimTestTokens() : connectWallet())}
               suppressHydrationWarning
               type="button"
             >
@@ -194,30 +277,6 @@ export function ConfidentialWalletPanel({ className, config }: ConfidentialWalle
             <span className="min-w-0 truncate">{error ?? status}</span>
           </div>
         </section>
-
-        <div className="grid gap-2 2xl:grid-cols-2">
-          <Button
-            className="border border-white/10 bg-white/[0.08] text-white hover:bg-white/[0.14]"
-            disabled={!canConnectWallet}
-            onClick={connectWallet}
-            suppressHydrationWarning
-            type="button"
-          >
-            <PlugZapIcon data-icon="inline-start" />
-            {hasWallet ? 'Reconnect' : 'Connect wallet'}
-          </Button>
-          <Button
-            className="border-white/15 bg-transparent text-white/85 hover:bg-white/[0.08] hover:text-white"
-            disabled={!canRefreshWallet}
-            onClick={() => void refreshWallet()}
-            suppressHydrationWarning
-            type="button"
-            variant="outline"
-          >
-            <RefreshCwIcon data-icon="inline-start" />
-            Refresh
-          </Button>
-        </div>
       </CardContent>
     </Card>
   )
@@ -252,6 +311,45 @@ async function ensureHardhatLocal(provider: EthereumProvider) {
 async function requestAccounts(provider: EthereumProvider): Promise<string[]> {
   const accounts = await provider.request({ method: 'eth_requestAccounts' })
   return Array.isArray(accounts) ? accounts.filter((account): account is string => typeof account === 'string') : []
+}
+
+async function readAccounts(provider: EthereumProvider): Promise<string[]> {
+  const accounts = await provider.request({ method: 'eth_accounts' })
+  return Array.isArray(accounts) ? accounts.filter((account): account is string => typeof account === 'string') : []
+}
+
+async function requestSelectedAccount(provider: EthereumProvider): Promise<string | null> {
+  return firstWalletAccount(await requestAccounts(provider))
+}
+
+function firstWalletAccount(accounts: unknown[]): string | null {
+  for (const account of accounts) {
+    if (typeof account !== 'string') {
+      continue
+    }
+
+    try {
+      return getAddress(account)
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+async function revokeAccounts(provider: EthereumProvider) {
+  try {
+    await provider.request({
+      method: 'wallet_revokePermissions',
+      params: [{ eth_accounts: {} }],
+    })
+  } catch (caught) {
+    const code = walletErrorCode(caught)
+    if (code !== -32601 && code !== 4100) {
+      throw caught
+    }
+  }
 }
 
 function walletErrorCode(caught: unknown): unknown {

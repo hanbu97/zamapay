@@ -28,36 +28,10 @@ export type FulfillmentSnapshot = {
   releasedCount: number
 }
 
-export type ConfidentialWalletSnapshot = {
-  accountCommitment?: string
-  address: string
-  balanceHandle: string
-  balanceLabel: string
-  balanceMinorUnits: string
-  mintedMinorUnits: string
-  mintTxHash: string | null
-  paymentRailAddress?: string
-  tokenAddress: string
-}
-
 type ErrorBody = {
   code?: string
   loginUrl?: string
   message?: string
-}
-
-export async function getConfidentialWallet(config: CardForgeConfig, address: string) {
-  const response = await fetch(`${config.apiBaseUrl}/api/confidential-wallet/${address}`, {
-    credentials: 'omit',
-    cache: 'no-store',
-  })
-
-  if (!response.ok) {
-    const body = await readErrorBody(response)
-    throw new CardForgeApiError('wallet_read_failed', body.message ?? `CardForge backend returned ${response.status}.`)
-  }
-
-  return response.json() as Promise<ConfidentialWalletSnapshot>
 }
 
 export async function createCardForgeCheckout(config: CardForgeConfig) {
@@ -116,8 +90,7 @@ export class CardForgeApiError extends Error {
     public readonly code:
       | 'checkout_create_failed'
       | 'fulfillment_read_failed'
-      | 'mermer_project_auth_failed'
-      | 'wallet_read_failed',
+      | 'mermer_project_auth_failed',
     message: string,
     public readonly loginUrl?: string,
   ) {

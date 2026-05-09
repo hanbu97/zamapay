@@ -6,14 +6,14 @@ Private Checkout v1 is the hackathon slice for proving a private checkout moment
 
 The demo must prove one clean case:
 
-- `PrivateCheckoutSettlement` storage and events do not expose the payer.
 - `PrivateCheckoutSettlement` storage and events do not expose the merchant or payout wallet.
 - `PrivateCheckoutSettlement` storage and events do not expose the amount.
+- `PrivateCheckoutSettlement` storage and events do not expose the project id or merchant order id.
 - Mermer Pay can still know whether a checkout was paid and can trigger CardForge fulfillment.
 
-This is a **Private Checkout Proof MVP**, not a full private settlement network. It proves encrypted amount validation and a private fulfillment trigger. Local-dev now uses `MockConfidentialPaymentRail`, so the demo also proves a mock confidential cUSDT debit without making cUSDT a MetaMask ERC20 token.
+This is a **Private Checkout Proof MVP**, not a full private settlement network. It proves encrypted amount validation and a private fulfillment trigger. Local-dev uses `ConfidentialUSDMock`, an official-style mintable confidential token mock, so the demo proves a mock cUSDT debit without making cUSDT a MetaMask ERC20 token.
 
-The privacy claim is scoped to `PrivateCheckoutSettlement`. Token wrapping, funding, gas payment, and any future confidential-token transfer can still leak address relationships if their own contracts expose `from`, `to`, or receiver events. Mermer Pay may keep the checkout/order mapping needed for the demo. A future merchant-only data model can remove that trust assumption.
+The privacy claim is scoped to business data in `PrivateCheckoutSettlement`. In the direct-wallet MVP, the buyer wallet is still visible as the EVM transaction sender. Hiding the payer address requires a later meta-transaction, account-abstraction, or relayed submitter layer. Token wrapping, funding, gas payment, and any future confidential-token transfer can also leak address relationships if their own contracts expose `from`, `to`, or receiver events. Mermer Pay may keep the checkout/order mapping needed for the demo. A future merchant-only data model can remove that trust assumption.
 
 ## MVP Layers
 
@@ -27,7 +27,7 @@ The privacy claim is scoped to `PrivateCheckoutSettlement`. Token wrapping, fund
 
 | Data | Public chain treatment | Who can know it in v1 | Reason |
 | --- | --- | --- | --- |
-| Buyer wallet | Not submitted to `PrivateCheckoutSettlement` as `msg.sender`; relayer submits the transaction | Buyer, Mermer Pay if the product flow identifies them | Prevent settlement-contract address linkage. |
+| Buyer wallet | Direct-wallet MVP submits as `msg.sender`; not stored as an order/business field | Public chain observers can see the transaction sender; Mermer Pay can map the checkout | Payer hiding is explicitly post-MVP after removing the platform relayer. |
 | Merchant wallet | Not stored or emitted | Mermer Pay and merchant backend | Prevent public receiver linkage. |
 | Payout wallet | Not stored or emitted | Merchant backend, later withdraw flow | Avoid linking orders to settlement address. |
 | Project id / order id | Hashed into `orderCommitment` | Mermer Pay and merchant backend | Keep business identifiers off-chain. |
@@ -123,19 +123,13 @@ The privacy claim is scoped to `PrivateCheckoutSettlement`. Token wrapping, fund
       <td>Time signal only; do not pair it with raw order or wallet fields.</td>
     </tr>
     <tr>
-      <td><code>relayer address</code></td>
+      <td><code>buyer tx sender</code></td>
       <td><code>address</code></td>
-      <td>Transaction sender, not buyer.</td>
-      <td>Public because of EVM mechanics; relayer address must not identify buyer.</td>
+      <td>The wallet that submits <code>submitPrivatePayment</code> in the direct MVP.</td>
+      <td>Public because of EVM mechanics; do not claim payer-address privacy in this MVP.</td>
     </tr>
     <tr>
-      <td rowspan="8">Never public on-chain</td>
-      <td><code>buyer address</code></td>
-      <td><code>address</code></td>
-      <td>Actual buyer wallet.</td>
-      <td>Do not use as <code>msg.sender</code>, calldata, storage, or event data.</td>
-    </tr>
-    <tr>
+      <td rowspan="7">Never public on-chain</td>
       <td><code>merchant address</code></td>
       <td><code>address</code></td>
       <td>Merchant wallet or dashboard identity.</td>
@@ -217,20 +211,21 @@ euint64 encryptedPlatformPending;
 
 | Rail | What it proves | Use in hackathon |
 | --- | --- | --- |
-| Mermer Pay demo balance | Mermer Pay checked or debited an off-chain demo balance before relaying. | Fastest path. Label it mock settlement. |
-| Mock cUSDT confidential balance | Buyer has a demo confidential balance and payment submission records or deducts an encrypted debit. | Implemented local-dev path. |
+| Direct mock cUSDT confidential balance | Buyer has a demo confidential balance and the buyer-submitted transaction deducts an encrypted amount. | Implemented local-dev path. |
 | ERC-7984 / confidential wrapper transfer | Confidential token balance or transfer amount moves through a token contract. | Post-MVP unless address-linkage and operator semantics are deliberately handled. |
 
 If the rail is mock/demo balance, the product name should be `Private Checkout Proof MVP`. If the rail actually debits mock cUSDT, the demo can claim private checkout plus demo confidential payment rail. Do not claim full merchant settlement until withdraw and asset finality exist.
+
+Local-dev issues mock cUSDT the same way the Zama `fhevm-mocks` `ConfidentialERC20Mintable` examples do: a clear test amount is minted on-chain into an encrypted `euint64` balance. CardForge's wallet card exposes this as a faucet. The buyer clicks `+`, signs `ConfidentialUSDMock.claimTestTokens()` in MetaMask, and receives 1000 test cUSDT on the local chain.
 
 ## Flow
 
 1. CardForge creates an order; Mermer Pay derives `orderCommitment`.
 2. Mermer Pay derives a rotating `settlementBucketCommitment`.
 3. Mermer Pay encrypts `expectedAmount` with the local FHEVM input helper and calls `createPrivateCheckout` with `encryptedExpectedAmount + inputProof`.
-4. The buyer signs a payment intent on the checkout page. In local-dev, Mermer Pay encrypts `paidAmount` with the local FHEVM helper before relaying.
-5. Mermer Pay verifies the payment intent and selected payment rail: `MockConfidentialPaymentRail` confidential debit on local-dev, or a future real confidential token transfer.
-6. The Mermer Pay relayer submits the transaction; on-chain `msg.sender` is the relayer, not the buyer.
+4. The buyer connects a wallet on the hosted checkout page.
+5. The browser encrypts `paidAmount` through the local Hardhat/FHEVM mock RPC and obtains `encryptedPaidAmount + inputProof`.
+6. The buyer wallet submits `submitPrivatePayment` directly. The transaction sender is the buyer in this MVP.
 7. The contract imports the encrypted input with `FHE.fromExternal` and checks:
 
 ```solidity
@@ -248,9 +243,9 @@ flowchart TD
     B --> C["Rotate settlementBucketCommitment"]
     C --> D["Encrypt expectedAmount + inputProof"]
     D --> E["createPrivateCheckout"]
-    E --> F["Buyer signs payment intent"]
-    F --> G["Verify intent and payment rail"]
-    G --> H["Relayer encrypts paidAmount and submitPrivatePayment"]
+    E --> F["Buyer connects wallet"]
+    F --> G["Browser encrypts paidAmount + inputProof"]
+    G --> H["Buyer wallet submits submitPrivatePayment"]
     H --> I["FHE.fromExternal + FHE.eq"]
     I --> J["Public decrypt only accepted ebool"]
     J --> K["PrivatePaymentFinalized(orderCommitment, accepted)"]
@@ -263,7 +258,7 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant CF as CardForge / merchant
-    participant MP as Mermer Pay API + relayer
+    participant MP as Mermer Pay API
     participant B as Buyer browser
     participant C as PrivateCheckoutSettlement
     participant R as Local FHEVM input helper
@@ -274,9 +269,7 @@ sequenceDiagram
     MP->>R: Encrypt expectedAmount and produce inputProof
     MP->>C: createPrivateCheckout(commitments, encryptedExpectedAmount, inputProof, expiresAt)
     B->>R: Encrypt paidAmount and produce inputProof
-    B->>MP: Submit encrypted paidAmount + signed payment intent
-    MP->>MP: Verify intent, nonce, expiry, and payment rail
-    MP->>C: relay private payment
+    B->>C: submitPrivatePayment(orderCommitment, nonce, encryptedPaidAmount, inputProof)
     C->>C: paidAmount = FHE.fromExternal(encryptedPaidAmount, inputProof)
     C->>C: accepted = FHE.eq(paidAmount, expectedAmount)
     C->>Z: Request decrypt of accepted ebool
@@ -291,8 +284,8 @@ sequenceDiagram
 
 | Step | Zama protocol fee | Frequency | Optimization |
 | --- | --- | --- | --- |
-| Submit `expectedAmount` encrypted input | ZKPoK verification | Once per checkout | Can be paid by Mermer Pay relayer. |
-| Submit `paidAmount` encrypted input | ZKPoK verification | Once per payment attempt | Buyer never needs to hold protocol funds if relayed. |
+| Submit `expectedAmount` encrypted input | ZKPoK verification | Once per checkout | Local-dev is free in Hardhat; Sepolia should use Zama official relayer/gateway policy. |
+| Submit `paidAmount` encrypted input | ZKPoK verification | Once per payment attempt | Direct-wallet MVP keeps platform relayer out of scope. |
 | Decrypt `accepted` | Decryption | Once per payment attempt | Decrypt only one `ebool`, not amounts. |
 | Decrypt merchant settlement aggregate | Decryption | Once per withdraw or batch close | Avoid per-order amount decrypts. |
 | Decrypt platform fee aggregate | Decryption | Once per withdraw or batch close | Batch fees with settlement accounting. |
@@ -304,8 +297,8 @@ Do not decrypt per-order gross, merchant net, or platform fee in the normal chec
 
 1. A CardForge checkout creates one private checkout on `local-dev`.
 2. `PrivateCheckoutSettlement` storage and events expose only commitments, encrypted handles, status, and timestamps.
-3. The payment transaction is sent by the Mermer Pay relayer, not the buyer wallet.
-4. No raw buyer address, merchant address, payout wallet, project id, order id, or amount appears in `PrivateCheckoutSettlement` storage or events.
+3. The buyer wallet submits the encrypted payment directly in local-dev.
+4. No raw merchant address, payout wallet, project id, order id, or amount appears in `PrivateCheckoutSettlement` storage or events.
 5. The contract validates `paidAmount == expectedAmount` with FHE.
 6. The contract publicly finalizes only `accepted`.
 7. Mermer Pay maps `orderCommitment` back to the demo order and sends the CardForge fulfillment webhook.
@@ -326,15 +319,15 @@ Do not decrypt per-order gross, merchant net, or platform fee in the normal chec
 ## Design Rules
 
 - Scope privacy claims to `PrivateCheckoutSettlement` until the payment rail is also privacy-reviewed.
-- Never pass buyer, merchant, or payout wallet as plain settlement contract parameters.
+- Never pass merchant or payout wallet as plain settlement contract parameters.
+- Do not claim payer-address privacy while the buyer wallet is the transaction sender.
 - Never emit raw amount in settlement events.
 - Never store `externalRef` as a string on-chain.
 - Use high-entropy salts for commitments; do not hash predictable ids alone.
 - Rotate `settlementBucketCommitment`; do not use one permanent merchant bucket.
 - Keep `accepted` as the only per-order decrypted value.
-- Bind signed payment intents to `orderCommitment`, encrypted amount handle, asset, chain id, settlement contract, nonce, and `expiresAt`.
 - Reject expired checkouts, reused payment nonces, resubmission after final status, and double finalization.
-- Treat Mermer Pay relayer as the protocol-fee payer in the demo.
+- Keep Mermer Pay platform relayer out of the MVP. Local-dev uses Hardhat/FHEVM mock RPC; future Sepolia uses Zama official relayer/gateway surfaces for FHE operations.
 - Keep local-dev clean: no transparent settlement fallback and no public-testnet branch in the active app.
 
 ## Implementation Direction
@@ -347,10 +340,10 @@ PrivateCheckoutSettlement
 
 The old transparent invoice settlement has been removed from the active local-dev path because it stored merchant, payout, payer, and amount fields publicly. Keeping it available as a fallback would make the privacy claim ambiguous.
 
-The local-dev payment rail is implemented as:
+The local-dev cUSDT token is implemented as:
 
 ```text
-MockConfidentialPaymentRail
+ConfidentialUSDMock
 ```
 
-That rail should keep the MVP simple: buyer demo balance, encrypted debit or debit record, trusted relayer submission, and no buyer/merchant/amount in `PrivateCheckoutSettlement` events. Real confidential token settlement and withdraw remain post-MVP.
+That token keeps the MVP simple: buyer faucet balance, encrypted checkout debit, direct buyer wallet submission, and no merchant/order/amount in `PrivateCheckoutSettlement` events. Real ERC20 wrapping, payer-address hiding, and withdraw remain post-MVP.

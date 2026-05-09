@@ -7,8 +7,7 @@
     "test": "HOME=.hardhat-home hardhat test",
     "sync:generated": "node scripts/sync-generated.js",
     "deploy:local": "HOME=.hardhat-home hardhat run scripts/deploy-contracts.js",
-    "deploy:localhost": "HOME=.hardhat-home hardhat run scripts/deploy-contracts.js --network localhost",
-    "mint:test-usd:localhost": "HOME=.hardhat-home hardhat run scripts/mint-test-usd.js --network localhost"
+    "deploy:localhost": "HOME=.hardhat-home hardhat run scripts/deploy-contracts.js --network localhost"
   },
   "devDependencies": {
     "@fhevm/hardhat-plugin": "^0.4.2",

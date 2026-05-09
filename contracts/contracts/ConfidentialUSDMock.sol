@@ -6,10 +6,12 @@ import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 
 contract ConfidentialUSDMock is ZamaEthereumConfig {
     string public constant name = "Mermer Confidential USD";
-    string public constant symbol = "mcUSD";
+    string public constant symbol = "cUSDT";
     uint8 public constant decimals = 6;
+    uint64 public constant TEST_CLAIM_AMOUNT = 1000_000000;
 
     address public immutable owner;
+    address public settlement;
     uint256 public totalSupply;
 
     mapping(address => euint64) private _balances;
@@ -18,25 +20,18 @@ contract ConfidentialUSDMock is ZamaEthereumConfig {
     event Mint(address indexed to, uint64 amount);
     event Transfer(address indexed from, address indexed to);
     event Approval(address indexed owner, address indexed spender);
-    event ConditionalTransfer(address indexed from, address indexed to, address indexed spender, uint64 expectedAmount);
-    event ConditionalSplitTransfer(
-        address indexed from,
-        address indexed merchantWallet,
-        address indexed platformWallet,
-        uint64 expectedGrossAmount,
-        uint64 merchantNetAmount,
-        uint64 platformFeeAmount
-    );
     event PrivateExactTransfer(address indexed from, address indexed to, address indexed spender);
-    event PrivateSplitTransfer(
-        address indexed from,
-        address indexed merchantWallet,
-        address indexed platformWallet,
-        address spender
-    );
+    event SettlementUpdated(address indexed settlement);
+    event TestTokensClaimed(address indexed account, uint64 amount);
+    event PrivateDebit(address indexed account);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "not owner");
+        _;
+    }
+
+    modifier onlySettlement() {
+        require(msg.sender == settlement, "settlement only");
         _;
     }
 
@@ -44,17 +39,43 @@ contract ConfidentialUSDMock is ZamaEthereumConfig {
         owner = msg.sender;
     }
 
+    function setSettlement(address settlementAddress) external onlyOwner {
+        require(settlementAddress != address(0), "settlement required");
+        settlement = settlementAddress;
+        emit SettlementUpdated(settlementAddress);
+    }
+
     function mint(address to, uint64 amount) external onlyOwner {
-        euint64 minted = FHE.asEuint64(amount);
-        FHE.allowThis(minted);
-        FHE.allow(minted, to);
+        _mint(to, amount);
+    }
 
-        _balances[to] = FHE.add(_balances[to], minted);
-        FHE.allowThis(_balances[to]);
-        FHE.allow(_balances[to], to);
+    function claimTestTokens() external returns (uint64) {
+        _mint(msg.sender, TEST_CLAIM_AMOUNT);
+        emit TestTokensClaimed(msg.sender, TEST_CLAIM_AMOUNT);
+        return TEST_CLAIM_AMOUNT;
+    }
 
-        totalSupply += amount;
-        emit Mint(to, amount);
+    function debitExact(address account, euint64 amount) external onlySettlement returns (ebool) {
+        require(account != address(0), "account required");
+
+        euint64 balance = _balances[account];
+        ebool accepted = FHE.ge(balance, amount);
+        euint64 moved = FHE.select(accepted, amount, FHE.asEuint64(0));
+        euint64 nextBalance = FHE.sub(balance, moved);
+        euint64 nextSettlementBalance = FHE.add(_balances[msg.sender], moved);
+
+        FHE.allowThis(accepted);
+        FHE.allow(accepted, msg.sender);
+        FHE.allowThis(nextBalance);
+        FHE.allow(nextBalance, account);
+        FHE.allowThis(nextSettlementBalance);
+        FHE.allow(nextSettlementBalance, msg.sender);
+
+        _balances[account] = nextBalance;
+        _balances[msg.sender] = nextSettlementBalance;
+
+        emit PrivateDebit(account);
+        return accepted;
     }
 
     function transfer(address to, externalEuint64 encryptedAmount, bytes calldata inputProof) external returns (bool) {
@@ -146,127 +167,6 @@ contract ConfidentialUSDMock is ZamaEthereumConfig {
         return true;
     }
 
-    function transferFromExact(
-        address from,
-        address to,
-        euint64 amount,
-        uint64 expectedAmount
-    ) external returns (ebool) {
-        FHE.allowThis(amount);
-        FHE.allow(amount, from);
-        FHE.allow(amount, to);
-
-        euint64 spenderAllowance = _allowances[from][msg.sender];
-        euint64 fromBalance = _balances[from];
-
-        ebool exactAmount = FHE.eq(amount, expectedAmount);
-        ebool enoughAllowance = FHE.ge(spenderAllowance, amount);
-        ebool enoughBalance = FHE.ge(fromBalance, amount);
-        ebool canTransfer = FHE.and(FHE.and(exactAmount, enoughAllowance), enoughBalance);
-        euint64 moved = FHE.select(canTransfer, amount, FHE.asEuint64(0));
-
-        euint64 nextAllowance = FHE.select(canTransfer, FHE.sub(spenderAllowance, amount), spenderAllowance);
-        euint64 nextSenderBalance = FHE.select(canTransfer, FHE.sub(fromBalance, amount), fromBalance);
-        euint64 nextRecipientBalance = FHE.add(_balances[to], moved);
-
-        FHE.allowThis(canTransfer);
-        FHE.allow(canTransfer, msg.sender);
-
-        FHE.allowThis(moved);
-        FHE.allow(moved, from);
-        FHE.allow(moved, to);
-
-        FHE.allowThis(nextAllowance);
-        FHE.allow(nextAllowance, msg.sender);
-        FHE.allow(nextAllowance, from);
-
-        FHE.allowThis(nextSenderBalance);
-        FHE.allow(nextSenderBalance, from);
-
-        FHE.allowThis(nextRecipientBalance);
-        FHE.allow(nextRecipientBalance, to);
-
-        _allowances[from][msg.sender] = nextAllowance;
-        _balances[from] = nextSenderBalance;
-        _balances[to] = nextRecipientBalance;
-
-        emit ConditionalTransfer(from, to, msg.sender, expectedAmount);
-        return canTransfer;
-    }
-
-    function transferFromSplitExact(
-        address from,
-        address merchantWallet,
-        address platformWallet,
-        euint64 amount,
-        uint64 expectedGrossAmount,
-        uint64 merchantNetAmount,
-        uint64 platformFeeAmount
-    ) external returns (ebool) {
-        require(merchantWallet != address(0), "merchant wallet required");
-        require(platformWallet != address(0), "platform wallet required");
-        require(expectedGrossAmount == merchantNetAmount + platformFeeAmount, "split mismatch");
-
-        FHE.allowThis(amount);
-        FHE.allow(amount, from);
-        FHE.allow(amount, merchantWallet);
-        FHE.allow(amount, platformWallet);
-
-        euint64 spenderAllowance = _allowances[from][msg.sender];
-        euint64 fromBalance = _balances[from];
-
-        ebool exactAmount = FHE.eq(amount, expectedGrossAmount);
-        ebool enoughAllowance = FHE.ge(spenderAllowance, amount);
-        ebool enoughBalance = FHE.ge(fromBalance, amount);
-        ebool canTransfer = FHE.and(FHE.and(exactAmount, enoughAllowance), enoughBalance);
-        euint64 merchantMoved = FHE.select(canTransfer, FHE.asEuint64(merchantNetAmount), FHE.asEuint64(0));
-        euint64 platformMoved = FHE.select(canTransfer, FHE.asEuint64(platformFeeAmount), FHE.asEuint64(0));
-
-        euint64 nextAllowance = FHE.select(canTransfer, FHE.sub(spenderAllowance, amount), spenderAllowance);
-        euint64 nextSenderBalance = FHE.select(canTransfer, FHE.sub(fromBalance, amount), fromBalance);
-        euint64 nextMerchantBalance = FHE.add(_balances[merchantWallet], merchantMoved);
-        euint64 nextPlatformBalance = FHE.add(_balances[platformWallet], platformMoved);
-
-        FHE.allowThis(canTransfer);
-        FHE.allow(canTransfer, msg.sender);
-
-        FHE.allowThis(merchantMoved);
-        FHE.allow(merchantMoved, from);
-        FHE.allow(merchantMoved, merchantWallet);
-
-        FHE.allowThis(platformMoved);
-        FHE.allow(platformMoved, from);
-        FHE.allow(platformMoved, platformWallet);
-
-        FHE.allowThis(nextAllowance);
-        FHE.allow(nextAllowance, msg.sender);
-        FHE.allow(nextAllowance, from);
-
-        FHE.allowThis(nextSenderBalance);
-        FHE.allow(nextSenderBalance, from);
-
-        FHE.allowThis(nextMerchantBalance);
-        FHE.allow(nextMerchantBalance, merchantWallet);
-
-        FHE.allowThis(nextPlatformBalance);
-        FHE.allow(nextPlatformBalance, platformWallet);
-
-        _allowances[from][msg.sender] = nextAllowance;
-        _balances[from] = nextSenderBalance;
-        _balances[merchantWallet] = nextMerchantBalance;
-        _balances[platformWallet] = nextPlatformBalance;
-
-        emit ConditionalSplitTransfer(
-            from,
-            merchantWallet,
-            platformWallet,
-            expectedGrossAmount,
-            merchantNetAmount,
-            platformFeeAmount
-        );
-        return canTransfer;
-    }
-
     function transferFromPrivateExact(
         address from,
         address to,
@@ -318,82 +218,26 @@ contract ConfidentialUSDMock is ZamaEthereumConfig {
         return canTransfer;
     }
 
-    function transferFromPrivateSplitExact(
-        address from,
-        address merchantWallet,
-        address platformWallet,
-        euint64 amount,
-        uint64 expectedGrossAmount,
-        euint64 merchantNetAmount,
-        euint64 platformFeeAmount
-    ) external returns (ebool) {
-        require(merchantWallet != address(0), "merchant wallet required");
-        require(platformWallet != address(0), "platform wallet required");
-
-        FHE.allowThis(amount);
-        FHE.allow(amount, from);
-        FHE.allow(amount, merchantWallet);
-        FHE.allow(amount, platformWallet);
-        FHE.allowThis(merchantNetAmount);
-        FHE.allow(merchantNetAmount, merchantWallet);
-        FHE.allowThis(platformFeeAmount);
-        FHE.allow(platformFeeAmount, platformWallet);
-
-        euint64 spenderAllowance = _allowances[from][msg.sender];
-        euint64 fromBalance = _balances[from];
-        euint64 splitTotal = FHE.add(merchantNetAmount, platformFeeAmount);
-
-        ebool exactAmount = FHE.eq(amount, expectedGrossAmount);
-        ebool splitMatches = FHE.eq(splitTotal, amount);
-        ebool enoughAllowance = FHE.ge(spenderAllowance, amount);
-        ebool enoughBalance = FHE.ge(fromBalance, amount);
-        ebool canTransfer = FHE.and(FHE.and(exactAmount, splitMatches), FHE.and(enoughAllowance, enoughBalance));
-        euint64 merchantMoved = FHE.select(canTransfer, merchantNetAmount, FHE.asEuint64(0));
-        euint64 platformMoved = FHE.select(canTransfer, platformFeeAmount, FHE.asEuint64(0));
-
-        euint64 nextAllowance = FHE.select(canTransfer, FHE.sub(spenderAllowance, amount), spenderAllowance);
-        euint64 nextSenderBalance = FHE.select(canTransfer, FHE.sub(fromBalance, amount), fromBalance);
-        euint64 nextMerchantBalance = FHE.add(_balances[merchantWallet], merchantMoved);
-        euint64 nextPlatformBalance = FHE.add(_balances[platformWallet], platformMoved);
-
-        FHE.allowThis(canTransfer);
-        FHE.allow(canTransfer, msg.sender);
-
-        FHE.allowThis(merchantMoved);
-        FHE.allow(merchantMoved, from);
-        FHE.allow(merchantMoved, merchantWallet);
-
-        FHE.allowThis(platformMoved);
-        FHE.allow(platformMoved, from);
-        FHE.allow(platformMoved, platformWallet);
-
-        FHE.allowThis(nextAllowance);
-        FHE.allow(nextAllowance, msg.sender);
-        FHE.allow(nextAllowance, from);
-
-        FHE.allowThis(nextSenderBalance);
-        FHE.allow(nextSenderBalance, from);
-
-        FHE.allowThis(nextMerchantBalance);
-        FHE.allow(nextMerchantBalance, merchantWallet);
-
-        FHE.allowThis(nextPlatformBalance);
-        FHE.allow(nextPlatformBalance, platformWallet);
-
-        _allowances[from][msg.sender] = nextAllowance;
-        _balances[from] = nextSenderBalance;
-        _balances[merchantWallet] = nextMerchantBalance;
-        _balances[platformWallet] = nextPlatformBalance;
-
-        emit PrivateSplitTransfer(from, merchantWallet, platformWallet, msg.sender);
-        return canTransfer;
-    }
-
     function balanceOf(address user) external view returns (euint64) {
         return _balances[user];
     }
 
     function allowance(address tokenOwner, address spender) external view returns (euint64) {
         return _allowances[tokenOwner][spender];
+    }
+
+    function _mint(address to, uint64 amount) private {
+        require(to != address(0), "recipient required");
+
+        euint64 minted = FHE.asEuint64(amount);
+        euint64 nextBalance = FHE.add(_balances[to], minted);
+
+        FHE.allowThis(nextBalance);
+        FHE.allow(nextBalance, to);
+
+        _balances[to] = nextBalance;
+        totalSupply += amount;
+
+        emit Mint(to, amount);
     }
 }

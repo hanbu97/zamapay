@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server'
-import { getAddress } from 'viem'
+import { getAddress, isHex } from 'viem'
 import { serverContractEnvironment } from '@/lib/contract-environment'
-import { canUseDevSigner } from '@/lib/dev-signer-gate'
-import { upgradeLocalGrowthSubscription } from '@/lib/local-fhevm-dev'
+import { isLocalRequestUrl } from '@/lib/dev-signer-gate'
 import type { BillingCycle } from '@/lib/api'
 
 type LocalGrowthRequest = {
   billingCycle?: unknown
+  entitlementTxHash?: unknown
+  entitlementVersion?: unknown
   ownerAddress?: unknown
+  passId?: unknown
+  plan?: unknown
+  subscriptionCheckHandle?: unknown
 }
 
 type SubscriptionProjectionBody = {
@@ -25,12 +29,8 @@ const defaultOperatorKey = 'local-operator-dev-key'
 function isEnabled(request: Request) {
   return (
     serverContractEnvironment() === 'local-dev' &&
-    canUseDevSigner({
-      contractEnv: process.env.NEXT_PUBLIC_CONTRACT_ENV,
-      enableDevSigner: process.env.MERMER_ENABLE_DEV_SIGNER,
-      nodeEnv: process.env.NODE_ENV,
-      requestUrl: request.url,
-    })
+    process.env.NODE_ENV !== 'production' &&
+    isLocalRequestUrl(request.url)
   )
 }
 
@@ -40,6 +40,39 @@ function operatorKey() {
 
 function billingCycle(value: unknown): BillingCycle {
   return value === 'annual' ? 'annual' : 'monthly'
+}
+
+function requiredText(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${field} is required.`)
+  }
+
+  return value.trim()
+}
+
+function requiredPositiveInteger(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${field} must be a positive safe integer.`)
+  }
+
+  return value
+}
+
+function requiredHex(value: unknown, field: string): string {
+  const text = requiredText(value, field)
+  if (!isHex(text)) {
+    throw new Error(`${field} must be a hex string.`)
+  }
+
+  return text
+}
+
+function requiredGrowthPlan(value: unknown): 'growth' {
+  if (value !== 'growth') {
+    throw new Error('plan must be growth.')
+  }
+
+  return 'growth'
 }
 
 async function projectSubscription(ownerAddress: string, body: SubscriptionProjectionBody) {
@@ -71,25 +104,22 @@ export async function POST(request: Request) {
   }
 
   try {
-    const ownerAddress = getAddress(payload.ownerAddress)
     const cycle = billingCycle(payload.billingCycle)
-    const proof = await upgradeLocalGrowthSubscription({
-      billingCycle: cycle,
-      ownerAddress,
-    })
+    const ownerAddress = getAddress(payload.ownerAddress)
     const body: SubscriptionProjectionBody = {
       billingCycle: cycle,
-      entitlementTxHash: proof.entitlementTxHash,
-      entitlementVersion: proof.entitlementVersion,
-      passId: proof.passId,
-      plan: 'growth',
-      subscriptionCheckHandle: proof.subscriptionCheckHandle,
+      entitlementTxHash: requiredHex(payload.entitlementTxHash, 'entitlementTxHash'),
+      entitlementVersion: requiredPositiveInteger(payload.entitlementVersion, 'entitlementVersion'),
+      passId: requiredText(payload.passId, 'passId'),
+      plan: requiredGrowthPlan(payload.plan),
+      subscriptionCheckHandle: requiredHex(payload.subscriptionCheckHandle, 'subscriptionCheckHandle'),
     }
     const subscription = await projectSubscription(ownerAddress, body)
 
     return NextResponse.json(subscription)
   } catch (caught) {
     const message = caught instanceof Error ? caught.message : 'local-dev Growth projection failed'
-    return NextResponse.json({ error: message }, { status: 502 })
+    const status = message.includes('required') || message.includes('must be') ? 400 : 502
+    return NextResponse.json({ error: message }, { status })
   }
 }

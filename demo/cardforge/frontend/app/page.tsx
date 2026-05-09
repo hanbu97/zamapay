@@ -45,7 +45,6 @@ export default function CardForgePage() {
       <aside className="px-4 pb-6 md:px-8 xl:fixed xl:right-0 xl:top-0 xl:z-30 xl:flex xl:h-screen xl:w-[var(--wallet-rail)] xl:flex-col xl:overflow-y-auto xl:border-l xl:border-white/10 xl:bg-[#111114] xl:px-4 xl:py-6">
         <ConfidentialWalletPanel
           className="xl:h-full xl:rounded-none xl:border-0 xl:bg-transparent xl:shadow-none"
-          config={config}
         />
       </aside>
     </div>

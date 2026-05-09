@@ -67,10 +67,6 @@ function readLocalManifest() {
   assert(manifest.contracts?.MerchantRegistry?.startsWith('0x'), 'MerchantRegistry is missing from local-dev manifest')
   assert(manifest.contracts?.ConfidentialUSDMock?.startsWith('0x'), 'ConfidentialUSDMock is missing from local-dev manifest')
   assert(
-    manifest.contracts?.MockConfidentialPaymentRail?.startsWith('0x'),
-    'MockConfidentialPaymentRail is missing from local-dev manifest',
-  )
-  assert(
     manifest.contracts?.PrivateCheckoutSettlement?.startsWith('0x'),
     'PrivateCheckoutSettlement is missing from local-dev manifest',
   )
@@ -173,16 +169,16 @@ async function main() {
       `API PrivateCheckoutSettlement is stale: expected ${localManifest.contracts.PrivateCheckoutSettlement}, got ${manifest.contracts?.PrivateCheckoutSettlement}`,
     )
     assert(
-      manifest.contracts?.MockConfidentialPaymentRail === localManifest.contracts.MockConfidentialPaymentRail,
-      `API MockConfidentialPaymentRail is stale: expected ${localManifest.contracts.MockConfidentialPaymentRail}, got ${manifest.contracts?.MockConfidentialPaymentRail}`,
+      manifest.contracts?.ConfidentialUSDMock === localManifest.contracts.ConfidentialUSDMock,
+      `API ConfidentialUSDMock is stale: expected ${localManifest.contracts.ConfidentialUSDMock}, got ${manifest.contracts?.ConfidentialUSDMock}`,
     )
     assert(
       manifest.contracts?.PrivateCheckoutSettlement?.startsWith('0x'),
       'API manifest is missing PrivateCheckoutSettlement',
     )
     assert(
-      manifest.contracts?.MockConfidentialPaymentRail?.startsWith('0x'),
-      'API manifest is missing MockConfidentialPaymentRail',
+      manifest.contracts?.ConfidentialUSDMock?.startsWith('0x'),
+      'API manifest is missing ConfidentialUSDMock',
     )
     return manifest.contracts.PrivateCheckoutSettlement
   }))

@@ -34,7 +34,7 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
         paymentTruth={invoice.snapshot.paymentTruth}
         settlementAddress={manifest.contracts.PrivateCheckoutSettlement}
         title={invoice.title}
-        tokenAddress={manifest.contracts.MockConfidentialPaymentRail}
+        tokenAddress={manifest.contracts.ConfidentialUSDMock}
       />
     </main>
   )

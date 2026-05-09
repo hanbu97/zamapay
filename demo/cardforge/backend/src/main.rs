@@ -7,7 +7,7 @@ use std::{
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::State,
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -42,7 +42,6 @@ struct Config {
     local_chain_invoice_api_url: Option<String>,
     mermer_api_url: String,
     mermer_console_url: String,
-    mermer_wallet_api_url: String,
     project_api_key: String,
     merchant_label: String,
     project_id: String,
@@ -209,7 +208,6 @@ fn app(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/api/storefront", get(storefront))
         .route("/api/fulfillment", get(fulfillment))
-        .route("/api/confidential-wallet/{address}", get(confidential_wallet))
         .route("/api/orders/checkout", post(create_checkout))
         .route("/api/mermer-pay/webhook", post(receive_webhook))
         .route("/api/mermer-pay/webhooks", get(webhook_log))
@@ -235,20 +233,12 @@ impl Config {
             "MERMER_PAY_CONSOLE_URL",
             DEFAULT_CONSOLE_URL,
         ));
-        let mermer_wallet_api_url = clean_base_url(
-            env::var("MERMER_PAY_WALLET_API_URL")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| origin_url(&mermer_console_url)),
-        );
-
         Ok(Self {
             bind_addr: env_value("CARDFORGE_BACKEND_BIND", DEFAULT_BIND_ADDR).parse()?,
             login_url: env_value("MERMER_PAY_LOGIN_URL", DEFAULT_LOGIN_URL),
             local_chain_invoice_api_url: optional_base_url("MERMER_PAY_CHAIN_INVOICE_API_URL"),
             mermer_api_url: clean_base_url(env_value("MERMER_PAY_API_URL", DEFAULT_API_URL)),
             mermer_console_url,
-            mermer_wallet_api_url,
             project_api_key: required_env("MERMER_PAY_API_KEY")?,
             merchant_label: env_value("CARDFORGE_MERCHANT_LABEL", DEFAULT_MERCHANT_LABEL),
             project_id: required_env("MERMER_PAY_PROJECT_ID")?,
@@ -275,30 +265,6 @@ async fn storefront(State(state): State<AppState>) -> Json<StorefrontResponse> {
 
 async fn fulfillment(State(state): State<AppState>) -> Result<Json<FulfillmentSnapshot>, ApiError> {
     Ok(Json(fulfillment_snapshot(&state)?))
-}
-
-async fn confidential_wallet(
-    State(state): State<AppState>,
-    Path(address): Path<String>,
-) -> Result<Json<Value>, ApiError> {
-    let response = state
-        .client
-        .get(format!(
-            "{}/api/dev/local-confidential-wallet",
-            state.config.mermer_wallet_api_url
-        ))
-        .query(&[("address", address.as_str()), ("ensure", "1")])
-        .send()
-        .await
-        .map_err(ApiError::wallet_unreachable)?;
-    let status = response.status();
-
-    if !status.is_success() {
-        return Err(ApiError::wallet_rejected(status.as_u16(), response).await);
-    }
-
-    let wallet = response.json().await.map_err(ApiError::bad_wallet_json)?;
-    Ok(Json(wallet))
 }
 
 async fn create_checkout(
@@ -664,16 +630,6 @@ fn clean_base_url(value: String) -> String {
     value.trim_end_matches('/').to_string()
 }
 
-fn origin_url(value: &str) -> String {
-    let trimmed = value.trim_end_matches('/');
-    let Some((scheme, rest)) = trimmed.split_once("://") else {
-        return trimmed.to_string();
-    };
-    let host = rest.split('/').next().unwrap_or(rest);
-
-    format!("{scheme}://{host}")
-}
-
 fn keyed_digest(secret: &str, message: &str) -> String {
     let digest = keccak256(format!("{secret}.{message}").as_bytes());
     format!("0x{}", lower_hex(&digest))
@@ -793,35 +749,6 @@ impl ApiError {
         )
     }
 
-    fn wallet_unreachable(error: reqwest::Error) -> Self {
-        Self::new(
-            StatusCode::BAD_GATEWAY,
-            "wallet_lookup_failed",
-            format!("Mermer Pay confidential wallet API is unreachable: {error}"),
-            None,
-        )
-    }
-
-    async fn wallet_rejected(status: u16, response: reqwest::Response) -> Self {
-        let body = response.text().await.unwrap_or_default();
-        let message = if body.is_empty() {
-            format!("Mermer Pay confidential wallet API rejected the lookup with status {status}.")
-        } else {
-            body
-        };
-
-        Self::new(StatusCode::BAD_GATEWAY, "wallet_lookup_failed", message, None)
-    }
-
-    fn bad_wallet_json(error: reqwest::Error) -> Self {
-        Self::new(
-            StatusCode::BAD_GATEWAY,
-            "wallet_lookup_failed",
-            format!("Mermer Pay confidential wallet API returned invalid JSON: {error}"),
-            None,
-        )
-    }
-
     fn invalid_webhook_signature(message: &str) -> Self {
         Self::new(
             StatusCode::UNAUTHORIZED,
@@ -869,7 +796,7 @@ mod tests {
 
     use axum::{
         body::Body,
-        extract::{Path, Query},
+        extract::Path,
         http::{Request, header},
     };
     use serde_json::json;
@@ -1044,44 +971,6 @@ mod tests {
         assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
     }
 
-    #[tokio::test]
-    async fn confidential_wallet_proxies_local_dev_balance() {
-        let captured = Arc::new(Mutex::new(None::<(String, String)>));
-        let fake_mermer = fake_mermer_wallet_api(captured.clone()).await;
-        let state = AppState::new(test_config(
-            &fake_mermer,
-            "proj_cardforge",
-            "mmp_test_secret",
-        ));
-        let address = "0xC431773Fbc13B36384077847B884dE5D8dB91618";
-        let response = app(state)
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri(format!("/api/confidential-wallet/{address}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let json: Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["balanceLabel"], "1,000 cUSDT");
-        assert_eq!(json["tokenAddress"], "0xToken");
-
-        let (captured_address, ensure) = captured
-            .lock()
-            .expect("captured wallet request lock should work")
-            .clone()
-            .expect("fake Mermer API should receive wallet request");
-        assert_eq!(captured_address, address);
-        assert_eq!(ensure, "1");
-    }
-
     #[test]
     fn fulfillment_snapshot_uses_release_order() {
         let state = AppState::new(test_config(
@@ -1234,37 +1123,6 @@ mod tests {
         format!("http://{addr}")
     }
 
-    async fn fake_mermer_wallet_api(captured: Arc<Mutex<Option<(String, String)>>>) -> String {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let app = Router::new().route(
-            "/api/dev/local-confidential-wallet",
-            get(move |Query(params): Query<std::collections::BTreeMap<String, String>>| {
-                let captured = captured.clone();
-                async move {
-                    let address = params.get("address").cloned().unwrap_or_default();
-                    let ensure = params.get("ensure").cloned().unwrap_or_default();
-                    *captured.lock().unwrap() = Some((address, ensure));
-                    Json(json!({
-                        "address": "0xC431773Fbc13B36384077847B884dE5D8dB91618",
-                        "balanceHandle": "0xabc",
-                        "balanceLabel": "1,000 cUSDT",
-                        "balanceMinorUnits": "1000000000",
-                        "mintedMinorUnits": "0",
-                        "mintTxHash": null,
-                        "tokenAddress": "0xToken"
-                    }))
-                }
-            }),
-        );
-
-        tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-
-        format!("http://{addr}")
-    }
-
     fn test_config(api_url: &str, project_id: &str, api_key: &str) -> Config {
         Config {
             bind_addr: "127.0.0.1:0".parse().unwrap(),
@@ -1272,7 +1130,6 @@ mod tests {
             local_chain_invoice_api_url: None,
             mermer_api_url: api_url.to_string(),
             mermer_console_url: "http://127.0.0.1:3001/merchant".to_string(),
-            mermer_wallet_api_url: api_url.to_string(),
             project_api_key: api_key.to_string(),
             merchant_label: "CardForge Demo Store".to_string(),
             project_id: project_id.to_string(),

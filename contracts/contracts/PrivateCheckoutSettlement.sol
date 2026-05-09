@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import { FHE, ebool, euint64, externalEuint64 } from "@fhevm/solidity/lib/FHE.sol";
 import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 
-interface IPrivateCheckoutPaymentRail {
-    function debitExact(bytes32 accountCommitment, euint64 amount) external returns (ebool);
+interface IPrivateCheckoutToken {
+    function debitExact(address account, euint64 amount) external returns (ebool);
 }
 
 contract PrivateCheckoutSettlement is ZamaEthereumConfig {
@@ -28,8 +28,8 @@ contract PrivateCheckoutSettlement is ZamaEthereumConfig {
         uint256 paidAt;
     }
 
-    address public immutable trustedRelayer;
-    IPrivateCheckoutPaymentRail public immutable paymentRail;
+    address public immutable checkoutCreator;
+    IPrivateCheckoutToken public immutable paymentToken;
     uint256 public checkoutCount;
 
     mapping(bytes32 => PrivateCheckout) private _checkouts;
@@ -42,16 +42,15 @@ contract PrivateCheckoutSettlement is ZamaEthereumConfig {
     event PrivatePaymentFinalized(bytes32 indexed orderCommitment, bool accepted, uint256 paidAt);
     event PrivateCheckoutExpired(bytes32 indexed orderCommitment);
 
-    modifier onlyTrustedRelayer() {
-        require(msg.sender == trustedRelayer, "relayer only");
+    modifier onlyCheckoutCreator() {
+        require(msg.sender == checkoutCreator, "creator only");
         _;
     }
 
-    constructor(address paymentRailAddress, address trustedRelayerAddress) {
-        require(paymentRailAddress != address(0), "payment rail required");
-        require(trustedRelayerAddress != address(0), "relayer required");
-        paymentRail = IPrivateCheckoutPaymentRail(paymentRailAddress);
-        trustedRelayer = trustedRelayerAddress;
+    constructor(address paymentTokenAddress) {
+        require(paymentTokenAddress != address(0), "payment token required");
+        paymentToken = IPrivateCheckoutToken(paymentTokenAddress);
+        checkoutCreator = msg.sender;
     }
 
     function createPrivateCheckout(
@@ -60,7 +59,7 @@ contract PrivateCheckoutSettlement is ZamaEthereumConfig {
         externalEuint64 encryptedExpectedAmount,
         bytes calldata inputProof,
         uint64 expiresAt
-    ) external onlyTrustedRelayer returns (uint256) {
+    ) external onlyCheckoutCreator returns (uint256) {
         require(orderCommitment != bytes32(0), "order commitment required");
         require(settlementBucketCommitment != bytes32(0), "bucket commitment required");
         require(_checkouts[orderCommitment].status == PaymentStatus.None, "checkout exists");
@@ -88,11 +87,10 @@ contract PrivateCheckoutSettlement is ZamaEthereumConfig {
 
     function submitPrivatePayment(
         bytes32 orderCommitment,
-        bytes32 accountCommitment,
         bytes32 paymentNonce,
         externalEuint64 encryptedPaidAmount,
         bytes calldata inputProof
-    ) external onlyTrustedRelayer returns (bytes32) {
+    ) external returns (bytes32) {
         PrivateCheckout storage checkout = _checkouts[orderCommitment];
         require(checkout.status == PaymentStatus.Created, "checkout not payable");
         require(block.timestamp <= checkout.expiresAt, "checkout expired");
@@ -105,9 +103,9 @@ contract PrivateCheckoutSettlement is ZamaEthereumConfig {
         ebool amountMatches = FHE.eq(paidAmount, checkout.expectedAmount);
         euint64 chargeAmount = FHE.select(amountMatches, paidAmount, FHE.asEuint64(0));
 
-        FHE.allowTransient(chargeAmount, address(paymentRail));
-        ebool railDebited = paymentRail.debitExact(accountCommitment, chargeAmount);
-        ebool accepted = FHE.and(amountMatches, railDebited);
+        FHE.allowTransient(chargeAmount, address(paymentToken));
+        ebool tokenDebited = paymentToken.debitExact(msg.sender, chargeAmount);
+        ebool accepted = FHE.and(amountMatches, tokenDebited);
 
         FHE.allowThis(accepted);
         FHE.makePubliclyDecryptable(accepted);

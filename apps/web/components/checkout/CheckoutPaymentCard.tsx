@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2Icon, CreditCardIcon, LockKeyholeIcon, ShieldCheckIcon } from 'lucide-react'
-import { createWalletClient, custom, getAddress } from 'viem'
+import { bytesToHex, createPublicClient, createWalletClient, custom, getAddress, http } from 'viem'
 import { StatusStepper, type StatusStepperItem } from '@/components/commerce/StatusStepper'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib/contract-environment'
+import { privateCheckoutSettlementAbi } from '@/lib/contracts'
+import { encryptLocalEuint64, publicDecryptLocalBool } from '@/lib/local-fhevm-browser'
 import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
 type HexAddress = `0x${string}`
@@ -29,21 +31,26 @@ type CheckoutPaymentCardProps = {
   tokenAddress: string | null
 }
 
-type PaymentStep = 'finalize' | 'intent' | 'invoice' | 'project' | 'submit'
+type PaymentStep = 'encrypt' | 'finalize' | 'invoice' | 'project' | 'submit'
 
 const paymentStepOrder: Record<PaymentStep, number> = {
   invoice: 1,
-  intent: 2,
+  encrypt: 2,
   submit: 3,
   finalize: 4,
   project: 5,
 }
+
 function ensureHexAddress(address: string | null, label: string): HexAddress {
-  if (!address?.startsWith('0x')) {
+  if (!address) {
     throw new Error(`${label} is not deployed in the contract manifest.`)
   }
 
-  return address as HexAddress
+  try {
+    return getAddress(address) as HexAddress
+  } catch {
+    throw new Error(`${label} is not a valid EVM address.`)
+  }
 }
 
 function readableError(caught: unknown): string {
@@ -82,55 +89,6 @@ async function projectFinalizedPayment(paymentTxHash: HexAddress, chainInvoiceId
   }
 }
 
-type LocalPrivateCheckoutPaymentResult = {
-  accepted: boolean
-  chainInvoiceId: number
-  finalizeTxHash: HexAddress
-  orderCommitment: HexAddress
-  paymentCheckHandle: HexAddress
-  paymentTxHash: HexAddress
-}
-
-async function submitLocalPrivateCheckout(input: {
-  amountMinorUnits: number
-  chainInvoiceId: number
-  intentMessage: string
-  intentSignature: HexAddress
-  payerAddress: HexAddress
-}): Promise<LocalPrivateCheckoutPaymentResult> {
-  const response = await fetch('/api/dev/local-private-checkout/pay', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  const text = await response.text()
-
-  if (!response.ok) {
-    throw new Error(parseProjectionError(text) || `Local encrypted input creation failed with ${response.status}.`)
-  }
-
-  return JSON.parse(text) as LocalPrivateCheckoutPaymentResult
-}
-
-function privateCheckoutIntentMessage(input: {
-  amountMinorUnits: number
-  chainId: number
-  chainInvoiceId: number
-  payerAddress: string
-  paymentRailAddress: string
-  settlementAddress: string
-}) {
-  return [
-    'Mermer Pay Private Checkout',
-    `Chain ID: ${input.chainId}`,
-    `Settlement: ${input.settlementAddress}`,
-    `Payment rail: ${input.paymentRailAddress}`,
-    `Invoice: ${input.chainInvoiceId}`,
-    `Amount minor units: ${input.amountMinorUnits}`,
-    `Payer: ${input.payerAddress}`,
-  ].join('\n')
-}
-
 export function CheckoutPaymentCard({
   amountLabel,
   amountMinorUnits,
@@ -148,7 +106,7 @@ export function CheckoutPaymentCard({
   const [error, setError] = useState<string | null>(null)
   const [finalizeHash, setFinalizeHash] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
-  const [paymentStep, setPaymentStep] = useState<PaymentStep>('intent')
+  const [paymentStep, setPaymentStep] = useState<PaymentStep>('encrypt')
   const [paymentHash, setPaymentHash] = useState<string | null>(null)
   const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus))
 
@@ -185,7 +143,7 @@ export function CheckoutPaymentCard({
     setError(null)
     setFinalizeHash(null)
     setPaymentHash(null)
-    setPaymentStep('intent')
+    setPaymentStep('encrypt')
 
     try {
       if (!canPay || chainInvoiceId === null) {
@@ -201,51 +159,74 @@ export function CheckoutPaymentCard({
       if (canPayOnLocalDev) {
         const paymentEnvironment = contractEnvironmentConfigs['local-dev']
         const settlement = ensureHexAddress(settlementAddress, 'PrivateCheckoutSettlement')
-        const paymentRail = ensureHexAddress(tokenAddress, 'MockConfidentialPaymentRail')
+        ensureHexAddress(tokenAddress, 'ConfidentialUSDMock')
+        const rpcUrl = paymentEnvironment.walletChain.rpcUrls[0]
+        if (!rpcUrl) {
+          throw new Error('Hardhat RPC URL is missing from the local-dev wallet chain.')
+        }
 
         setStatus('Switching wallet to Hardhat Local...')
         await ensureWalletChain(provider, paymentEnvironment.walletChain)
 
         const walletClient = createWalletClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
+        const publicClient = createPublicClient({ chain: paymentEnvironment.chain, transport: http(rpcUrl) })
         const [selectedAddress] = await walletClient.requestAddresses()
         const payerAddress = getAddress(selectedAddress)
-
-        setPaymentStep('intent')
-        setStatus('Signing private checkout payment intent...')
-        const intentMessage = privateCheckoutIntentMessage({
-          amountMinorUnits,
-          chainId: manifestChainId ?? paymentEnvironment.chain.id,
-          chainInvoiceId,
-          payerAddress,
-          paymentRailAddress: paymentRail,
-          settlementAddress: settlement,
+        const orderCommitment = await publicClient.readContract({
+          address: settlement,
+          abi: privateCheckoutSettlementAbi,
+          functionName: 'orderCommitmentOf',
+          args: [BigInt(chainInvoiceId)],
         })
-        const intentSignature = await walletClient.signMessage({
-          account: payerAddress,
-          message: intentMessage,
+
+        setPaymentStep('encrypt')
+        setStatus(`Encrypting ${amountLabel} with the local FHEVM mock RPC...`)
+        const encryptedPayment = await encryptLocalEuint64({
+          amountMinorUnits: BigInt(amountMinorUnits),
+          chainId: manifestChainId ?? paymentEnvironment.chain.id,
+          contractAddress: settlement,
+          rpcUrl,
+          userAddress: payerAddress,
         })
 
         setPaymentStep('submit')
-        setStatus(`Relayer is submitting encrypted ${amountLabel} private checkout...`)
-        const result = await submitLocalPrivateCheckout({
-          amountMinorUnits,
-          chainInvoiceId,
-          intentMessage,
-          intentSignature,
-          payerAddress,
+        setStatus(`Submitting encrypted ${amountLabel} from the buyer wallet...`)
+        const paymentNonce = randomNonce()
+        const paymentTxHash = await walletClient.writeContract({
+          account: payerAddress,
+          address: settlement,
+          abi: privateCheckoutSettlementAbi,
+          functionName: 'submitPrivatePayment',
+          args: [orderCommitment, paymentNonce, encryptedPayment.handle, encryptedPayment.inputProof],
         })
-        setPaymentHash(result.paymentTxHash)
+        setPaymentHash(paymentTxHash)
+        await publicClient.waitForTransactionReceipt({ hash: paymentTxHash })
 
         setPaymentStep('finalize')
-        setStatus('Local relayer decrypted only the paid/rejected boolean...')
-        if (!result.accepted) {
+        setStatus('Local FHEVM mock decrypts only the paid/rejected boolean...')
+        const paymentCheckHandle = await publicClient.readContract({
+          address: settlement,
+          abi: privateCheckoutSettlementAbi,
+          functionName: 'paymentCheckHandleOf',
+          args: [orderCommitment],
+        })
+        const proof = await publicDecryptLocalBool(rpcUrl, paymentCheckHandle)
+        if (!proof.accepted) {
           throw new Error('Encrypted payment was rejected by the settlement proof.')
         }
-        setFinalizeHash(result.finalizeTxHash)
+        const finalizeTxHash = await walletClient.writeContract({
+          account: payerAddress,
+          address: settlement,
+          abi: privateCheckoutSettlementAbi,
+          functionName: 'finalizePrivatePayment',
+          args: [orderCommitment, proof.abiEncodedClearValues, proof.decryptionProof],
+        })
+        setFinalizeHash(finalizeTxHash)
+        await publicClient.waitForTransactionReceipt({ hash: finalizeTxHash })
 
         setPaymentStep('project')
         setStatus('Payment confirmed on local chain. Projecting backend read model...')
-        await projectFinalizedPayment(result.finalizeTxHash, chainInvoiceId)
+        await projectFinalizedPayment(finalizeTxHash, chainInvoiceId)
 
         setStatus('Encrypted payment projected. Refreshing fulfillment state...')
         router.refresh()
@@ -352,7 +333,7 @@ export function CheckoutPaymentCard({
         </Button>
         {!isPaid ? (
           <p className="text-center text-xs text-muted-foreground">
-            Wallet signs a payment intent; the relayer submits the private checkout and only the paid result is public.
+            Wallet submits the encrypted checkout directly; only the paid result is publicly finalized.
           </p>
         ) : null}
       </CardFooter>
@@ -416,22 +397,22 @@ function getPaymentSteps({
     },
     {
       description: canPay || isPaid
-        ? 'Buyer wallet signs a local private checkout intent.'
+        ? 'Browser encrypts the payment amount with the local FHEVM mock.'
         : 'Local-dev private checkout manifest is required before buyer payment.',
       state: stepState(2, currentStep, isBusy, error),
-      title: 'Intent',
+      title: 'Encrypt',
     },
     {
       description: paymentHash
         ? `${paymentHash.slice(0, 18)}...`
-        : 'Encrypted local payment amount is submitted to the settlement contract.',
+        : 'Buyer wallet submits the encrypted amount to the settlement contract.',
       state: paymentHash || isPaid ? 'complete' : stepState(3, currentStep, isBusy, error),
       title: 'Payment',
     },
     {
       description: finalizeHash
         ? `${finalizeHash.slice(0, 18)}...`
-        : 'Local FHEVM mock decrypts only the paid/rejected boolean, then finalizes on chain.',
+        : 'Local FHEVM mock decrypts only the paid/rejected boolean.',
       state: finalizeHash || isPaid ? 'complete' : stepState(4, currentStep, isBusy, error),
       title: 'Verify',
     },
@@ -459,4 +440,10 @@ function stepState(step: number, currentStep: number, isBusy: boolean, error: st
 
 function shortInvoiceId(invoiceId: string) {
   return invoiceId.length > 16 ? `${invoiceId.slice(0, 10)}...${invoiceId.slice(-6)}` : invoiceId
+}
+
+function randomNonce(): HexAddress {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return bytesToHex(bytes)
 }

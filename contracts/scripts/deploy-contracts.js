@@ -34,14 +34,10 @@ async function main() {
   await subscriptionRegistry.waitForDeployment()
   await (await pass.setMinter(await subscriptionRegistry.getAddress())).wait()
 
-  const paymentRailFactory = await ethers.getContractFactory('MockConfidentialPaymentRail')
-  const paymentRail = await paymentRailFactory.deploy()
-  await paymentRail.waitForDeployment()
-
   const privateCheckoutFactory = await ethers.getContractFactory('PrivateCheckoutSettlement')
-  const privateCheckout = await privateCheckoutFactory.deploy(await paymentRail.getAddress(), deployer.address)
+  const privateCheckout = await privateCheckoutFactory.deploy(await token.getAddress())
   await privateCheckout.waitForDeployment()
-  await (await paymentRail.setSettlement(await privateCheckout.getAddress())).wait()
+  await (await token.setSettlement(await privateCheckout.getAddress())).wait()
   await (await subscriptionRegistry.setSettlement(await privateCheckout.getAddress())).wait()
 
   const network = await ethers.provider.getNetwork()
@@ -54,10 +50,14 @@ async function main() {
       ConfidentialUSDMock: await token.getAddress(),
       SubscriptionPass: await pass.getAddress(),
       PrivateSubscriptionRegistry: await subscriptionRegistry.getAddress(),
-      MockConfidentialPaymentRail: await paymentRail.getAddress(),
       PrivateCheckoutSettlement: await privateCheckout.getAddress(),
     },
     billing,
+    testTokenFaucet: {
+      token: await token.getAddress(),
+      claimAmountMinorUnits: '1000000000',
+      functionName: 'claimTestTokens',
+    },
     generatedAt: new Date().toISOString(),
     deployer: deployer.address,
     platformFeeWallet,
@@ -70,7 +70,6 @@ async function main() {
       ConfidentialUSDMock: await hre.artifacts.readArtifact('ConfidentialUSDMock'),
       SubscriptionPass: await hre.artifacts.readArtifact('SubscriptionPass'),
       PrivateSubscriptionRegistry: await hre.artifacts.readArtifact('PrivateSubscriptionRegistry'),
-      MockConfidentialPaymentRail: await hre.artifacts.readArtifact('MockConfidentialPaymentRail'),
       PrivateCheckoutSettlement: await hre.artifacts.readArtifact('PrivateCheckoutSettlement'),
     },
     manifest,

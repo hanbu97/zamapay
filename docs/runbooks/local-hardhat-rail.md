@@ -69,4 +69,4 @@ npm run verify:local
 - `/api/checkout/project-finalized-payment` projects only finalized `PrivatePaymentFinalized` transactions from `PrivateCheckoutSettlement`.
 - The old transparent invoice smoke and public-testnet readiness scripts are intentionally removed; local-dev is the only active environment until Zama protocol-fee handling is designed.
 - `verify:local` checks the local manifest, Rust API, Next pages, wallet login, and dev-signer boundary.
-- Browser payment uses the hosted checkout page: wallet signs a local private intent, the Mermer Pay relayer submits encrypted payment, local FHEVM decrypts only `accepted`, then Rust projects finality and fulfillment.
+- Browser payment uses the hosted checkout page: the buyer wallet submits encrypted payment directly, local FHEVM decrypts only `accepted`, then Rust projects finality and fulfillment.

@@ -11,8 +11,6 @@ apps/web
 |   |-- api/checkout/project-finalized-payment/route.ts
 |   |-- api/dev/sign-message/route.ts
 |   |-- api/dev/project-local-growth/route.ts
-|   |-- api/dev/local-private-checkout/pay/route.ts
-|   |-- api/dev/local-confidential-wallet/route.ts
 |   |-- api/dev/local-chain-invoice/route.ts
 |   |-- page.tsx
 |   `-- (merchant)/
@@ -50,10 +48,10 @@ apps/web
 - Server components guard protected pages by consulting Rust session state.
 - `/login` is standalone; expired or missing sessions do not inherit merchant chrome.
 - Hosted checkout renders from Rust read-model APIs in a standalone buyer shell and uses one centered private-payment card.
-- Local-dev is the only active contract environment. The checkout client signs a local private intent, then the server relayer submits and finalizes `PrivateCheckoutSettlement`.
+- Local-dev is the only active contract environment. The hosted checkout browser encrypts `paidAmount`, submits `PrivateCheckoutSettlement` directly with the buyer wallet, and finalizes only the paid/rejected boolean.
 - `app/api/checkout/project-finalized-payment` verifies only `PrivatePaymentFinalized` from `PrivateCheckoutSettlement`, then calls Rust projection and confirmation endpoints.
-- `app/api/dev/project-local-growth` executes the local chain `PrivateSubscriptionRegistry` Growth proof before projecting the account subscription.
-- `app/api/dev/local-confidential-wallet` exposes the app-rendered confidential cUSDT balance because the mock cUSDT balance is not a MetaMask ERC20 token.
-- The old browser Zama relayer bundle, old local confidential-payment routes, public-testnet branches, and dashboard settlement decrypt card are removed from the active web app.
+- `app/api/dev/project-local-growth` only projects browser-finalized Growth chain evidence into Rust; it never signs, mints, or pays on behalf of the merchant.
+- Local confidential cUSDT balances are read by buyer-facing browser UI from Hardhat/FHEVM mock RPC, not through Mermer Pay backend balance projections.
+- The old platform relayer route, old local confidential-payment routes, public-testnet branches, and dashboard settlement decrypt card are removed from the active web app.
 - Merchant checkout creation is project/API-key driven from external merchant backends; the web console manages projects, keys, webhook endpoints, sessions, diagnostics, billing, and hosted checkout URLs.
 - UI primitives come from shadcn/Base UI/ReUI/lucide; business screens compose these primitives instead of inventing local widget styles.

@@ -5,21 +5,21 @@ const { FhevmType } = require("@fhevm/hardhat-plugin");
 
 describe("PrivateCheckoutSettlement", function () {
   async function deployFixture() {
-    const [relayer, buyer, merchant, payoutWallet] = await ethers.getSigners();
+    const [creator, buyer, merchant, payoutWallet] = await ethers.getSigners();
 
-    const Rail = await ethers.getContractFactory("MockConfidentialPaymentRail");
-    const rail = await Rail.deploy();
-    await rail.waitForDeployment();
+    const Token = await ethers.getContractFactory("ConfidentialUSDMock");
+    const token = await Token.deploy();
+    await token.waitForDeployment();
 
     const Settlement = await ethers.getContractFactory("PrivateCheckoutSettlement");
-    const settlement = await Settlement.deploy(await rail.getAddress(), relayer.address);
+    const settlement = await Settlement.deploy(await token.getAddress());
     await settlement.waitForDeployment();
-    await rail.setSettlement(await settlement.getAddress());
+    await token.setSettlement(await settlement.getAddress());
 
-    await fhevm.assertCoprocessorInitialized(rail, "MockConfidentialPaymentRail");
+    await fhevm.assertCoprocessorInitialized(token, "ConfidentialUSDMock");
     await fhevm.assertCoprocessorInitialized(settlement, "PrivateCheckoutSettlement");
 
-    return { rail, settlement, relayer, buyer, merchant, payoutWallet };
+    return { token, settlement, creator, buyer, merchant, payoutWallet };
   }
 
   async function encrypt64(contractAddress, signer, amount) {
@@ -42,26 +42,25 @@ describe("PrivateCheckoutSettlement", function () {
     return BigInt((await fhevm.debugger.decryptEuint(FhevmType.euint64, handle)).toString());
   }
 
-  async function fundRail(rail, railAddress, relayer, accountCommitment, amount) {
-    const encrypted = await encrypt64(railAddress, relayer, amount);
-    await rail.fund(accountCommitment, encrypted.handles[0], encrypted.inputProof);
+  async function mintToken(token, account, amount) {
+    await token.mint(account.address, amount);
   }
 
-  async function createCheckout(settlement, settlementAddress, relayer, orderCommitment, bucketCommitment, amount) {
-    const encrypted = await encrypt64(settlementAddress, relayer, amount);
+  async function createCheckout(settlement, settlementAddress, creator, orderCommitment, bucketCommitment, amount) {
+    const encrypted = await encrypt64(settlementAddress, creator, amount);
     const expiresAt = BigInt((await time.latest()) + 3600);
     await expect(
       settlement
-        .connect(relayer)
+        .connect(creator)
         .createPrivateCheckout(orderCommitment, bucketCommitment, encrypted.handles[0], encrypted.inputProof, expiresAt),
     ).to.emit(settlement, "PrivateCheckoutCreated");
   }
 
-  async function submitPayment(settlement, settlementAddress, relayer, orderCommitment, accountCommitment, nonce, amount) {
-    const encrypted = await encrypt64(settlementAddress, relayer, amount);
+  async function submitPayment(settlement, settlementAddress, buyer, orderCommitment, nonce, amount) {
+    const encrypted = await encrypt64(settlementAddress, buyer, amount);
     const tx = await settlement
-      .connect(relayer)
-      .submitPrivatePayment(orderCommitment, accountCommitment, nonce, encrypted.handles[0], encrypted.inputProof);
+      .connect(buyer)
+      .submitPrivatePayment(orderCommitment, nonce, encrypted.handles[0], encrypted.inputProof);
     return tx.wait();
   }
 
@@ -71,24 +70,21 @@ describe("PrivateCheckoutSettlement", function () {
     }
   });
 
-  it("finalizes a private checkout without emitting buyer, merchant, payout wallet, or amount", async function () {
-    const { rail, settlement, relayer, buyer, merchant, payoutWallet } = await deployFixture();
-    const railAddress = await rail.getAddress();
+  it("finalizes a private checkout without emitting merchant, payout wallet, or amount", async function () {
+    const { token, settlement, creator, buyer, merchant, payoutWallet } = await deployFixture();
     const settlementAddress = await settlement.getAddress();
     const amount = 120000000n;
     const orderCommitment = ethers.keccak256(ethers.toUtf8Bytes("order:cardforge:001"));
     const bucketCommitment = ethers.keccak256(ethers.toUtf8Bytes("bucket:merchant:daily"));
-    const accountCommitment = ethers.keccak256(ethers.toUtf8Bytes(`buyer:${buyer.address}`));
     const nonce = ethers.keccak256(ethers.toUtf8Bytes("payment:001"));
 
-    await fundRail(rail, railAddress, relayer, accountCommitment, amount);
-    await createCheckout(settlement, settlementAddress, relayer, orderCommitment, bucketCommitment, amount);
+    await mintToken(token, buyer, amount);
+    await createCheckout(settlement, settlementAddress, creator, orderCommitment, bucketCommitment, amount);
     const receipt = await submitPayment(
       settlement,
       settlementAddress,
-      relayer,
+      buyer,
       orderCommitment,
-      accountCommitment,
       nonce,
       amount,
     );
@@ -102,32 +98,29 @@ describe("PrivateCheckoutSettlement", function () {
     ).to.emit(settlement, "PrivatePaymentFinalized");
 
     expect(await settlement.statusOf(orderCommitment)).to.equal(3n);
-    expect(await decrypt64(await rail.balanceHandleOf(accountCommitment))).to.equal(0n);
+    expect(await decrypt64(await token.balanceOf(buyer.address))).to.equal(0n);
 
     const emittedText = JSON.stringify(receipt.logs);
-    expect(emittedText).to.not.include(buyer.address.slice(2).toLowerCase());
     expect(emittedText).to.not.include(merchant.address.slice(2).toLowerCase());
     expect(emittedText).to.not.include(payoutWallet.address.slice(2).toLowerCase());
     expect(emittedText).to.not.include(amount.toString(16));
   });
 
   it("rejects wrong encrypted amounts and blocks replay/finalize abuse", async function () {
-    const { rail, settlement, relayer, buyer } = await deployFixture();
-    const railAddress = await rail.getAddress();
+    const { token, settlement, creator, buyer } = await deployFixture();
     const settlementAddress = await settlement.getAddress();
     const expectedAmount = 120000000n;
     const paidAmount = 119000000n;
     const orderCommitment = ethers.keccak256(ethers.toUtf8Bytes("order:cardforge:002"));
     const bucketCommitment = ethers.keccak256(ethers.toUtf8Bytes("bucket:merchant:daily"));
-    const accountCommitment = ethers.keccak256(ethers.toUtf8Bytes(`buyer:${buyer.address}`));
     const nonce = ethers.keccak256(ethers.toUtf8Bytes("payment:002"));
 
-    await fundRail(rail, railAddress, relayer, accountCommitment, expectedAmount);
-    await createCheckout(settlement, settlementAddress, relayer, orderCommitment, bucketCommitment, expectedAmount);
-    await submitPayment(settlement, settlementAddress, relayer, orderCommitment, accountCommitment, nonce, paidAmount);
+    await mintToken(token, buyer, expectedAmount);
+    await createCheckout(settlement, settlementAddress, creator, orderCommitment, bucketCommitment, expectedAmount);
+    await submitPayment(settlement, settlementAddress, buyer, orderCommitment, nonce, paidAmount);
 
     await expect(
-      submitPayment(settlement, settlementAddress, relayer, orderCommitment, accountCommitment, nonce, paidAmount),
+      submitPayment(settlement, settlementAddress, buyer, orderCommitment, nonce, paidAmount),
     ).to.be.rejectedWith("checkout not payable");
 
     const proof = await decryptBool(await settlement.paymentCheckHandleOf(orderCommitment));
@@ -141,28 +134,26 @@ describe("PrivateCheckoutSettlement", function () {
   });
 
   it("does not accept expired checkouts", async function () {
-    const { rail, settlement, relayer, buyer } = await deployFixture();
-    const railAddress = await rail.getAddress();
+    const { token, settlement, creator, buyer } = await deployFixture();
     const settlementAddress = await settlement.getAddress();
     const amount = 120000000n;
     const orderCommitment = ethers.keccak256(ethers.toUtf8Bytes("order:cardforge:003"));
     const bucketCommitment = ethers.keccak256(ethers.toUtf8Bytes("bucket:merchant:daily"));
-    const accountCommitment = ethers.keccak256(ethers.toUtf8Bytes(`buyer:${buyer.address}`));
     const nonce = ethers.keccak256(ethers.toUtf8Bytes("payment:003"));
-    const encrypted = await encrypt64(settlementAddress, relayer, amount);
+    const encrypted = await encrypt64(settlementAddress, creator, amount);
     const expiresAt = BigInt((await time.latest()) + 10);
 
-    await fundRail(rail, railAddress, relayer, accountCommitment, amount);
+    await mintToken(token, buyer, amount);
     await settlement
-      .connect(relayer)
+      .connect(creator)
       .createPrivateCheckout(orderCommitment, bucketCommitment, encrypted.handles[0], encrypted.inputProof, expiresAt);
     await time.increaseTo(Number(expiresAt) + 1);
 
-    const payment = await encrypt64(settlementAddress, relayer, amount);
+    const payment = await encrypt64(settlementAddress, buyer, amount);
     await expect(
       settlement
-        .connect(relayer)
-        .submitPrivatePayment(orderCommitment, accountCommitment, nonce, payment.handles[0], payment.inputProof),
+        .connect(buyer)
+        .submitPrivatePayment(orderCommitment, nonce, payment.handles[0], payment.inputProof),
     ).to.be.revertedWith("checkout expired");
   });
 });

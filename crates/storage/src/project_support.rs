@@ -41,7 +41,7 @@ pub(crate) fn project_environment(
         .and_then(|manifest| manifest.contracts.private_checkout_settlement.clone());
     let token_contract = manifest
         .as_ref()
-        .and_then(|manifest| manifest.contracts.mock_confidential_payment_rail.clone());
+        .and_then(|manifest| manifest.contracts.confidential_usd_mock.clone());
 
     PaymentProjectEnvironment {
         environment_id: environment_id.to_string(),

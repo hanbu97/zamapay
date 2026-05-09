@@ -1,4 +1,4 @@
-export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'MockConfidentialPaymentRail', 'PrivateCheckoutSettlement'] as const
+export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'PrivateCheckoutSettlement'] as const
 
 export type ContractName = (typeof contractNames)[number]
 
@@ -23,6 +23,11 @@ export type AddressManifest = {
   generatedAt: string
   deployer?: `0x${string}` | null
   platformFeeWallet?: `0x${string}` | null
+  testTokenFaucet?: {
+    token: `0x${string}`
+    claimAmountMinorUnits: string
+    functionName: string
+  }
 }
 
 export const merchantRegistryAbi = [
@@ -233,80 +238,6 @@ export const confidentialUsdMockAbi = [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "from",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "merchantWallet",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "platformWallet",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "expectedGrossAmount",
-        "type": "uint64"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "merchantNetAmount",
-        "type": "uint64"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "platformFeeAmount",
-        "type": "uint64"
-      }
-    ],
-    "name": "ConditionalSplitTransfer",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "from",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "spender",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "expectedAmount",
-        "type": "uint64"
-      }
-    ],
-    "name": "ConditionalTransfer",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
         "name": "to",
         "type": "address"
       },
@@ -318,6 +249,19 @@ export const confidentialUsdMockAbi = [
       }
     ],
     "name": "Mint",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "PrivateDebit",
     "type": "event"
   },
   {
@@ -351,29 +295,30 @@ export const confidentialUsdMockAbi = [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "from",
+        "name": "settlement",
         "type": "address"
-      },
+      }
+    ],
+    "name": "SettlementUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
       {
         "indexed": true,
         "internalType": "address",
-        "name": "merchantWallet",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "platformWallet",
+        "name": "account",
         "type": "address"
       },
       {
         "indexed": false,
-        "internalType": "address",
-        "name": "spender",
-        "type": "address"
+        "internalType": "uint64",
+        "name": "amount",
+        "type": "uint64"
       }
     ],
-    "name": "PrivateSplitTransfer",
+    "name": "TestTokensClaimed",
     "type": "event"
   },
   {
@@ -394,6 +339,19 @@ export const confidentialUsdMockAbi = [
     ],
     "name": "Transfer",
     "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "TEST_CLAIM_AMOUNT",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
     "inputs": [
@@ -469,6 +427,19 @@ export const confidentialUsdMockAbi = [
   },
   {
     "inputs": [],
+    "name": "claimTestTokens",
+    "outputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "confidentialProtocolId",
     "outputs": [
       {
@@ -478,6 +449,30 @@ export const confidentialUsdMockAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      },
+      {
+        "internalType": "euint64",
+        "name": "amount",
+        "type": "bytes32"
+      }
+    ],
+    "name": "debitExact",
+    "outputs": [
+      {
+        "internalType": "ebool",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -527,6 +522,32 @@ export const confidentialUsdMockAbi = [
   {
     "inputs": [],
     "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "settlementAddress",
+        "type": "address"
+      }
+    ],
+    "name": "setSettlement",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "settlement",
     "outputs": [
       {
         "internalType": "address",
@@ -644,144 +665,12 @@ export const confidentialUsdMockAbi = [
         "type": "bytes32"
       },
       {
-        "internalType": "uint64",
-        "name": "expectedAmount",
-        "type": "uint64"
-      }
-    ],
-    "name": "transferFromExact",
-    "outputs": [
-      {
-        "internalType": "ebool",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "from",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "to",
-        "type": "address"
-      },
-      {
-        "internalType": "euint64",
-        "name": "amount",
-        "type": "bytes32"
-      },
-      {
         "internalType": "euint64",
         "name": "expectedAmount",
         "type": "bytes32"
       }
     ],
     "name": "transferFromPrivateExact",
-    "outputs": [
-      {
-        "internalType": "ebool",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "from",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "merchantWallet",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "platformWallet",
-        "type": "address"
-      },
-      {
-        "internalType": "euint64",
-        "name": "amount",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint64",
-        "name": "expectedGrossAmount",
-        "type": "uint64"
-      },
-      {
-        "internalType": "euint64",
-        "name": "merchantNetAmount",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "euint64",
-        "name": "platformFeeAmount",
-        "type": "bytes32"
-      }
-    ],
-    "name": "transferFromPrivateSplitExact",
-    "outputs": [
-      {
-        "internalType": "ebool",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "from",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "merchantWallet",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "platformWallet",
-        "type": "address"
-      },
-      {
-        "internalType": "euint64",
-        "name": "amount",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "uint64",
-        "name": "expectedGrossAmount",
-        "type": "uint64"
-      },
-      {
-        "internalType": "uint64",
-        "name": "merchantNetAmount",
-        "type": "uint64"
-      },
-      {
-        "internalType": "uint64",
-        "name": "platformFeeAmount",
-        "type": "uint64"
-      }
-    ],
-    "name": "transferFromSplitExact",
     "outputs": [
       {
         "internalType": "ebool",
@@ -1723,258 +1612,12 @@ export const privateSubscriptionRegistryAbi = [
     "type": "function"
   }
 ] as const
-export const mockConfidentialPaymentRailAbi = [
-  {
-    "inputs": [],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "handle",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "address",
-        "name": "sender",
-        "type": "address"
-      }
-    ],
-    "name": "SenderNotAllowedToUseHandle",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "ZamaProtocolUnsupported",
-    "type": "error"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      },
-      {
-        "indexed": false,
-        "internalType": "bytes32",
-        "name": "balanceHandle",
-        "type": "bytes32"
-      }
-    ],
-    "name": "ConfidentialBalanceFunded",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      },
-      {
-        "indexed": false,
-        "internalType": "bytes32",
-        "name": "debitCheckHandle",
-        "type": "bytes32"
-      },
-      {
-        "indexed": false,
-        "internalType": "bytes32",
-        "name": "balanceHandle",
-        "type": "bytes32"
-      }
-    ],
-    "name": "ConfidentialDebitSubmitted",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "settlement",
-        "type": "address"
-      }
-    ],
-    "name": "SettlementUpdated",
-    "type": "event"
-  },
-  {
-    "inputs": [],
-    "name": "admin",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      }
-    ],
-    "name": "balanceHandleOf",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      }
-    ],
-    "name": "balanceOf",
-    "outputs": [
-      {
-        "internalType": "euint64",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "confidentialProtocolId",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      }
-    ],
-    "name": "debitCheckHandleOf",
-    "outputs": [
-      {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "euint64",
-        "name": "amount",
-        "type": "bytes32"
-      }
-    ],
-    "name": "debitExact",
-    "outputs": [
-      {
-        "internalType": "ebool",
-        "name": "",
-        "type": "bytes32"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "externalEuint64",
-        "name": "encryptedAmount",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes",
-        "name": "inputProof",
-        "type": "bytes"
-      }
-    ],
-    "name": "fund",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "settlementAddress",
-        "type": "address"
-      }
-    ],
-    "name": "setSettlement",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "settlement",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  }
-] as const
 export const privateCheckoutSettlementAbi = [
   {
     "inputs": [
       {
         "internalType": "address",
-        "name": "paymentRailAddress",
-        "type": "address"
-      },
-      {
-        "internalType": "address",
-        "name": "trustedRelayerAddress",
+        "name": "paymentTokenAddress",
         "type": "address"
       }
     ],
@@ -2110,6 +1753,19 @@ export const privateCheckoutSettlementAbi = [
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "checkoutCreator",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -2338,10 +1994,10 @@ export const privateCheckoutSettlementAbi = [
   },
   {
     "inputs": [],
-    "name": "paymentRail",
+    "name": "paymentToken",
     "outputs": [
       {
-        "internalType": "contract IPrivateCheckoutPaymentRail",
+        "internalType": "contract IPrivateCheckoutToken",
         "name": "",
         "type": "address"
       }
@@ -2377,11 +2033,6 @@ export const privateCheckoutSettlementAbi = [
       },
       {
         "internalType": "bytes32",
-        "name": "accountCommitment",
-        "type": "bytes32"
-      },
-      {
-        "internalType": "bytes32",
         "name": "paymentNonce",
         "type": "bytes32"
       },
@@ -2406,19 +2057,6 @@ export const privateCheckoutSettlementAbi = [
     ],
     "stateMutability": "nonpayable",
     "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "trustedRelayer",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
   }
 ] as const
 
@@ -2427,7 +2065,6 @@ export const abis = {
   ConfidentialUSDMock: confidentialUsdMockAbi,
   SubscriptionPass: subscriptionPassAbi,
   PrivateSubscriptionRegistry: privateSubscriptionRegistryAbi,
-  MockConfidentialPaymentRail: mockConfidentialPaymentRailAbi,
   PrivateCheckoutSettlement: privateCheckoutSettlementAbi,
 } as const
 
@@ -2436,12 +2073,11 @@ export const addressManifests = {
   "network": "localhost",
   "chainId": 31337,
   "contracts": {
-    "MerchantRegistry": "0x998abeb3E57409262aE5b751f60747921B33613E",
-    "ConfidentialUSDMock": "0x70e0bA845a1A0F2DA3359C97E0285013525FFC49",
-    "SubscriptionPass": "0x4826533B4897376654Bb4d4AD88B7faFD0C98528",
-    "PrivateSubscriptionRegistry": "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf",
-    "MockConfidentialPaymentRail": "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf",
-    "PrivateCheckoutSettlement": "0x9d4454B023096f34B160D6B654540c56A1F81688"
+    "MerchantRegistry": "0xf5059a5D33d5853360D16C683c16e67980206f36",
+    "ConfidentialUSDMock": "0x95401dc811bb5740090279Ba06cfA8fcF6113778",
+    "SubscriptionPass": "0x998abeb3E57409262aE5b751f60747921B33613E",
+    "PrivateSubscriptionRegistry": "0x70e0bA845a1A0F2DA3359C97E0285013525FFC49",
+    "PrivateCheckoutSettlement": "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf"
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -2475,7 +2111,12 @@ export const addressManifests = {
       }
     ]
   },
-  "generatedAt": "2026-05-09T08:00:43.575Z",
+  "testTokenFaucet": {
+    "token": "0x95401dc811bb5740090279Ba06cfA8fcF6113778",
+    "claimAmountMinorUnits": "1000000000",
+    "functionName": "claimTestTokens"
+  },
+  "generatedAt": "2026-05-09T10:26:34.049Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 },
