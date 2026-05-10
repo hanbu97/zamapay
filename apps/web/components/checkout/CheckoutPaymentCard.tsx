@@ -274,10 +274,10 @@ export function CheckoutPaymentCard({
             args: [orderCommitment, proof.abiEncodedClearValues, proof.decryptionProof],
           })
           await publicClient.waitForTransactionReceipt({ hash: finalizationTxHash })
-          const projected = await waitForPaymentProjection(
-            projectFinalizedPayment({ chainInvoiceId, paymentTxHash: finalizationTxHash }),
+          const projected = await waitForPaymentProjection({
             invoiceId,
-          )
+            projectPayment: projectFinalizedPayment({ chainInvoiceId, paymentTxHash: finalizationTxHash }),
+          })
           if (projected) {
             completePayment()
             return
@@ -419,49 +419,22 @@ function paymentButtonLabel({ canPay, isBusy }: { canPay: boolean; isBusy: boole
   return canPay ? 'Pay confidentially' : 'Payment unavailable'
 }
 
-async function waitForPaymentProjection(projectPayment: Promise<void>, invoiceId: string): Promise<boolean> {
-  const projectedByRoute = projectPayment.then(
-    () => true,
-    async (caught) => {
-      if (await isProjectedPaid(invoiceId)) {
-        return true
-      }
-
-      throw caught
-    },
-  )
-  const projected = await Promise.race([projectedByRoute, waitForProjectedPaid(invoiceId)])
-
-  if (projected) {
-    projectedByRoute.catch(() => undefined)
+async function waitForPaymentProjection(input: { invoiceId: string; projectPayment: Promise<void> }): Promise<boolean> {
+  try {
+    await input.projectPayment
     return true
-  }
-
-  return projectedByRoute
-}
-
-async function waitForProjectedPaid(invoiceId: string): Promise<boolean> {
-  for (let attempt = 0; attempt < 12; attempt += 1) {
-    if (attempt > 0) {
-      await sleep(1_250)
-    }
-    if (await isProjectedPaid(invoiceId)) {
+  } catch (caught) {
+    if (await isProjectedPaid(input.invoiceId)) {
       return true
     }
-  }
 
-  return false
+    throw caught
+  }
 }
 
 async function isProjectedPaid(invoiceId: string): Promise<boolean> {
   const invoice = await getInvoiceRecord(invoiceId).catch(() => null)
   return Boolean(invoice && isPaymentComplete(invoice.snapshot.paymentTruth, invoice.snapshot.finalityStatus))
-}
-
-function sleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, milliseconds)
-  })
 }
 
 function shortInvoiceId(invoiceId: string) {

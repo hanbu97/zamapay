@@ -62,14 +62,14 @@ pub(crate) struct CheckoutResponse {
     pub(crate) invoice_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateCheckoutRequest {
     pub(crate) buyer_wallet_address: Option<String>,
     pub(crate) product_id: Option<String>,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CheckoutBillingSnapshot {
     pub(crate) fee_bps: u16,
@@ -91,7 +91,7 @@ impl CheckoutBillingSnapshot {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CreateCheckoutSessionRequest {
     pub(crate) amount_label: String,
@@ -106,6 +106,12 @@ pub(crate) struct CreateCheckoutSessionRequest {
     pub(crate) note: String,
     pub(crate) success_url: Option<String>,
     pub(crate) title: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PreparedCheckoutResponse {
+    pub(crate) prepared: bool,
 }
 
 #[derive(Serialize)]
@@ -131,7 +137,7 @@ pub(crate) struct ZamaPayCheckoutSessionResponse {
     pub(crate) invoice_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LocalChainInvoiceResponse {
     pub(crate) chain_invoice_id: u64,

@@ -13,7 +13,7 @@ import {
   addressManifests,
   confidentialUsdMockAbi,
   type AddressManifest,
-} from '../../../../generated/clients/ts/contracts'
+} from '../generated/contracts'
 import type { FhevmInstance } from '@zama-fhe/relayer-sdk/web'
 
 export type ConfidentialWalletSnapshot = {

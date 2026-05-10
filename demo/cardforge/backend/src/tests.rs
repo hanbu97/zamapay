@@ -117,7 +117,59 @@ async fn checkout_can_forward_zero_based_local_chain_invoice() {
         .clone()
         .expect("fake ZamaPay API should receive checkout request");
     assert_eq!(payload["chainInvoiceId"], 0);
-    assert_eq!(payload["chainTxHash"], "0xabc");
+    assert_eq!(payload["chainTxHash"], format!("0x{:064x}", 0));
+}
+
+#[tokio::test]
+async fn checkout_consumes_prepared_chain_invoice() {
+    let captured = Arc::new(Mutex::new(None::<Value>));
+    let chain_invoice_calls = Arc::new(Mutex::new(0_u32));
+    let fake_zamapay =
+        fake_zamapay_api_with_local_chain_counter(captured.clone(), chain_invoice_calls.clone())
+            .await;
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zmp_test_secret");
+    config.local_chain_invoice_api_url = fake_zamapay;
+    let service = app(AppState::new(config).await.unwrap());
+
+    let prepare = service
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/orders/prepare-checkout")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "productId": "arena-access" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(prepare.status(), StatusCode::OK);
+
+    let checkout = service
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/orders/checkout")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "productId": "arena-access" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(checkout.status(), StatusCode::OK);
+    assert_eq!(*chain_invoice_calls.lock().unwrap(), 1);
+
+    let payload = captured
+        .lock()
+        .expect("captured checkout request lock should work")
+        .clone()
+        .expect("fake ZamaPay API should receive checkout request");
+    assert_eq!(payload["chainInvoiceId"], 0);
+    assert_eq!(payload["amountMinorUnits"], 80_000_000);
 }
 
 #[tokio::test]
@@ -455,18 +507,34 @@ async fn fake_zamapay_api(captured: Arc<Mutex<Option<(String, HeaderMap)>>>) -> 
 }
 
 async fn fake_zamapay_api_with_local_chain(captured: Arc<Mutex<Option<Value>>>) -> String {
+    fake_zamapay_api_with_local_chain_counter(captured, Arc::new(Mutex::new(0))).await
+}
+
+async fn fake_zamapay_api_with_local_chain_counter(
+    captured: Arc<Mutex<Option<Value>>>,
+    chain_invoice_calls: Arc<Mutex<u32>>,
+) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let app = Router::new()
         .route(
             "/api/dev/local-chain-invoice",
-            post(|| async {
-                Json(json!({
-                    "chainInvoiceId": 0,
-                    "chainTxHash": "0xabc",
-                    "expiresAt": 1770000000,
-                    "settlementAddress": "0xSettlement"
-                }))
+            post({
+                let chain_invoice_calls = chain_invoice_calls.clone();
+                move || {
+                    let chain_invoice_calls = chain_invoice_calls.clone();
+                    async move {
+                        let mut calls = chain_invoice_calls.lock().unwrap();
+                        let chain_invoice_id = *calls as u64;
+                        *calls += 1;
+                        Json(json!({
+                            "chainInvoiceId": chain_invoice_id,
+                            "chainTxHash": format!("0x{chain_invoice_id:064x}"),
+                            "expiresAt": 1770000000,
+                            "settlementAddress": "0xSettlement"
+                        }))
+                    }
+                }
             }),
         )
         .route(

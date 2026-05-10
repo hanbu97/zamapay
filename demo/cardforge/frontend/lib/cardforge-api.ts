@@ -121,6 +121,26 @@ export async function createCardForgeCheckout(
   return response.json() as Promise<CheckoutRecord>
 }
 
+export async function prepareCardForgeCheckout(config: CardForgeConfig, productId = 'mythic-loadout') {
+  const response = await fetch(`${config.apiBaseUrl}/api/orders/prepare-checkout`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ productId }),
+    credentials: 'omit',
+  })
+
+  if (!response.ok) {
+    const body = await readErrorBody(response)
+    throw new CardForgeApiError(
+      'checkout_prepare_failed',
+      body.message ?? `CardForge backend returned ${response.status}.`,
+      body.loginUrl,
+    )
+  }
+}
+
 export async function getCardForgeFulfillment(config: CardForgeConfig) {
   const response = await fetch(`${config.apiBaseUrl}/api/fulfillment`, {
     credentials: 'omit',
@@ -191,6 +211,7 @@ export class CardForgeApiError extends Error {
   constructor(
     public readonly code:
       | 'checkout_create_failed'
+      | 'checkout_prepare_failed'
       | 'fulfillment_read_failed'
       | 'zamapay_project_auth_failed'
       | 'webhook_log_read_failed'

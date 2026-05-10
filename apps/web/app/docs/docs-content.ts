@@ -11,6 +11,8 @@ import {
 
 export type DocsFigureKind = "project-console" | "api-handoff" | "webhook-outbox" | "cardforge"
 
+export const docsDemoUrl = "https://demo.zamapay.org"
+
 export type DocsTable = {
   headers: string[]
   mergeFirstColumn?: boolean

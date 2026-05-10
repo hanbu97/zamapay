@@ -11,6 +11,7 @@ const DEFAULT_WEBHOOK_ENDPOINT: &str = "http://127.0.0.1:8092/api/zamapay/webhoo
 
 #[derive(Clone)]
 pub(crate) struct Config {
+    pub(crate) allowed_origins: Vec<String>,
     pub(crate) bind_addr: SocketAddr,
     pub(crate) database_url: String,
     pub(crate) local_chain_invoice_api_url: String,
@@ -30,7 +31,8 @@ impl Config {
         let zamapay_console_url =
             clean_base_url(env_value("ZAMAPAY_CONSOLE_URL", DEFAULT_CONSOLE_URL));
         Ok(Self {
-            bind_addr: env_value("CARDFORGE_BACKEND_BIND", DEFAULT_BIND_ADDR).parse()?,
+            allowed_origins: list_env("CARDFORGE_ALLOWED_ORIGINS"),
+            bind_addr: bind_addr()?,
             database_url: required_env("CARDFORGE_DATABASE_URL")?,
             login_url: env_value("ZAMAPAY_LOGIN_URL", DEFAULT_LOGIN_URL),
             local_chain_invoice_api_url: clean_base_url(env_value(
@@ -49,6 +51,22 @@ impl Config {
     }
 }
 
+fn bind_addr() -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    if let Ok(value) = env::var("CARDFORGE_BACKEND_BIND")
+        && !value.trim().is_empty()
+    {
+        return Ok(value.parse()?);
+    }
+
+    if let Ok(port) = env::var("PORT")
+        && !port.trim().is_empty()
+    {
+        return Ok(format!("0.0.0.0:{}", port.trim()).parse()?);
+    }
+
+    Ok(DEFAULT_BIND_ADDR.parse()?)
+}
+
 fn env_value(key: &str, fallback: &str) -> String {
     env::var(key)
         .ok()
@@ -63,7 +81,21 @@ fn required_env(key: &'static str) -> Result<String, ConfigError> {
         .ok_or(ConfigError(key))
 }
 
+fn list_env(key: &str) -> Vec<String> {
+    env::var(key)
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(clean_base_url_ref)
+        .collect()
+}
+
 fn clean_base_url(value: String) -> String {
+    value.trim_end_matches('/').to_string()
+}
+
+fn clean_base_url_ref(value: &str) -> String {
     value.trim_end_matches('/').to_string()
 }
 

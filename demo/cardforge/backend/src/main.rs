@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use axum::{
     Json, Router,
@@ -10,6 +13,7 @@ use ethers_core::utils::keccak256;
 use reqwest::Client;
 use sea_orm::DbErr;
 use serde_json::Value;
+use tokio::sync::Mutex;
 use tower_http::{cors::AllowOrigin, cors::CorsLayer, trace::TraceLayer};
 
 mod catalog;
@@ -34,15 +38,25 @@ use store::CardForgeStore;
 use types::{
     CheckoutQuoteRequest, CheckoutQuoteResponse, CheckoutResponse, CreateCheckoutRequest,
     CreateCheckoutSessionRequest, FulfillmentSnapshot, LocalChainInvoiceResponse, PendingOrder,
-    ReleasedOrder, StorefrontResponse, WalletActivityResponse, WebhookAck, WebhookLog,
-    WebhookReceipt, ZamaPayCheckoutSessionResponse, epoch_millis,
+    PreparedCheckoutResponse, ReleasedOrder, StorefrontResponse, WalletActivityResponse,
+    WebhookAck, WebhookLog, WebhookReceipt, ZamaPayCheckoutSessionResponse, epoch_millis,
 };
 
 #[derive(Clone)]
 struct AppState {
     client: Client,
     config: Arc<Config>,
+    prepared_checkouts: PreparedCheckoutStore,
     store: CardForgeStore,
+}
+
+type PreparedCheckoutStore = Arc<Mutex<HashMap<String, VecDeque<PreparedCheckout>>>>;
+
+#[derive(Clone)]
+struct PreparedCheckout {
+    billing: types::CheckoutBillingSnapshot,
+    chain_invoice: LocalChainInvoiceResponse,
+    payload: CreateCheckoutSessionRequest,
 }
 
 #[tokio::main]
@@ -59,11 +73,14 @@ async fn main() -> Result<(), DynError> {
 }
 
 fn app(state: AppState) -> Router {
+    let allowed_origins = state.config.allowed_origins.clone();
+
     Router::new()
         .route("/health", get(health))
         .route("/api/storefront", get(storefront))
         .route("/api/fulfillment", get(fulfillment))
         .route("/api/orders/checkout", post(create_checkout))
+        .route("/api/orders/prepare-checkout", post(prepare_checkout))
         .route(
             "/api/wallets/{wallet_address}/activity",
             get(wallet_activity),
@@ -72,7 +89,7 @@ fn app(state: AppState) -> Router {
         .route("/api/zamapay/webhooks", get(webhook_log))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-        .layer(cors())
+        .layer(cors(allowed_origins))
 }
 
 impl AppState {
@@ -81,6 +98,7 @@ impl AppState {
         Ok(Self {
             client: Client::new(),
             config: Arc::new(config),
+            prepared_checkouts: Arc::new(Mutex::new(HashMap::new())),
             store,
         })
     }
@@ -136,6 +154,26 @@ async fn create_checkout(
         checkout_url: checkout.checkout_url,
         invoice_id: checkout.invoice_id,
     }))
+}
+
+async fn prepare_checkout(
+    State(state): State<AppState>,
+    request: Option<Json<CreateCheckoutRequest>>,
+) -> Result<Json<PreparedCheckoutResponse>, ApiError> {
+    let request = request.map(|Json(payload)| payload);
+    let product_id = request
+        .as_ref()
+        .and_then(|payload| payload.product_id.as_deref());
+    let selected = selected_product(product_id)?;
+
+    if has_prepared_checkout(&state, selected).await {
+        return Ok(Json(PreparedCheckoutResponse { prepared: true }));
+    }
+
+    let prepared = create_prepared_checkout(&state, selected).await?;
+    store_prepared_checkout(&state, selected, prepared).await;
+
+    Ok(Json(PreparedCheckoutResponse { prepared: true }))
 }
 
 async fn wallet_activity(
@@ -194,9 +232,12 @@ async fn create_zamapay_checkout_session(
     state: &AppState,
     selected: &ProductDefinition,
 ) -> Result<ZamaPayCheckoutSessionResponse, ApiError> {
-    let mut payload = checkout_payload(selected);
-    let quote = create_zamapay_checkout_quote(state, selected.amount_minor_units).await?;
-    let chain_invoice = create_local_chain_invoice(state, &payload, &quote).await?;
+    let prepared = match reusable_prepared_checkout(state, selected).await? {
+        Some(prepared) => prepared,
+        None => create_prepared_checkout(state, selected).await?,
+    };
+    let mut payload = prepared.payload;
+    let chain_invoice = prepared.chain_invoice;
     payload.chain_invoice_id = Some(chain_invoice.chain_invoice_id);
     payload.chain_tx_hash = Some(chain_invoice.chain_tx_hash);
 
@@ -231,6 +272,73 @@ async fn create_zamapay_checkout_session(
     }
 
     Ok(checkout)
+}
+
+async fn create_prepared_checkout(
+    state: &AppState,
+    selected: &ProductDefinition,
+) -> Result<PreparedCheckout, ApiError> {
+    let payload = checkout_payload(selected);
+    let quote = create_zamapay_checkout_quote(state, selected.amount_minor_units).await?;
+    let chain_invoice = create_local_chain_invoice(state, &payload, &quote).await?;
+
+    Ok(PreparedCheckout {
+        billing: quote.billing,
+        chain_invoice,
+        payload,
+    })
+}
+
+async fn reusable_prepared_checkout(
+    state: &AppState,
+    selected: &ProductDefinition,
+) -> Result<Option<PreparedCheckout>, ApiError> {
+    let Some(prepared) = take_prepared_checkout(state, selected).await else {
+        return Ok(None);
+    };
+
+    let quote = create_zamapay_checkout_quote(state, selected.amount_minor_units).await?;
+    if quote.billing == prepared.billing {
+        return Ok(Some(prepared));
+    }
+
+    Ok(None)
+}
+
+async fn has_prepared_checkout(state: &AppState, selected: &ProductDefinition) -> bool {
+    state
+        .prepared_checkouts
+        .lock()
+        .await
+        .get(selected.id)
+        .is_some_and(|checkouts| !checkouts.is_empty())
+}
+
+async fn store_prepared_checkout(
+    state: &AppState,
+    selected: &ProductDefinition,
+    prepared: PreparedCheckout,
+) {
+    let mut prepared_checkouts = state.prepared_checkouts.lock().await;
+    let checkouts = prepared_checkouts
+        .entry(selected.id.to_string())
+        .or_default();
+    if checkouts.len() >= 2 {
+        checkouts.pop_front();
+    }
+    checkouts.push_back(prepared);
+}
+
+async fn take_prepared_checkout(
+    state: &AppState,
+    selected: &ProductDefinition,
+) -> Option<PreparedCheckout> {
+    state
+        .prepared_checkouts
+        .lock()
+        .await
+        .get_mut(selected.id)
+        .and_then(VecDeque::pop_front)
 }
 
 async fn create_zamapay_checkout_quote(
@@ -420,14 +528,19 @@ fn required_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Ap
         ))
 }
 
-fn cors() -> CorsLayer {
+fn cors(allowed_origins: Vec<String>) -> CorsLayer {
     CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE])
         .allow_credentials(true)
-        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
-            origin.as_bytes().starts_with(b"http://127.0.0.1:")
-                || origin.as_bytes().starts_with(b"http://localhost:")
+        .allow_origin(AllowOrigin::predicate(move |origin: &HeaderValue, _| {
+            let origin_text = origin.to_str().unwrap_or_default();
+
+            origin_text.starts_with("http://127.0.0.1:")
+                || origin_text.starts_with("http://localhost:")
+                || allowed_origins
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(origin_text))
         }))
 }
 

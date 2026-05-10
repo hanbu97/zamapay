@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BoxIcon, Gamepad2Icon, GemIcon, KeyboardIcon, Loader2Icon, SparklesIcon, SwordsIcon } from 'lucide-react'
 import { getAddress } from 'viem'
 import { EffectCoverflow, Keyboard, Pagination } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
-import { CardForgeApiError, createCardForgeCheckout } from '@/lib/cardforge-api'
+import { CardForgeApiError, createCardForgeCheckout, prepareCardForgeCheckout } from '@/lib/cardforge-api'
 import type { CardForgeConfig } from '@/lib/config'
 import { cn } from '@/lib/utils'
 
@@ -82,7 +82,27 @@ type ProductCoverflowProps = {
 
 export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflowProps) {
   const [busyProductId, setBusyProductId] = useState<string | null>(null)
+  const preparePromisesRef = useRef(new Map<string, Promise<void>>())
   const busyProduct = products.find((product) => product.id === busyProductId) ?? null
+
+  useEffect(() => {
+    void prepareProductCheckout('mythic-loadout')
+  }, [config.apiBaseUrl])
+
+  function prepareProductCheckout(productId: string) {
+    const pending = preparePromisesRef.current.get(productId)
+    if (pending) {
+      return pending
+    }
+
+    const next = prepareCardForgeCheckout(config, productId)
+      .catch(() => undefined)
+      .finally(() => {
+        preparePromisesRef.current.delete(productId)
+      })
+    preparePromisesRef.current.set(productId, next)
+    return next
+  }
 
   async function handleBuy(product: CardForgeProduct) {
     if (busyProductId) {
@@ -92,6 +112,7 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
     setBusyProductId(product.id)
 
     try {
+      await prepareProductCheckout(product.id)
       const activeWalletAddress = await readActiveWalletAddress()
       const checkout = await createCardForgeCheckout(config, product.id, activeWalletAddress ?? buyerWalletAddress)
       window.location.assign(checkoutUrlWithPreferredPayer(checkout.checkoutUrl, activeWalletAddress ?? buyerWalletAddress))
@@ -136,7 +157,15 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
               className="!h-auto !w-[min(72vw,20rem)] sm:!w-[20rem] xl:!w-[22rem] 2xl:!w-[23rem]"
               key={product.title}
             >
-              <article className="relative h-[29rem] overflow-hidden rounded-2xl border border-black/10 bg-zinc-950 text-white shadow-2xl shadow-black/25">
+              <article
+                className="relative h-[29rem] overflow-hidden rounded-2xl border border-black/10 bg-zinc-950 text-white shadow-2xl shadow-black/25"
+                onFocus={() => {
+                  void prepareProductCheckout(product.id)
+                }}
+                onPointerEnter={() => {
+                  void prepareProductCheckout(product.id)
+                }}
+              >
                 <img alt="" className="absolute inset-0 size-full object-cover" src={product.image} />
                 <div className={cn('absolute inset-0 bg-gradient-to-b', product.accent)} />
                 <div className="absolute inset-x-0 top-0 flex items-center justify-between gap-3 p-4">
@@ -204,7 +233,7 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
               <div className="h-full w-full animate-pulse rounded-full bg-[#f4ff00]" />
             </div>
             <p className="mt-4 text-sm leading-5 text-white/70">
-              Anchoring the private invoice on Sepolia. This can take around one minute.
+              Creating the hosted checkout. Sepolia invoice anchoring is warmed in the background.
             </p>
           </div>
         </div>

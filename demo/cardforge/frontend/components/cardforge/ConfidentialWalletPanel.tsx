@@ -301,14 +301,24 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
     }
 
     void syncWalletRecords()
-    const interval = window.setInterval(() => void syncWalletRecords(), 4_000)
+    const interval = window.setInterval(() => void syncWalletRecords(), 1_500)
     const onFocus = () => void syncWalletRecords()
+    const onPageShow = () => void syncWalletRecords()
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void syncWalletRecords()
+      }
+    }
     window.addEventListener('focus', onFocus)
+    window.addEventListener('pageshow', onPageShow)
+    document.addEventListener('visibilitychange', onVisibilityChange)
 
     return () => {
       isActive = false
       window.clearInterval(interval)
       window.removeEventListener('focus', onFocus)
+      window.removeEventListener('pageshow', onPageShow)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
     }
   }, [address, config])
 
