@@ -353,7 +353,7 @@ contract PrivateCheckoutSettlement is ZamaEthereumConfig {
         return keccak256(
             abi.encode(
                 DOMAIN_TYPEHASH,
-                keccak256(bytes("MermerPayPrivateCheckoutSettlement")),
+                keccak256(bytes("ZamaPayPrivateCheckoutSettlement")),
                 keccak256(bytes("1")),
                 block.chainid,
                 address(this)

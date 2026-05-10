@@ -11,7 +11,7 @@
 
 ## Decisions
 
-- Public-testnet deployment and the old transparent invoice settlement are not active paths. Future Sepolia support should submit the same signed withdraw package through Zama/chain relayer surfaces instead of a Mermer Pay platform-owned relayer.
+- Public-testnet deployment and the old transparent invoice settlement are not active paths. Future Sepolia support should submit the same signed withdraw package through Zama/chain relayer surfaces instead of a ZamaPay platform-owned relayer.
 - Generated ABI/address clients expose only local-dev active contracts. `ConfidentialUSDMock` is the single cUSDT mock for subscription charging, faucet claims, checkout payment, and private withdraw settlement movement.
 - Hardhat keeps ephemeral local and persistent localhost lanes only.
 

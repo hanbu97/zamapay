@@ -472,7 +472,7 @@ async function encryptLocal64(
 }
 
 function localCommitment(...parts: string[]): Hex {
-  return keccak256(toBytes(`mermer-pay:local-dev:${parts.join(':')}`))
+  return keccak256(toBytes(`zamapay:local-dev:${parts.join(':')}`))
 }
 
 function ownerAddressCommitment(settlementBucketCommitment: Hex, address: string): Hex {

@@ -37,23 +37,23 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-  --mermer-content-max: 82rem;
-  --mermer-page-x: clamp(1.5rem, 2.4vw, 3rem);
-  --mermer-page-y: clamp(1.75rem, 2.8vw, 3rem);
-  --mermer-page-gap: 1.75rem;
-  --mermer-panel-gap: 1.5rem;
-  --mermer-card-x: 1.625rem;
-  --mermer-card-y: 1.375rem;
-  --mermer-card-gap: 1.125rem;
-  --mermer-card-x-sm: 1.375rem;
-  --mermer-card-y-sm: 1.125rem;
-  --mermer-card-gap-sm: 0.875rem;
-  --mermer-dialog-x: 1.75rem;
-  --mermer-dialog-y: 1.5rem;
-  --mermer-dialog-gap: 1rem;
-  --mermer-step-gap: 0.375rem;
-  --mermer-step-rail: 0.5rem;
-  --mermer-step-row-gap: 0.75rem;
+  --zamapay-content-max: 82rem;
+  --zamapay-page-x: clamp(1.5rem, 2.4vw, 3rem);
+  --zamapay-page-y: clamp(1.75rem, 2.8vw, 3rem);
+  --zamapay-page-gap: 1.75rem;
+  --zamapay-panel-gap: 1.5rem;
+  --zamapay-card-x: 1.625rem;
+  --zamapay-card-y: 1.375rem;
+  --zamapay-card-gap: 1.125rem;
+  --zamapay-card-x-sm: 1.375rem;
+  --zamapay-card-y-sm: 1.125rem;
+  --zamapay-card-gap-sm: 0.875rem;
+  --zamapay-dialog-x: 1.75rem;
+  --zamapay-dialog-y: 1.5rem;
+  --zamapay-dialog-gap: 1rem;
+  --zamapay-step-gap: 0.375rem;
+  --zamapay-step-rail: 0.5rem;
+  --zamapay-step-row-gap: 0.75rem;
 }
 
 .dark {
@@ -88,23 +88,23 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
-  --mermer-content-max: 82rem;
-  --mermer-page-x: clamp(1.5rem, 2.4vw, 3rem);
-  --mermer-page-y: clamp(1.75rem, 2.8vw, 3rem);
-  --mermer-page-gap: 1.75rem;
-  --mermer-panel-gap: 1.5rem;
-  --mermer-card-x: 1.625rem;
-  --mermer-card-y: 1.375rem;
-  --mermer-card-gap: 1.125rem;
-  --mermer-card-x-sm: 1.375rem;
-  --mermer-card-y-sm: 1.125rem;
-  --mermer-card-gap-sm: 0.875rem;
-  --mermer-dialog-x: 1.75rem;
-  --mermer-dialog-y: 1.5rem;
-  --mermer-dialog-gap: 1rem;
-  --mermer-step-gap: 0.375rem;
-  --mermer-step-rail: 0.5rem;
-  --mermer-step-row-gap: 0.75rem;
+  --zamapay-content-max: 82rem;
+  --zamapay-page-x: clamp(1.5rem, 2.4vw, 3rem);
+  --zamapay-page-y: clamp(1.75rem, 2.8vw, 3rem);
+  --zamapay-page-gap: 1.75rem;
+  --zamapay-panel-gap: 1.5rem;
+  --zamapay-card-x: 1.625rem;
+  --zamapay-card-y: 1.375rem;
+  --zamapay-card-gap: 1.125rem;
+  --zamapay-card-x-sm: 1.375rem;
+  --zamapay-card-y-sm: 1.125rem;
+  --zamapay-card-gap-sm: 0.875rem;
+  --zamapay-dialog-x: 1.75rem;
+  --zamapay-dialog-y: 1.5rem;
+  --zamapay-dialog-gap: 1rem;
+  --zamapay-step-gap: 0.375rem;
+  --zamapay-step-rail: 0.5rem;
+  --zamapay-step-row-gap: 0.75rem;
 }
 
 @theme inline {
@@ -165,45 +165,45 @@
 }
 
 @layer components {
-  .mermer-page-shell {
-    padding-inline: var(--mermer-page-x);
-    padding-block: var(--mermer-page-y);
+  .zamapay-page-shell {
+    padding-inline: var(--zamapay-page-x);
+    padding-block: var(--zamapay-page-y);
   }
 
-  .mermer-content-stack {
+  .zamapay-content-stack {
     width: 100%;
-    max-width: var(--mermer-content-max);
-    gap: var(--mermer-page-gap);
+    max-width: var(--zamapay-content-max);
+    gap: var(--zamapay-page-gap);
   }
 
-  .mermer-flow-stack {
-    gap: var(--mermer-panel-gap);
+  .zamapay-flow-stack {
+    gap: var(--zamapay-panel-gap);
   }
 
-  .mermer-section-grid {
-    gap: var(--mermer-panel-gap);
+  .zamapay-section-grid {
+    gap: var(--zamapay-panel-gap);
   }
 
-  .mermer-card-stack {
-    gap: var(--mermer-card-gap);
+  .zamapay-card-stack {
+    gap: var(--zamapay-card-gap);
   }
 
-  .mermer-card-inset-sm {
-    padding-inline: var(--mermer-card-x-sm);
+  .zamapay-card-inset-sm {
+    padding-inline: var(--zamapay-card-x-sm);
   }
 
-  .mermer-dialog-panel {
-    width: min(calc(100% - var(--mermer-page-x) - var(--mermer-page-x)), var(--mermer-dialog-width, 30rem));
-    gap: var(--mermer-dialog-gap);
-    padding: var(--mermer-dialog-y) var(--mermer-dialog-x);
+  .zamapay-dialog-panel {
+    width: min(calc(100% - var(--zamapay-page-x) - var(--zamapay-page-x)), var(--zamapay-dialog-width, 30rem));
+    gap: var(--zamapay-dialog-gap);
+    padding: var(--zamapay-dialog-y) var(--zamapay-dialog-x);
   }
 
-  .mermer-step-list {
-    gap: var(--mermer-step-gap);
+  .zamapay-step-list {
+    gap: var(--zamapay-step-gap);
   }
 
-  .mermer-step-row {
-    gap: var(--mermer-step-row-gap);
+  .zamapay-step-row {
+    gap: var(--zamapay-step-row-gap);
   }
 
   .landing-grid-bg {

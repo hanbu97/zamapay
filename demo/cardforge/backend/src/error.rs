@@ -27,8 +27,8 @@ impl ApiError {
     pub(crate) fn project_auth_failed() -> Self {
         Self::new(
             StatusCode::UNAUTHORIZED,
-            "mermer_project_auth_failed",
-            "CardForge backend rejected the configured Mermer Pay project API key.",
+            "zamapay_project_auth_failed",
+            "CardForge backend rejected the configured ZamaPay project API key.",
             None,
         )
     }
@@ -37,7 +37,7 @@ impl ApiError {
         Self::new(
             StatusCode::BAD_GATEWAY,
             "checkout_create_failed",
-            format!("Mermer Pay API is unreachable: {error}"),
+            format!("ZamaPay API is unreachable: {error}"),
             None,
         )
     }
@@ -45,7 +45,7 @@ impl ApiError {
     pub(crate) async fn upstream_rejected(status: u16, response: reqwest::Response) -> Self {
         let body = response.text().await.unwrap_or_default();
         let message = if body.is_empty() {
-            format!("Mermer Pay API rejected the checkout with status {status}.")
+            format!("ZamaPay API rejected the checkout with status {status}.")
         } else {
             body
         };
@@ -62,7 +62,7 @@ impl ApiError {
         Self::new(
             StatusCode::BAD_GATEWAY,
             "checkout_create_failed",
-            format!("Mermer Pay API returned an invalid checkout response: {error}"),
+            format!("ZamaPay API returned an invalid checkout response: {error}"),
             None,
         )
     }
@@ -80,7 +80,7 @@ impl ApiError {
         Self::new(
             StatusCode::BAD_GATEWAY,
             "chain_invoice_create_failed",
-            format!("Mermer Pay local chain invoice API is unreachable: {error}"),
+            format!("ZamaPay local chain invoice API is unreachable: {error}"),
             None,
         )
     }
@@ -88,7 +88,7 @@ impl ApiError {
     pub(crate) async fn chain_invoice_rejected(status: u16, response: reqwest::Response) -> Self {
         let body = response.text().await.unwrap_or_default();
         let message = if body.is_empty() {
-            format!("Mermer Pay local chain invoice API rejected the request with status {status}.")
+            format!("ZamaPay local chain invoice API rejected the request with status {status}.")
         } else {
             body
         };
@@ -105,7 +105,7 @@ impl ApiError {
         Self::new(
             StatusCode::BAD_GATEWAY,
             "chain_invoice_create_failed",
-            format!("Mermer Pay local chain invoice API returned invalid JSON: {error}"),
+            format!("ZamaPay local chain invoice API returned invalid JSON: {error}"),
             None,
         )
     }

@@ -3,7 +3,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { API_BASE_URL, postJson } from './http.ts'
 
 const LOCAL_LOGIN_PRIVATE_KEY =
-  process.env.MERMER_LOCAL_LOGIN_PRIVATE_KEY ??
+  process.env.ZAMAPAY_LOCAL_LOGIN_PRIVATE_KEY ??
   '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
 function firstSetCookie(headers: Headers) {
@@ -34,8 +34,8 @@ export async function loginCookie() {
 
   assert.equal(verified.status, 200, verifyBody)
   const sessionCookie = firstSetCookie(verified.headers)?.split(';')[0]
-  if (!sessionCookie?.startsWith('mermer_session=')) {
-    throw new Error('wallet login did not mint mermer_session cookie')
+  if (!sessionCookie?.startsWith('zamapay_session=')) {
+    throw new Error('wallet login did not mint zamapay_session cookie')
   }
 
   return {

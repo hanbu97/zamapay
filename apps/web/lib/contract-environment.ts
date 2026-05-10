@@ -60,7 +60,7 @@ export function publicContractEnvironment(): ContractEnvironment {
 }
 
 export function serverContractEnvironment(): ContractEnvironment {
-  return normalizeContractEnvironment(process.env.MERMER_CONTRACT_ENV ?? process.env.NEXT_PUBLIC_CONTRACT_ENV)
+  return normalizeContractEnvironment(process.env.ZAMAPAY_CONTRACT_ENV ?? process.env.NEXT_PUBLIC_CONTRACT_ENV)
 }
 
 export function contractEnvironmentConfig(environment: string | null | undefined): ContractEnvironmentConfig {

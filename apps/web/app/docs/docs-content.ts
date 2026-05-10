@@ -52,8 +52,8 @@ export const docsPages: DocsPage[] = [
     sections: [
       {
         body: [
-          "Mermer Pay starts from a merchant payment project. The browser console creates the project and reveals one-time secrets; the merchant backend uses those secrets to create checkout sessions.",
-          "The buyer-facing hosted checkout URL is returned only after Mermer Pay has assigned a non-null chain invoice id.",
+          "ZamaPay starts from a merchant payment project. The browser console creates the project and reveals one-time secrets; the merchant backend uses those secrets to create checkout sessions.",
+          "The buyer-facing hosted checkout URL is returned only after ZamaPay has assigned a non-null chain invoice id.",
         ],
         figure: "project-console",
         id: "project-first",
@@ -79,23 +79,23 @@ export const docsPages: DocsPage[] = [
       },
       {
         body: [
-          "Use these local services for the deterministic closed loop. After every Hardhat Local reset, run the root reset command once so the Mermer Pay and CardForge databases match the fresh chain.",
+          "Use these local services for the deterministic closed loop. After every Hardhat Local reset, run the root reset command once so the ZamaPay and CardForge databases match the fresh chain.",
         ],
         code: `# Terminal 0: after starting Hardhat Local
 npm run reset:local-dev
 
-# Terminal 1: Mermer Pay API
-MERMER_API_BIND=127.0.0.1:8080 cargo run -p api
+# Terminal 1: ZamaPay API
+ZAMAPAY_API_BIND=127.0.0.1:8080 cargo run -p api
 
-# Terminal 2: Mermer Pay web
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080 npm run dev --workspace @mermer/web -- --port 3001
+# Terminal 2: ZamaPay web
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080 npm run dev --workspace @zamapay/web -- --port 3001
 
 # Terminal 3: CardForge backend
 cd demo/cardforge/backend
-MERMER_PAY_PROJECT_ID=proj_...
-MERMER_PAY_API_KEY=mmp_test_...
-MERMER_PAY_WEBHOOK_SECRET=whsec_...
-MERMER_PAY_API_URL=http://127.0.0.1:8080
+ZAMAPAY_PROJECT_ID=proj_...
+ZAMAPAY_API_KEY=zmp_test_...
+ZAMAPAY_WEBHOOK_SECRET=whsec_...
+ZAMAPAY_API_URL=http://127.0.0.1:8080
 cargo run`,
         id: "local-stack",
         title: "Local stack",
@@ -111,7 +111,7 @@ cargo run`,
     sections: [
       {
         body: [
-          "Project management endpoints are dashboard authenticated with the `mermer_session` cookie. Checkout creation is different: it is authenticated by a project API key and an idempotency key.",
+          "Project management endpoints are dashboard authenticated with the `zamapay_session` cookie. Checkout creation is different: it is authenticated by a project API key and an idempotency key.",
           "This split is the core safety boundary. A leaked dashboard cookie should not be needed by merchant infrastructure, and a project API key should not control the dashboard.",
         ],
         figure: "api-handoff",
@@ -119,9 +119,9 @@ cargo run`,
         table: {
           headers: ["Endpoint", "Auth", "Purpose"],
           rows: [
-            ["POST /api/projects", "mermer_session cookie", "Create a merchant payment project."],
-            ["POST /api/projects/{projectId}/api-keys", "mermer_session cookie", "Create a one-time project API key."],
-            ["POST /api/projects/{projectId}/webhook-endpoints", "mermer_session cookie", "Register or rotate a webhook endpoint."],
+            ["POST /api/projects", "zamapay_session cookie", "Create a merchant payment project."],
+            ["POST /api/projects/{projectId}/api-keys", "zamapay_session cookie", "Create a one-time project API key."],
+            ["POST /api/projects/{projectId}/webhook-endpoints", "zamapay_session cookie", "Register or rotate a webhook endpoint."],
             ["POST /api/projects/{projectId}/checkout-sessions", "Bearer project API key", "Create a buyer-payable hosted checkout session."],
             ["GET /api/projects/{projectId}/checkout-sessions/{checkoutSessionId}", "Bearer project API key", "Read one checkout session from merchant backend code."],
           ],
@@ -134,7 +134,7 @@ cargo run`,
         ],
         code: `curl -X POST \\
   http://127.0.0.1:8080/api/projects/proj_123/checkout-sessions \\
-  -H "authorization: Bearer mmp_test_..." \\
+  -H "authorization: Bearer zmp_test_..." \\
   -H "idempotency-key: order_1001" \\
   -H "content-type: application/json" \\
   -d '{
@@ -161,19 +161,19 @@ cargo run`,
     sections: [
       {
         body: [
-          "Mermer Pay emits project-level webhook events after the payment read model and finality gate agree. Each delivery records attempt count, HTTP status, response body, error, retry state, and dead-letter state.",
-          "Webhook payloads are at-least-once. The merchant backend must use `x-mermer-webhook-id` or the event id as an idempotency key.",
+          "ZamaPay emits project-level webhook events after the payment read model and finality gate agree. Each delivery records attempt count, HTTP status, response body, error, retry state, and dead-letter state.",
+          "Webhook payloads are at-least-once. The merchant backend must use `x-zamapay-webhook-id` or the event id as an idempotency key.",
         ],
         figure: "webhook-outbox",
         id: "delivery-model",
         table: {
           headers: ["Header", "Example", "Use"],
           rows: [
-            ["x-mermer-webhook-id", "deliv_...", "Delivery id for idempotent processing."],
-            ["x-mermer-event-id", "evt_...", "Immutable event id."],
-            ["x-mermer-webhook-timestamp", "2026-05-07T05:00:00Z", "Signed timestamp."],
-            ["x-mermer-webhook-signature", "v1=0x...", "Payload authenticity proof."],
-            ["x-mermer-webhook-algorithm", "keccak256.secret_prefix.v1", "Signature algorithm version."],
+            ["x-zamapay-webhook-id", "deliv_...", "Delivery id for idempotent processing."],
+            ["x-zamapay-event-id", "evt_...", "Immutable event id."],
+            ["x-zamapay-webhook-timestamp", "2026-05-07T05:00:00Z", "Signed timestamp."],
+            ["x-zamapay-webhook-signature", "v1=0x...", "Payload authenticity proof."],
+            ["x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1", "Signature algorithm version."],
           ],
         },
         title: "Delivery model",
@@ -184,11 +184,11 @@ cargo run`,
         ],
         code: `import { keccak256, toUtf8Bytes } from "ethers"
 
-export function verifyMermerWebhook(headers, body, secret) {
-  const deliveryId = headers["x-mermer-webhook-id"]
-  const timestamp = headers["x-mermer-webhook-timestamp"]
-  const signature = headers["x-mermer-webhook-signature"]
-  const algorithm = headers["x-mermer-webhook-algorithm"]
+export function verifyZamaPayWebhook(headers, body, secret) {
+  const deliveryId = headers["x-zamapay-webhook-id"]
+  const timestamp = headers["x-zamapay-webhook-timestamp"]
+  const signature = headers["x-zamapay-webhook-signature"]
+  const algorithm = headers["x-zamapay-webhook-algorithm"]
 
   if (algorithm !== "keccak256.secret_prefix.v1") throw new Error("unsupported algorithm")
 
@@ -206,28 +206,28 @@ export function verifyMermerWebhook(headers, body, secret) {
   },
   {
     badge: "Demo",
-    description: "Run CardForge as a separate merchant template that consumes Mermer Pay configuration.",
+    description: "Run CardForge as a separate merchant template that consumes ZamaPay configuration.",
     icon: BoxesIcon,
     slug: "cardforge",
     title: "CardForge integration",
     sections: [
       {
         body: [
-          "CardForge is not part of the Mermer Pay platform app. It is a standalone merchant template under `demo/cardforge` and receives only project configuration.",
-          "The browser talks to CardForge. CardForge talks to Mermer Pay with its project API key. Browser cookies from Mermer Pay must not be forwarded.",
+          "CardForge is not part of the ZamaPay platform app. It is a standalone merchant template under `demo/cardforge` and receives only project configuration.",
+          "The browser talks to CardForge. CardForge talks to ZamaPay with its project API key. Browser cookies from ZamaPay must not be forwarded.",
         ],
         figure: "cardforge",
         id: "standalone-boundary",
         table: {
           headers: ["Variable", "Required", "Meaning"],
           rows: [
-            ["MERMER_PAY_PROJECT_ID", "yes", "Project id from the merchant console."],
-            ["MERMER_PAY_API_KEY", "yes", "One-time revealed project API key."],
-            ["MERMER_PAY_WEBHOOK_SECRET", "yes", "Secret used to verify Mermer webhook signatures."],
-            ["MERMER_PAY_API_URL", "yes", "Rust API base URL, for example http://127.0.0.1:8080."],
+            ["ZAMAPAY_PROJECT_ID", "yes", "Project id from the merchant console."],
+            ["ZAMAPAY_API_KEY", "yes", "One-time revealed project API key."],
+            ["ZAMAPAY_WEBHOOK_SECRET", "yes", "Secret used to verify ZamaPay webhook signatures."],
+            ["ZAMAPAY_API_URL", "yes", "Rust API base URL, for example http://127.0.0.1:8080."],
             ["CARDFORGE_DATABASE_URL", "yes", "Independent CardForge Postgres database URL."],
             ["CARDFORGE_STORE_KEY", "optional", "Local namespace inside the CardForge database; defaults to local-dev."],
-            ["CARDFORGE_WEBHOOK_ENDPOINT", "optional", "Defaults to http://127.0.0.1:8092/api/mermer-pay/webhook."],
+            ["CARDFORGE_WEBHOOK_ENDPOINT", "optional", "Defaults to http://127.0.0.1:8092/api/zamapay/webhook."],
           ],
         },
         title: "Standalone boundary",
@@ -263,12 +263,12 @@ export function verifyMermerWebhook(headers, body, secret) {
             [
               "Buyer wallet",
               "Direct-wallet MVP submits as msg.sender; not stored as an order field",
-              "Public chain observers can see tx sender; Mermer Pay can map the checkout",
+              "Public chain observers can see tx sender; ZamaPay can map the checkout",
             ],
-            ["Merchant wallet", "Checkout uses settlementBucketCommitment and bucketOwnerCommitment", "Mermer Pay, merchant backend, and withdraw observers"],
+            ["Merchant wallet", "Checkout uses settlementBucketCommitment and bucketOwnerCommitment", "ZamaPay, merchant backend, and withdraw observers"],
             ["Payout wallet", "Not stored or emitted during checkout/payment; v1 withdraw recipient is calldata", "Merchant backend and withdraw observers"],
-            ["Project / order id", "Hashed into orderCommitment", "Mermer Pay and merchant backend"],
-            ["Gross and paid amount", "FHE encrypted handles", "Mermer Pay in v1, hidden from public chain observers"],
+            ["Project / order id", "Hashed into orderCommitment", "ZamaPay and merchant backend"],
+            ["Gross and paid amount", "FHE encrypted handles", "ZamaPay in v1, hidden from public chain observers"],
             ["Paid/rejected", "Public boolean after decrypting accepted", "Everyone"],
           ],
         },
@@ -454,7 +454,7 @@ export function verifyMermerWebhook(headers, body, secret) {
               "Never public on-chain",
               "projectId plaintext",
               "string / bytes",
-              "Mermer Pay project id.",
+              "ZamaPay project id.",
               "Hash into orderCommitment; never store the raw business id.",
             ],
             [
@@ -514,7 +514,7 @@ export function verifyMermerWebhook(headers, body, secret) {
         code: `accepted = FHE.eq(paidAmount, expectedAmount)`,
         id: "payment-flow",
         mermaid: `flowchart TD
-  A["CardForge creates order"] --> B["Mermer Pay derives orderCommitment"]
+  A["CardForge creates order"] --> B["ZamaPay derives orderCommitment"]
   B --> C["Rotate settlementBucketCommitment"]
   C --> D["Encrypt expectedAmount + inputProof"]
   D --> E["createPrivateCheckout"]
@@ -596,7 +596,7 @@ struct PrivateCheckout {
             title: "Create private checkout",
           },
           {
-            detail: "Submit encrypted payment directly from the buyer wallet in local-dev. This keeps any Mermer-owned platform relayer out of the MVP.",
+            detail: "Submit encrypted payment directly from the buyer wallet in local-dev. This keeps any ZamaPay-owned platform relayer out of the MVP.",
             title: "Submit buyer payment",
           },
           {
@@ -637,7 +637,7 @@ struct PrivateCheckout {
           headers: ["Environment", "Use", "Required proof"],
           rows: [
             ["local-dev", "Fast product loop and CI smoke.", "npm run verify:local"],
-            ["public testnet", "Paused.", "Re-enable through Zama official relayer/gateway surfaces, not a Mermer Pay platform relayer."],
+            ["public testnet", "Paused.", "Re-enable through Zama official relayer/gateway surfaces, not a ZamaPay platform relayer."],
             ["production", "Not enabled in this hackathon build.", "Real merchant signer custody, public HTTPS webhook, monitoring, and rate limits."],
           ],
         },

@@ -44,8 +44,8 @@ pub(crate) struct ReleasedCard {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StorefrontResponse {
     pub(crate) merchant_label: String,
-    pub(crate) mermer_console_url: String,
-    pub(crate) mermer_login_url: String,
+    pub(crate) zamapay_console_url: String,
+    pub(crate) zamapay_login_url: String,
     pub(crate) product: Product,
     pub(crate) products: Vec<Product>,
     pub(crate) project_id: String,
@@ -123,7 +123,7 @@ pub(crate) struct CheckoutQuoteResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MermerCheckoutSessionResponse {
+pub(crate) struct ZamaPayCheckoutSessionResponse {
     pub(crate) billing: CheckoutBillingSnapshot,
     pub(crate) chain_invoice_id: u64,
     pub(crate) checkout_session_id: String,

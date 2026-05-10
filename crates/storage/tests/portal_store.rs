@@ -46,9 +46,9 @@ async fn finalize_checkout(store: &PortalStore, chain_invoice_id: u64, payment_t
 }
 
 fn test_database_url() -> String {
-    std::env::var("MERMER_TEST_DATABASE_URL")
+    std::env::var("ZAMAPAY_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("set MERMER_TEST_DATABASE_URL or DATABASE_URL for Postgres-backed storage tests")
+        .expect("set ZAMAPAY_TEST_DATABASE_URL or DATABASE_URL for Postgres-backed storage tests")
 }
 
 fn test_state_key(label: &str) -> String {
@@ -76,7 +76,7 @@ async fn postgres_store_reloads_project_state() {
             &owner,
             "Postgres CardForge",
             ProjectEnvironmentKind::LocalDev,
-            Some("http://127.0.0.1:8092/api/mermer-pay/webhook"),
+            Some("http://127.0.0.1:8092/api/zamapay/webhook"),
             now,
         )
         .await;
@@ -349,7 +349,7 @@ async fn project_api_key_checkout_and_outbox_are_project_scoped() {
             "0x00000000000000000000000000000000000000aa",
             "CardForge merchant",
             ProjectEnvironmentKind::LocalDev,
-            Some("http://127.0.0.1:8092/api/mermer-pay/webhook"),
+            Some("http://127.0.0.1:8092/api/zamapay/webhook"),
             now,
         )
         .await;
@@ -452,7 +452,7 @@ async fn local_chain_invoice_ids_can_be_reused_after_chain_reset() {
             "0x00000000000000000000000000000000000000aa",
             "Reset tolerant merchant",
             ProjectEnvironmentKind::LocalDev,
-            Some("http://127.0.0.1:8092/api/mermer-pay/webhook"),
+            Some("http://127.0.0.1:8092/api/zamapay/webhook"),
             now,
         )
         .await;
@@ -529,7 +529,7 @@ async fn project_overview_sorts_checkout_sessions_by_latest_activity() {
             "0x00000000000000000000000000000000000000aa",
             "Activity ordered merchant",
             ProjectEnvironmentKind::LocalDev,
-            Some("http://127.0.0.1:8092/api/mermer-pay/webhook"),
+            Some("http://127.0.0.1:8092/api/zamapay/webhook"),
             now,
         )
         .await;

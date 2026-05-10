@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 contract SubscriptionPass {
-    string public constant name = "Mermer Subscription Pass";
+    string public constant name = "ZamaPay Subscription Pass";
     string public constant symbol = "MSP";
 
     address public owner;
@@ -57,7 +57,7 @@ contract SubscriptionPass {
 
     function tokenURI(uint256 tokenId) external view returns (string memory) {
         ownerOf(tokenId);
-        return "ipfs://mermer-subscription-pass";
+        return "ipfs://zamapay-subscription-pass";
     }
 
     function approve(address, uint256) external pure {

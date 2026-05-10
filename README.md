@@ -1,4 +1,4 @@
-# Mermer Pay
+# ZamaPay
 
 Confidential merchant checkout for wallet-authenticated merchants, Zama FHEVM settlement, and finality-gated webhook release.
 
@@ -28,14 +28,14 @@ cargo run -p api
 npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 ```
 
-Set `DATABASE_URL=postgres://mermer:mermer@127.0.0.1:5432/mermer` before starting the API. Projects, API keys, checkout sessions, payment projections, subscriptions, webhook state, and withdrawal read models use normalized Postgres tables as the single portal source of truth.
+Set `DATABASE_URL=postgres://zamapay:zamapay@127.0.0.1:5432/zamapay` before starting the API. Projects, API keys, checkout sessions, payment projections, subscriptions, webhook state, and withdrawal read models use normalized Postgres tables as the single portal source of truth.
 
-Use `npm run reset:local-dev` after every Hardhat Local reset, before starting the API and CardForge backend. It recreates both local databases, `mermer` and `cardforge`, before redeploying contracts so chain ids, invoice ids, balances, and fulfillment records stay aligned.
+Use `npm run reset:local-dev` after every Hardhat Local reset, before starting the API and CardForge backend. It recreates both local databases, `zamapay` and `cardforge`, before redeploying contracts so chain ids, invoice ids, balances, and fulfillment records stay aligned.
 
 CardForge is a separate merchant demo and uses its own database URL:
-`CARDFORGE_DATABASE_URL=postgres://mermer:mermer@127.0.0.1:5432/cardforge`.
-Fresh Docker volumes create both `mermer` and `cardforge`; for an existing volume, run
-`docker exec mermer-postgres createdb -U mermer cardforge` once if the CardForge database is missing.
+`CARDFORGE_DATABASE_URL=postgres://zamapay:zamapay@127.0.0.1:5432/cardforge`.
+Fresh Docker volumes create both `zamapay` and `cardforge`; for an existing volume, run
+`docker exec zamapay-postgres createdb -U zamapay cardforge` once if the CardForge database is missing.
 
 Open:
 
@@ -43,7 +43,7 @@ Open:
 - `http://127.0.0.1:3001/ops`
 - `http://127.0.0.1:3001/merchant`
 
-Standalone merchant templates live under `demo/` and are launched from their own directories. The Mermer Pay root scripts do not start, build, or lint template projects.
+Standalone merchant templates live under `demo/` and are launched from their own directories. The ZamaPay root scripts do not start, build, or lint template projects.
 
 Run the full local readiness gate after API, web, and Hardhat are running:
 
@@ -52,8 +52,8 @@ npm run verify:local
 ```
 
 This checks the local manifest, Rust API, Next pages, browser projection route, and hosted checkout rendering.
-It also signs a Rust auth nonce with `MERMER_LOCAL_LOGIN_PRIVATE_KEY`, proves that the resulting `mermer_session` cookie can render the protected dashboard, and verifies the local browser signer route is disabled unless explicitly enabled.
-For manual browser-only `LoginCard` verification without a wallet extension, temporarily start the web server with `MERMER_ENABLE_DEV_SIGNER=1`; leave it disabled for normal local runs and future public-testnet runs.
+It also signs a Rust auth nonce with `ZAMAPAY_LOCAL_LOGIN_PRIVATE_KEY`, proves that the resulting `zamapay_session` cookie can render the protected dashboard, and verifies the local browser signer route is disabled unless explicitly enabled.
+For manual browser-only `LoginCard` verification without a wallet extension, temporarily start the web server with `ZAMAPAY_ENABLE_DEV_SIGNER=1`; leave it disabled for normal local runs and future public-testnet runs.
 
 ## Public Testnet
 

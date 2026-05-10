@@ -363,7 +363,7 @@ function StepperSeparator({ className }: React.ComponentProps<"div">) {
       data-slot="stepper-separator"
       data-state={state}
       className={cn(
-        "bg-muted rounded-sm group-data-[orientation=horizontal]/stepper-nav:h-0.5 group-data-[orientation=vertical]/stepper-nav:h-[var(--mermer-step-rail)] group-data-[orientation=vertical]/stepper-nav:w-0.5 group-data-[orientation=horizontal]/stepper-nav:m-0.5 group-data-[orientation=vertical]/stepper-nav:m-0 group-data-[orientation=horizontal]/stepper-nav:flex-1",
+        "bg-muted rounded-sm group-data-[orientation=horizontal]/stepper-nav:h-0.5 group-data-[orientation=vertical]/stepper-nav:h-[var(--zamapay-step-rail)] group-data-[orientation=vertical]/stepper-nav:w-0.5 group-data-[orientation=horizontal]/stepper-nav:m-0.5 group-data-[orientation=vertical]/stepper-nav:m-0 group-data-[orientation=horizontal]/stepper-nav:flex-1",
         className
       )}
     />

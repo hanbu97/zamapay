@@ -35,11 +35,11 @@ fn parses_lsof_listener_pids_without_trusting_noise() {
 #[tokio::test]
 async fn checkout_uses_project_api_key_and_drops_browser_cookie() {
     let captured = Arc::new(Mutex::new(None::<(String, HeaderMap)>));
-    let fake_mermer = fake_mermer_api(captured.clone()).await;
+    let fake_zamapay = fake_zamapay_api(captured.clone()).await;
     let state = AppState::new(test_config(
-        &fake_mermer,
+        &fake_zamapay,
         "proj_cardforge",
-        "mmp_test_secret",
+        "zmp_test_secret",
     ))
     .await
     .unwrap();
@@ -48,7 +48,7 @@ async fn checkout_uses_project_api_key_and_drops_browser_cookie() {
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/orders/checkout")
-                .header(header::COOKIE, "mermer_session=must-not-forward")
+                .header(header::COOKIE, "zamapay_session=must-not-forward")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -69,13 +69,13 @@ async fn checkout_uses_project_api_key_and_drops_browser_cookie() {
         .lock()
         .expect("captured request lock should work")
         .clone()
-        .expect("fake Mermer API should receive checkout request");
+        .expect("fake ZamaPay API should receive checkout request");
     assert_eq!(project_id, "proj_cardforge");
     assert_eq!(
         headers
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok()),
-        Some("Bearer mmp_test_secret")
+        Some("Bearer zmp_test_secret")
     );
     assert!(headers.get(header::COOKIE).is_none());
     assert!(
@@ -89,9 +89,9 @@ async fn checkout_uses_project_api_key_and_drops_browser_cookie() {
 #[tokio::test]
 async fn checkout_can_forward_zero_based_local_chain_invoice() {
     let captured = Arc::new(Mutex::new(None::<Value>));
-    let fake_mermer = fake_mermer_api_with_local_chain(captured.clone()).await;
-    let mut config = test_config(&fake_mermer, "proj_cardforge", "mmp_test_secret");
-    config.local_chain_invoice_api_url = fake_mermer;
+    let fake_zamapay = fake_zamapay_api_with_local_chain(captured.clone()).await;
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zmp_test_secret");
+    config.local_chain_invoice_api_url = fake_zamapay;
     let state = AppState::new(config).await.unwrap();
     let response = app(state)
         .oneshot(
@@ -115,7 +115,7 @@ async fn checkout_can_forward_zero_based_local_chain_invoice() {
         .lock()
         .expect("captured checkout request lock should work")
         .clone()
-        .expect("fake Mermer API should receive checkout request");
+        .expect("fake ZamaPay API should receive checkout request");
     assert_eq!(payload["chainInvoiceId"], 0);
     assert_eq!(payload["chainTxHash"], "0xabc");
 }
@@ -123,9 +123,9 @@ async fn checkout_can_forward_zero_based_local_chain_invoice() {
 #[tokio::test]
 async fn checkout_uses_server_catalog_product_amounts() {
     let captured = Arc::new(Mutex::new(None::<Value>));
-    let fake_mermer = fake_mermer_api_with_local_chain(captured.clone()).await;
-    let mut config = test_config(&fake_mermer, "proj_cardforge", "mmp_test_secret");
-    config.local_chain_invoice_api_url = fake_mermer;
+    let fake_zamapay = fake_zamapay_api_with_local_chain(captured.clone()).await;
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zmp_test_secret");
+    config.local_chain_invoice_api_url = fake_zamapay;
     let state = AppState::new(config).await.unwrap();
     let response = app(state)
         .oneshot(
@@ -150,7 +150,7 @@ async fn checkout_uses_server_catalog_product_amounts() {
         .lock()
         .expect("captured checkout request lock should work")
         .clone()
-        .expect("fake Mermer API should receive checkout request");
+        .expect("fake ZamaPay API should receive checkout request");
     assert_eq!(payload["amountMinorUnits"], 80_000_000);
     assert_eq!(payload["amountLabel"], "80 cUSDT");
     assert_eq!(payload["metadata"]["productId"], "arena-access");
@@ -164,11 +164,11 @@ async fn checkout_uses_server_catalog_product_amounts() {
 }
 
 #[tokio::test]
-async fn webhook_receiver_requires_mermer_signature() {
+async fn webhook_receiver_requires_zamapay_signature() {
     let state = AppState::new(test_config(
         "http://127.0.0.1:1",
         "proj_cardforge",
-        "mmp_test_secret",
+        "zmp_test_secret",
     ))
     .await
     .unwrap();
@@ -190,12 +190,12 @@ async fn webhook_receiver_requires_mermer_signature() {
         .oneshot(
             Request::builder()
                 .method(Method::POST)
-                .uri("/api/mermer-pay/webhook")
+                .uri("/api/zamapay/webhook")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header("x-mermer-webhook-id", webhook_id)
-                .header("x-mermer-webhook-timestamp", timestamp)
-                .header("x-mermer-webhook-signature", signature)
-                .header("x-mermer-webhook-algorithm", "keccak256.secret_prefix.v1")
+                .header("x-zamapay-webhook-id", webhook_id)
+                .header("x-zamapay-webhook-timestamp", timestamp)
+                .header("x-zamapay-webhook-signature", signature)
+                .header("x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1")
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -232,12 +232,12 @@ async fn webhook_receiver_requires_mermer_signature() {
         .oneshot(
             Request::builder()
                 .method(Method::POST)
-                .uri("/api/mermer-pay/webhook")
+                .uri("/api/zamapay/webhook")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header("x-mermer-webhook-id", webhook_id)
-                .header("x-mermer-webhook-timestamp", timestamp)
-                .header("x-mermer-webhook-signature", "v1=bad")
-                .header("x-mermer-webhook-algorithm", "keccak256.secret_prefix.v1")
+                .header("x-zamapay-webhook-id", webhook_id)
+                .header("x-zamapay-webhook-timestamp", timestamp)
+                .header("x-zamapay-webhook-signature", "v1=bad")
+                .header("x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1")
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -251,7 +251,7 @@ async fn fulfillment_snapshot_uses_release_order() {
     let state = AppState::new(test_config(
         "http://127.0.0.1:1",
         "proj_cardforge",
-        "mmp_test_secret",
+        "zmp_test_secret",
     ))
     .await
     .unwrap();
@@ -298,9 +298,9 @@ async fn fulfillment_snapshot_uses_release_order() {
 
 #[tokio::test]
 async fn wallet_activity_records_owned_cards_after_paid_webhook() {
-    let fake_mermer = fake_mermer_api_with_local_chain(Arc::new(Mutex::new(None))).await;
-    let mut config = test_config(&fake_mermer, "proj_cardforge", "mmp_test_secret");
-    config.local_chain_invoice_api_url = fake_mermer;
+    let fake_zamapay = fake_zamapay_api_with_local_chain(Arc::new(Mutex::new(None))).await;
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zmp_test_secret");
+    config.local_chain_invoice_api_url = fake_zamapay;
     let state = AppState::new(config).await.unwrap();
     let service = app(state);
     let wallet = "0xC431773Fbc13B36384077847B884dE5D8dB91618";
@@ -344,12 +344,12 @@ async fn wallet_activity_records_owned_cards_after_paid_webhook() {
         .oneshot(
             Request::builder()
                 .method(Method::POST)
-                .uri("/api/mermer-pay/webhook")
+                .uri("/api/zamapay/webhook")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header("x-mermer-webhook-id", webhook_id)
-                .header("x-mermer-webhook-timestamp", timestamp)
-                .header("x-mermer-webhook-signature", signature)
-                .header("x-mermer-webhook-algorithm", "keccak256.secret_prefix.v1")
+                .header("x-zamapay-webhook-id", webhook_id)
+                .header("x-zamapay-webhook-timestamp", timestamp)
+                .header("x-zamapay-webhook-signature", signature)
+                .header("x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1")
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -377,7 +377,7 @@ async fn wallet_activity_records_owned_cards_after_paid_webhook() {
     assert_eq!(json["payments"][0]["txHash"], payload["paymentTxHash"]);
 }
 
-async fn fake_mermer_api(captured: Arc<Mutex<Option<(String, HeaderMap)>>>) -> String {
+async fn fake_zamapay_api(captured: Arc<Mutex<Option<(String, HeaderMap)>>>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let app = Router::new()
@@ -454,7 +454,7 @@ async fn fake_mermer_api(captured: Arc<Mutex<Option<(String, HeaderMap)>>>) -> S
     format!("http://{addr}")
 }
 
-async fn fake_mermer_api_with_local_chain(captured: Arc<Mutex<Option<Value>>>) -> String {
+async fn fake_zamapay_api_with_local_chain(captured: Arc<Mutex<Option<Value>>>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let app = Router::new()
@@ -541,13 +541,13 @@ fn test_config(api_url: &str, project_id: &str, api_key: &str) -> Config {
         database_url: test_database_url(),
         login_url: "http://127.0.0.1:3001/login".to_string(),
         local_chain_invoice_api_url: api_url.to_string(),
-        mermer_api_url: api_url.to_string(),
-        mermer_console_url: "http://127.0.0.1:3001/merchant".to_string(),
+        zamapay_api_url: api_url.to_string(),
+        zamapay_console_url: "http://127.0.0.1:3001/merchant".to_string(),
         project_api_key: api_key.to_string(),
         merchant_label: "CardForge Demo Store".to_string(),
         project_id: project_id.to_string(),
         store_key: format!("test-{}", Uuid::new_v4().simple()),
-        webhook_endpoint: "http://127.0.0.1:8092/api/mermer-pay/webhook".to_string(),
+        webhook_endpoint: "http://127.0.0.1:8092/api/zamapay/webhook".to_string(),
         webhook_secret: "whsec_test".to_string(),
     }
 }
@@ -555,7 +555,7 @@ fn test_config(api_url: &str, project_id: &str, api_key: &str) -> Config {
 fn test_database_url() -> String {
     std::env::var("CARDFORGE_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("CARDFORGE_DATABASE_URL"))
-        .unwrap_or_else(|_| "postgres://mermer:mermer@127.0.0.1:5432/cardforge".to_string())
+        .unwrap_or_else(|_| "postgres://zamapay:zamapay@127.0.0.1:5432/cardforge".to_string())
 }
 
 fn signed_header(secret: &str, webhook_id: &str, timestamp: &str, payload: &Value) -> String {

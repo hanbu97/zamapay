@@ -5,7 +5,7 @@
 ```text
 apps/web/app
 |-- layout.tsx              # Root HTML/font shell only
-|-- page.tsx                # Public Mermer Pay website home with session-aware login/console entry and footer navigation
+|-- page.tsx                # Public ZamaPay website home with session-aware login/console entry and footer navigation
 |-- login/page.tsx          # Dedicated wallet sign-in page for missing or expired sessions
 |-- pricing/page.tsx        # Public pricing strategy and fee schedule
 |-- checkout/[invoiceId]/page.tsx # Standalone buyer hosted checkout

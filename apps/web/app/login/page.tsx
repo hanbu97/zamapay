@@ -30,7 +30,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               <span className="grid size-10 place-items-center rounded-xl border bg-card text-sm font-semibold shadow-sm">
                 MP
               </span>
-              <span className="text-2xl font-semibold tracking-normal">Mermer Pay</span>
+              <span className="text-2xl font-semibold tracking-normal">ZamaPay</span>
             </Link>
             <LoginCard redirectTo={redirectTo} />
             <Link className="text-sm font-medium underline underline-offset-4" href="/docs">
@@ -49,7 +49,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <div className="flex flex-col gap-4">
               <h1 className="text-3xl font-semibold tracking-normal">One private rail for merchant payments</h1>
               <p className="max-w-md text-base leading-7 text-muted-foreground">
-                Mermer Pay gives merchants a project API key, hosted checkout, signed webhooks, and Zama-backed
+                ZamaPay gives merchants a project API key, hosted checkout, signed webhooks, and Zama-backed
                 settlement proof without exposing buyer payment details to the operator.
               </p>
             </div>
@@ -96,8 +96,8 @@ function ProofItem({ description, icon: Icon, title }: ProofItemProps) {
 function LoginFooter() {
   return (
     <footer className="absolute inset-x-0 bottom-0 flex min-h-16 flex-wrap items-center justify-center gap-x-8 gap-y-3 border-t bg-background/85 px-6 py-4 text-sm text-muted-foreground backdrop-blur">
-      <Link href="/">mermerpay.xyz</Link>
-      <span>© 2026 Mermer Labs</span>
+      <Link href="/">zamapay.xyz</Link>
+      <span>© 2026 ZamaPay Labs</span>
       <Link href="/docs">Docs</Link>
       <Link href="/docs/quickstart">Quickstart</Link>
     </footer>

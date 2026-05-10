@@ -21,7 +21,7 @@ type SubscriptionProjectionBody = {
   subscriptionCheckHandle: string
 }
 
-const rustApiBaseUrl = process.env.MERMER_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
+const rustApiBaseUrl = process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
 const defaultOperatorKey = 'local-operator-dev-key'
 
 function isEnabled(request: Request) {
@@ -33,7 +33,7 @@ function isEnabled(request: Request) {
 }
 
 function operatorKey() {
-  return process.env.MERMER_OPERATOR_KEY ?? defaultOperatorKey
+  return process.env.ZAMAPAY_OPERATOR_KEY ?? defaultOperatorKey
 }
 
 function billingCycle(value: unknown): BillingCycle {

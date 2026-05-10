@@ -118,7 +118,7 @@ describe("PrivateCheckoutSettlement", function () {
 
     return bucketOwner.signTypedData(
       {
-        name: "MermerPayPrivateCheckoutSettlement",
+        name: "ZamaPayPrivateCheckoutSettlement",
         version: "1",
         chainId: network.chainId,
         verifyingContract: settlementAddress,

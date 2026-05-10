@@ -8,9 +8,9 @@ use storage::PortalStore;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let database_url = std::env::var("MERMER_TEST_DATABASE_URL")
+    let database_url = std::env::var("ZAMAPAY_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("set MERMER_TEST_DATABASE_URL or DATABASE_URL for API tests");
+        .expect("set ZAMAPAY_TEST_DATABASE_URL or DATABASE_URL for API tests");
     let state_key = format!("test-api-{}", Uuid::new_v4().simple());
     AppState::with_portal(PortalStore::connect_with_state_key(database_url, state_key).await)
 }
@@ -76,7 +76,7 @@ async fn subscription_upgrade_is_chain_sourced_not_backend_mutated() {
     let seeded_session = state
         .issue_dev_session("0x0000000000000000000000000000000000000009")
         .await;
-    let cookie = format!("mermer_session={}", seeded_session.session_id);
+    let cookie = format!("zamapay_session={}", seeded_session.session_id);
     let app = app(state);
 
     let missing_session = app
@@ -400,7 +400,7 @@ async fn enterprise_plan_requires_review() {
     let seeded_session = state
         .issue_dev_session("0x0000000000000000000000000000000000000009")
         .await;
-    let cookie = format!("mermer_session={}", seeded_session.session_id);
+    let cookie = format!("zamapay_session={}", seeded_session.session_id);
     let app = app(state);
 
     let response = app

@@ -53,7 +53,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "mermer-dialog-panel fixed top-1/2 left-1/2 z-50 grid -translate-x-1/2 -translate-y-1/2 rounded-xl bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "zamapay-dialog-panel fixed top-1/2 left-1/2 z-50 grid -translate-x-1/2 -translate-y-1/2 rounded-xl bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
@@ -102,7 +102,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-[var(--mermer-dialog-x)] -mb-[var(--mermer-dialog-y)] flex flex-col-reverse gap-2.5 rounded-b-xl border-t bg-muted/50 px-[var(--mermer-dialog-x)] py-[var(--mermer-dialog-y)] sm:flex-row sm:justify-end",
+        "-mx-[var(--zamapay-dialog-x)] -mb-[var(--zamapay-dialog-y)] flex flex-col-reverse gap-2.5 rounded-b-xl border-t bg-muted/50 px-[var(--zamapay-dialog-x)] py-[var(--zamapay-dialog-y)] sm:flex-row sm:justify-end",
         className
       )}
       {...props}

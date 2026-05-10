@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils"
 
 const steps = [
   {
-    description: "Merchant creates a hosted checkout from the Mermer console.",
+    description: "Merchant creates a hosted checkout from the ZamaPay console.",
     icon: ReceiptTextIcon,
     label: "Create",
     title: "Invoice minted",
@@ -70,7 +70,7 @@ export function LandingProductMotion() {
         <div className="flex min-w-0 flex-col gap-4 border-b p-4 lg:border-r lg:border-b-0">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-medium">Mermer workspace</div>
+              <div className="text-sm font-medium">ZamaPay workspace</div>
               <div className="text-xs text-muted-foreground">Project: merchant-prod</div>
             </div>
             <Badge variant="secondary">
@@ -81,7 +81,7 @@ export function LandingProductMotion() {
 
           <div className="relative aspect-[4/3] min-w-0 overflow-hidden rounded-lg border bg-muted">
             <Image
-              alt="Mermer Pay merchant console screenshot"
+              alt="ZamaPay merchant console screenshot"
               className="landing-console-shot object-cover object-top"
               fill
               priority

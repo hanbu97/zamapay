@@ -62,7 +62,7 @@ export function PublicFooter({ isAuthenticated }: PublicFooterProps) {
         <div className="flex max-w-sm flex-col gap-4">
           <Link className="flex w-fit items-center gap-2 font-semibold" href="/">
             <span className="grid size-8 place-items-center rounded-md border bg-background text-xs">MP</span>
-            <span>Mermer Pay</span>
+            <span>ZamaPay</span>
           </Link>
           <p className="text-sm leading-6 text-muted-foreground">
             Hosted crypto checkout for merchant products, with private settlement on the Zama rail and finality-safe
@@ -98,7 +98,7 @@ export function PublicFooter({ isAuthenticated }: PublicFooterProps) {
       </div>
 
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 border-t px-4 py-5 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between md:px-8">
-        <span>© {new Date().getFullYear()} Mermer Pay. Built for confidential merchant settlement.</span>
+        <span>© {new Date().getFullYear()} ZamaPay. Built for confidential merchant settlement.</span>
         <div className="flex flex-wrap gap-4">
           <Link className="hover:text-foreground" href="/docs/environments">
             Environments

@@ -20,16 +20,16 @@ where
 
 static SCHEMA_SQL: &[&str] = &[
     r#"
-    create table if not exists mermer_portal_counters (
+    create table if not exists zamapay_portal_counters (
         state_key text primary key,
         next_invoice_number bigint not null check (next_invoice_number > 0),
         updated_at timestamptz not null default now()
     )
     "#,
-    "alter table mermer_portal_counters drop column if exists next_chain_invoice_id",
+    "alter table zamapay_portal_counters drop column if exists next_chain_invoice_id",
     r#"
-    create table if not exists mermer_payment_projects (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_payment_projects (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         project_id text not null,
         name text not null,
         owner_wallet text not null,
@@ -41,10 +41,10 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, project_id)
     )
     "#,
-    "create index if not exists mermer_payment_projects_owner_idx on mermer_payment_projects (state_key, lower(owner_wallet))",
+    "create index if not exists zamapay_payment_projects_owner_idx on zamapay_payment_projects (state_key, lower(owner_wallet))",
     r#"
-    create table if not exists mermer_project_environments (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_project_environments (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         environment_id text not null,
         project_id text not null,
         environment text not null,
@@ -56,10 +56,10 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, environment_id)
     )
     "#,
-    "create index if not exists mermer_project_environments_project_idx on mermer_project_environments (state_key, project_id)",
+    "create index if not exists zamapay_project_environments_project_idx on zamapay_project_environments (state_key, project_id)",
     r#"
-    create table if not exists mermer_invoice_authorities (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_invoice_authorities (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         authority_id text not null,
         project_id text not null,
         environment text not null,
@@ -71,10 +71,10 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, authority_id)
     )
     "#,
-    "create index if not exists mermer_invoice_authorities_project_idx on mermer_invoice_authorities (state_key, project_id)",
+    "create index if not exists zamapay_invoice_authorities_project_idx on zamapay_invoice_authorities (state_key, project_id)",
     r#"
-    create table if not exists mermer_project_api_keys (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_project_api_keys (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         key_id text not null,
         project_id text not null,
         environment text not null,
@@ -87,11 +87,11 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, key_id)
     )
     "#,
-    "create index if not exists mermer_project_api_keys_project_idx on mermer_project_api_keys (state_key, project_id)",
-    "create index if not exists mermer_project_api_keys_prefix_idx on mermer_project_api_keys (state_key, project_id, prefix)",
+    "create index if not exists zamapay_project_api_keys_project_idx on zamapay_project_api_keys (state_key, project_id)",
+    "create index if not exists zamapay_project_api_keys_prefix_idx on zamapay_project_api_keys (state_key, project_id, prefix)",
     r#"
-    create table if not exists mermer_webhook_endpoints (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_webhook_endpoints (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         endpoint_id text not null,
         project_id text not null,
         environment text not null,
@@ -103,10 +103,10 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, endpoint_id)
     )
     "#,
-    "create index if not exists mermer_webhook_endpoints_project_idx on mermer_webhook_endpoints (state_key, project_id)",
+    "create index if not exists zamapay_webhook_endpoints_project_idx on zamapay_webhook_endpoints (state_key, project_id)",
     r#"
-    create table if not exists mermer_billing_subscriptions (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_billing_subscriptions (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         owner_wallet_key text not null,
         subscription_id text not null,
         owner_wallet text not null,
@@ -125,8 +125,8 @@ static SCHEMA_SQL: &[&str] = &[
     )
     "#,
     r#"
-    create table if not exists mermer_billing_payments (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_billing_payments (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         owner_wallet_key text not null,
         payment_id text not null,
         owner_wallet text not null,
@@ -141,10 +141,10 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, payment_id)
     )
     "#,
-    "create index if not exists mermer_billing_payments_owner_idx on mermer_billing_payments (state_key, owner_wallet_key, created_at desc)",
+    "create index if not exists zamapay_billing_payments_owner_idx on zamapay_billing_payments (state_key, owner_wallet_key, created_at desc)",
     r#"
-    create table if not exists mermer_invoices (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_invoices (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         invoice_id text not null,
         project_id text,
         checkout_session_id text,
@@ -186,12 +186,12 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, invoice_id)
     )
     "#,
-    "create index if not exists mermer_invoices_project_idx on mermer_invoices (state_key, project_id)",
-    "drop index if exists mermer_invoices_chain_invoice_idx",
-    "create index if not exists mermer_invoices_chain_invoice_lookup_idx on mermer_invoices (state_key, chain_invoice_id, settlement_invoice_id desc) where chain_invoice_id is not null",
+    "create index if not exists zamapay_invoices_project_idx on zamapay_invoices (state_key, project_id)",
+    "drop index if exists zamapay_invoices_chain_invoice_idx",
+    "create index if not exists zamapay_invoices_chain_invoice_lookup_idx on zamapay_invoices (state_key, chain_invoice_id, settlement_invoice_id desc) where chain_invoice_id is not null",
     r#"
-    create table if not exists mermer_checkout_sessions (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_checkout_sessions (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         checkout_session_id text not null,
         project_id text not null,
         environment text not null,
@@ -219,30 +219,30 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, checkout_session_id)
     )
     "#,
-    "create index if not exists mermer_checkout_sessions_project_idx on mermer_checkout_sessions (state_key, project_id)",
-    "drop index if exists mermer_checkout_sessions_chain_invoice_idx",
-    "create index if not exists mermer_checkout_sessions_chain_invoice_lookup_idx on mermer_checkout_sessions (state_key, chain_invoice_id, created_at desc)",
+    "create index if not exists zamapay_checkout_sessions_project_idx on zamapay_checkout_sessions (state_key, project_id)",
+    "drop index if exists zamapay_checkout_sessions_chain_invoice_idx",
+    "create index if not exists zamapay_checkout_sessions_chain_invoice_lookup_idx on zamapay_checkout_sessions (state_key, chain_invoice_id, created_at desc)",
     r#"
-    create table if not exists mermer_checkout_metadata (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_checkout_metadata (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         checkout_session_id text not null,
         metadata_key text not null,
         metadata_value text not null,
         primary key (state_key, checkout_session_id, metadata_key)
     )
     "#,
-    "create index if not exists mermer_checkout_metadata_session_idx on mermer_checkout_metadata (state_key, checkout_session_id)",
+    "create index if not exists zamapay_checkout_metadata_session_idx on zamapay_checkout_metadata (state_key, checkout_session_id)",
     r#"
-    create table if not exists mermer_checkout_idempotency (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_checkout_idempotency (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         scope text not null,
         checkout_session_id text not null,
         primary key (state_key, scope)
     )
     "#,
     r#"
-    create table if not exists mermer_webhook_events (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_webhook_events (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         event_id text not null,
         project_id text not null,
         environment text not null,
@@ -254,11 +254,11 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, event_id)
     )
     "#,
-    "create index if not exists mermer_webhook_events_project_idx on mermer_webhook_events (state_key, project_id)",
-    "create unique index if not exists mermer_webhook_events_subject_idx on mermer_webhook_events (state_key, subject_id)",
+    "create index if not exists zamapay_webhook_events_project_idx on zamapay_webhook_events (state_key, project_id)",
+    "create unique index if not exists zamapay_webhook_events_subject_idx on zamapay_webhook_events (state_key, subject_id)",
     r#"
-    create table if not exists mermer_webhook_deliveries (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_webhook_deliveries (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         delivery_id text not null,
         event_id text not null,
         endpoint_id text not null,
@@ -276,11 +276,11 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, delivery_id)
     )
     "#,
-    "create index if not exists mermer_webhook_deliveries_project_idx on mermer_webhook_deliveries (state_key, project_id)",
-    "create index if not exists mermer_webhook_deliveries_event_idx on mermer_webhook_deliveries (state_key, event_id)",
+    "create index if not exists zamapay_webhook_deliveries_project_idx on zamapay_webhook_deliveries (state_key, project_id)",
+    "create index if not exists zamapay_webhook_deliveries_event_idx on zamapay_webhook_deliveries (state_key, event_id)",
     r#"
-    create table if not exists mermer_project_withdrawals (
-        state_key text not null references mermer_portal_counters(state_key) on delete cascade,
+    create table if not exists zamapay_project_withdrawals (
+        state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         withdrawal_id text not null,
         project_id text not null,
         amount_minor_units bigint not null check (amount_minor_units >= 0),
@@ -291,7 +291,7 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, withdrawal_id)
     )
     "#,
-    "create index if not exists mermer_project_withdrawals_project_idx on mermer_project_withdrawals (state_key, project_id)",
+    "create index if not exists zamapay_project_withdrawals_project_idx on zamapay_project_withdrawals (state_key, project_id)",
 ];
 
 async fn advisory_lock<C>(connection: &C) -> Result<(), DbErr>

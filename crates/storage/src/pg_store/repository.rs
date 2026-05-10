@@ -63,7 +63,7 @@ async fn normalized_state_exists(db: &DatabaseConnection, state_key: &str) -> Re
     }
 
     let row = CountRow::find_by_statement(stmt(
-        "select count(*)::bigint as count from mermer_portal_counters where state_key = $1",
+        "select count(*)::bigint as count from zamapay_portal_counters where state_key = $1",
         vec![state_key.into()],
     ))
     .one(db)
@@ -78,7 +78,7 @@ async fn read_portal_rows(
     let counters = CounterRow::find_by_statement(stmt(
         r#"
         select next_invoice_number
-        from mermer_portal_counters
+        from zamapay_portal_counters
         where state_key = $1
         "#,
         vec![state_key.into()],
@@ -95,7 +95,7 @@ async fn read_portal_rows(
 
     for row in select::<ProjectRow>(
         db,
-        "select * from mermer_payment_projects where state_key = $1",
+        "select * from zamapay_payment_projects where state_key = $1",
         state_key,
     )
     .await?
@@ -105,7 +105,7 @@ async fn read_portal_rows(
     }
     for row in select::<EnvironmentRow>(
         db,
-        "select * from mermer_project_environments where state_key = $1",
+        "select * from zamapay_project_environments where state_key = $1",
         state_key,
     )
     .await?
@@ -117,7 +117,7 @@ async fn read_portal_rows(
     }
     for row in select::<AuthorityRow>(
         db,
-        "select * from mermer_invoice_authorities where state_key = $1",
+        "select * from zamapay_invoice_authorities where state_key = $1",
         state_key,
     )
     .await?
@@ -129,7 +129,7 @@ async fn read_portal_rows(
     }
     for row in select::<ApiKeyRow>(
         db,
-        "select * from mermer_project_api_keys where state_key = $1",
+        "select * from zamapay_project_api_keys where state_key = $1",
         state_key,
     )
     .await?
@@ -139,7 +139,7 @@ async fn read_portal_rows(
     }
     for row in select::<WebhookEndpointRow>(
         db,
-        "select * from mermer_webhook_endpoints where state_key = $1",
+        "select * from zamapay_webhook_endpoints where state_key = $1",
         state_key,
     )
     .await?
@@ -151,7 +151,7 @@ async fn read_portal_rows(
     }
     for row in select::<SubscriptionRow>(
         db,
-        "select * from mermer_billing_subscriptions where state_key = $1",
+        "select * from zamapay_billing_subscriptions where state_key = $1",
         state_key,
     )
     .await?
@@ -161,7 +161,7 @@ async fn read_portal_rows(
     }
     for row in select::<BillingPaymentRow>(
         db,
-        "select * from mermer_billing_payments where state_key = $1",
+        "select * from zamapay_billing_payments where state_key = $1",
         state_key,
     )
     .await?
@@ -175,7 +175,7 @@ async fn read_portal_rows(
     }
     for row in select::<InvoiceRow>(
         db,
-        "select * from mermer_invoices where state_key = $1",
+        "select * from zamapay_invoices where state_key = $1",
         state_key,
     )
     .await?
@@ -187,7 +187,7 @@ async fn read_portal_rows(
     let checkout_metadata = checkout_metadata_by_session(db, state_key).await?;
     for row in select::<CheckoutRow>(
         db,
-        "select * from mermer_checkout_sessions where state_key = $1",
+        "select * from zamapay_checkout_sessions where state_key = $1",
         state_key,
     )
     .await?
@@ -205,7 +205,7 @@ async fn read_portal_rows(
     }
     for row in select::<IdempotencyRow>(
         db,
-        "select * from mermer_checkout_idempotency where state_key = $1",
+        "select * from zamapay_checkout_idempotency where state_key = $1",
         state_key,
     )
     .await?
@@ -216,7 +216,7 @@ async fn read_portal_rows(
     }
     for row in select::<WebhookEventRow>(
         db,
-        "select * from mermer_webhook_events where state_key = $1",
+        "select * from zamapay_webhook_events where state_key = $1",
         state_key,
     )
     .await?
@@ -226,7 +226,7 @@ async fn read_portal_rows(
     }
     for row in select::<WebhookDeliveryRow>(
         db,
-        "select * from mermer_webhook_deliveries where state_key = $1",
+        "select * from zamapay_webhook_deliveries where state_key = $1",
         state_key,
     )
     .await?
@@ -238,7 +238,7 @@ async fn read_portal_rows(
     }
     for row in select::<WithdrawalRow>(
         db,
-        "select * from mermer_project_withdrawals where state_key = $1",
+        "select * from zamapay_project_withdrawals where state_key = $1",
         state_key,
     )
     .await?
@@ -259,7 +259,7 @@ async fn checkout_metadata_by_session(
     let mut metadata = HashMap::<String, BTreeMap<String, String>>::new();
     for row in select::<CheckoutMetadataRow>(
         db,
-        "select * from mermer_checkout_metadata where state_key = $1",
+        "select * from zamapay_checkout_metadata where state_key = $1",
         state_key,
     )
     .await?
@@ -280,7 +280,7 @@ async fn replace_portal_rows(
     let tx = db.begin().await?;
     exec(
         &tx,
-        "delete from mermer_portal_counters where state_key = $1",
+        "delete from zamapay_portal_counters where state_key = $1",
         vec![state_key.into()],
     )
     .await?;
@@ -309,7 +309,7 @@ async fn insert_counters(
     exec(
         tx,
         r#"
-        insert into mermer_portal_counters
+        insert into zamapay_portal_counters
             (state_key, next_invoice_number, updated_at)
         values ($1, $2, now())
         "#,
@@ -328,7 +328,7 @@ async fn insert_projects<'a>(
 ) -> Result<(), DbErr> {
     for project in projects {
         exec(tx, r#"
-            insert into mermer_payment_projects
+            insert into zamapay_payment_projects
                 (state_key, project_id, name, owner_wallet, default_environment, billing_plan, status, created_at, updated_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             "#, vec![
@@ -348,7 +348,7 @@ async fn insert_environments<'a>(
 ) -> Result<(), DbErr> {
     for environment in environments {
         exec(tx, r#"
-            insert into mermer_project_environments
+            insert into zamapay_project_environments
                 (state_key, environment_id, project_id, environment, chain_id, settlement_contract, token_contract, invoice_authority_id, status)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             "#, vec![
@@ -369,7 +369,7 @@ async fn insert_authorities<'a>(
 ) -> Result<(), DbErr> {
     for authority in authorities {
         exec(tx, r#"
-            insert into mermer_invoice_authorities
+            insert into zamapay_invoice_authorities
                 (state_key, authority_id, project_id, environment, mode, signer_address, key_ref, merchant_registered, created_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             "#, vec![
@@ -389,7 +389,7 @@ async fn insert_api_keys<'a>(
 ) -> Result<(), DbErr> {
     for key in api_keys {
         exec(tx, r#"
-            insert into mermer_project_api_keys
+            insert into zamapay_project_api_keys
                 (state_key, key_id, project_id, environment, label, prefix, secret_hash, created_at, last_used_at, revoked_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
             "#, vec![
@@ -409,7 +409,7 @@ async fn insert_webhook_endpoints<'a>(
 ) -> Result<(), DbErr> {
     for endpoint in endpoints {
         exec(tx, r#"
-            insert into mermer_webhook_endpoints
+            insert into zamapay_webhook_endpoints
                 (state_key, endpoint_id, project_id, environment, url, enabled, secret_preview, created_at, updated_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             "#, vec![
@@ -428,7 +428,7 @@ async fn insert_subscriptions<'a>(
 ) -> Result<(), DbErr> {
     for subscription in subscriptions {
         exec(tx, r#"
-            insert into mermer_billing_subscriptions
+            insert into zamapay_billing_subscriptions
                 (state_key, owner_wallet_key, subscription_id, owner_wallet, plan, billing_cycle, status, pass_id, entitlement_version, entitlement_status, entitlement_tx_hash, subscription_check_handle, current_period_started_at, current_period_ends_at, updated_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             "#, vec![
@@ -453,7 +453,7 @@ async fn insert_billing_payments(
     for (owner_wallet_key, payments) in histories {
         for payment in payments {
             exec(tx, r#"
-                insert into mermer_billing_payments
+                insert into zamapay_billing_payments
                     (state_key, owner_wallet_key, payment_id, owner_wallet, plan, billing_cycle, amount_minor_units, currency, status, chain_tx_hash, subscription_check_handle, created_at)
                 values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
                 "#, vec![
@@ -478,7 +478,7 @@ async fn insert_invoices<'a>(
     for invoice in invoices {
         let billing = invoice.billing.clone();
         exec(tx, r#"
-            insert into mermer_invoices
+            insert into zamapay_invoices
                 (state_key, invoice_id, project_id, checkout_session_id, environment, external_ref, title, merchant_name, amount_label, amount_minor_units, note, chain_invoice_id, chain_tx_hash, payment_tx_hash, payer_address, finality_confirmations, finality_threshold, webhook_status, webhook_attempt_count, webhook_next_retry_after_seconds, fulfillment_job_id, fulfillment_released_at, fulfillment_artifact_count, decrypt_request_id, decrypt_requested_at, decrypt_completed_at, decrypt_callback_sender, decrypt_replayed_callback_count, decrypt_pending_guard_trips, settlement_invoice_id, payment_truth, finality_status, decrypt_job_status, fulfillment_status, billing_plan, billing_fee_bps, billing_gross_amount_minor_units, billing_platform_fee_minor_units, billing_merchant_net_minor_units)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)
             "#, vec![
@@ -521,7 +521,7 @@ async fn insert_checkout_sessions<'a>(
 ) -> Result<(), DbErr> {
     for session in sessions {
         exec(tx, r#"
-            insert into mermer_checkout_sessions
+            insert into zamapay_checkout_sessions
                 (state_key, checkout_session_id, project_id, environment, merchant_order_id, idempotency_key, invoice_id, chain_invoice_id, chain_tx_hash, checkout_url, title, amount_label, amount_minor_units, billing_plan, billing_fee_bps, billing_gross_amount_minor_units, billing_platform_fee_minor_units, billing_merchant_net_minor_units, note, success_url, cancel_url, status, created_at, updated_at, expires_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
             "#, vec![
@@ -542,7 +542,7 @@ async fn insert_checkout_sessions<'a>(
             exec(
                 tx,
                 r#"
-                insert into mermer_checkout_metadata
+                insert into zamapay_checkout_metadata
                     (state_key, checkout_session_id, metadata_key, metadata_value)
                 values ($1,$2,$3,$4)
                 "#,
@@ -568,7 +568,7 @@ async fn insert_idempotency(
         exec(
             tx,
             r#"
-            insert into mermer_checkout_idempotency (state_key, scope, checkout_session_id)
+            insert into zamapay_checkout_idempotency (state_key, scope, checkout_session_id)
             values ($1,$2,$3)
             "#,
             vec![
@@ -589,7 +589,7 @@ async fn insert_webhook_events<'a>(
 ) -> Result<(), DbErr> {
     for event in events {
         exec(tx, r#"
-            insert into mermer_webhook_events
+            insert into zamapay_webhook_events
                 (state_key, event_id, project_id, environment, event_type, subject_type, subject_id, payload_text, created_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             "#, vec![
@@ -609,7 +609,7 @@ async fn insert_webhook_deliveries<'a>(
 ) -> Result<(), DbErr> {
     for delivery in deliveries {
         exec(tx, r#"
-            insert into mermer_webhook_deliveries
+            insert into zamapay_webhook_deliveries
                 (state_key, delivery_id, event_id, endpoint_id, project_id, environment, attempt_count, status, signature_header, http_status, response_body, error, next_retry_at, created_at, delivered_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             "#, vec![
@@ -631,7 +631,7 @@ async fn insert_withdrawals<'a>(
 ) -> Result<(), DbErr> {
     for withdrawal in withdrawals {
         exec(tx, r#"
-            insert into mermer_project_withdrawals
+            insert into zamapay_project_withdrawals
                 (state_key, withdrawal_id, project_id, amount_minor_units, status, receipt, created_at, completed_at)
             values ($1,$2,$3,$4,$5,$6,$7,$8)
             "#, vec![

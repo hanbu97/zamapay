@@ -59,7 +59,7 @@ export default async function ProjectPage({ params, searchParams }: ProjectPageP
   const overview = overviewResult.data
 
   return (
-    <div className="mermer-flow-stack flex flex-col">
+    <div className="zamapay-flow-stack flex flex-col">
       <PageHeader
         badge={overview.project.defaultEnvironment.replace('_', ' ')}
         description="Project-level API keys, webhook endpoints, checkout sessions, and settlement activity."

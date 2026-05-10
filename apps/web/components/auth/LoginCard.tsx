@@ -206,7 +206,7 @@ export function LoginCard({ redirectTo = '/dashboard' }: LoginCardProps) {
       setStatus('Loading local-dev signer...')
       const signerResponse = await fetch('/api/dev/sign-message', { cache: 'no-store' })
       if (!signerResponse.ok) {
-        throw new Error('Local-dev signer is disabled. Enable MERMER_ENABLE_DEV_SIGNER=1 for browser QA.')
+        throw new Error('Local-dev signer is disabled. Enable ZAMAPAY_ENABLE_DEV_SIGNER=1 for browser QA.')
       }
       const signer = (await signerResponse.json()) as { address?: unknown }
       if (typeof signer.address !== 'string') {

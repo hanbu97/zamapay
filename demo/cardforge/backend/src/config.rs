@@ -7,7 +7,7 @@ const DEFAULT_CONSOLE_URL: &str = "http://127.0.0.1:3001/merchant";
 const DEFAULT_LOGIN_URL: &str = "http://127.0.0.1:3001/login";
 const DEFAULT_MERCHANT_LABEL: &str = "CardForge Demo Store";
 const DEFAULT_STORE_KEY: &str = "local-dev";
-const DEFAULT_WEBHOOK_ENDPOINT: &str = "http://127.0.0.1:8092/api/mermer-pay/webhook";
+const DEFAULT_WEBHOOK_ENDPOINT: &str = "http://127.0.0.1:8092/api/zamapay/webhook";
 
 #[derive(Clone)]
 pub(crate) struct Config {
@@ -15,8 +15,8 @@ pub(crate) struct Config {
     pub(crate) database_url: String,
     pub(crate) local_chain_invoice_api_url: String,
     pub(crate) login_url: String,
-    pub(crate) mermer_api_url: String,
-    pub(crate) mermer_console_url: String,
+    pub(crate) zamapay_api_url: String,
+    pub(crate) zamapay_console_url: String,
     pub(crate) project_api_key: String,
     pub(crate) merchant_label: String,
     pub(crate) project_id: String,
@@ -27,24 +27,24 @@ pub(crate) struct Config {
 
 impl Config {
     pub(crate) fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
-        let mermer_console_url =
-            clean_base_url(env_value("MERMER_PAY_CONSOLE_URL", DEFAULT_CONSOLE_URL));
+        let zamapay_console_url =
+            clean_base_url(env_value("ZAMAPAY_CONSOLE_URL", DEFAULT_CONSOLE_URL));
         Ok(Self {
             bind_addr: env_value("CARDFORGE_BACKEND_BIND", DEFAULT_BIND_ADDR).parse()?,
             database_url: required_env("CARDFORGE_DATABASE_URL")?,
-            login_url: env_value("MERMER_PAY_LOGIN_URL", DEFAULT_LOGIN_URL),
+            login_url: env_value("ZAMAPAY_LOGIN_URL", DEFAULT_LOGIN_URL),
             local_chain_invoice_api_url: clean_base_url(env_value(
-                "MERMER_PAY_CHAIN_INVOICE_API_URL",
+                "ZAMAPAY_CHAIN_INVOICE_API_URL",
                 DEFAULT_CHAIN_INVOICE_API_URL,
             )),
-            mermer_api_url: clean_base_url(env_value("MERMER_PAY_API_URL", DEFAULT_API_URL)),
-            mermer_console_url,
-            project_api_key: required_env("MERMER_PAY_API_KEY")?,
+            zamapay_api_url: clean_base_url(env_value("ZAMAPAY_API_URL", DEFAULT_API_URL)),
+            zamapay_console_url,
+            project_api_key: required_env("ZAMAPAY_API_KEY")?,
             merchant_label: env_value("CARDFORGE_MERCHANT_LABEL", DEFAULT_MERCHANT_LABEL),
-            project_id: required_env("MERMER_PAY_PROJECT_ID")?,
+            project_id: required_env("ZAMAPAY_PROJECT_ID")?,
             store_key: env_value("CARDFORGE_STORE_KEY", DEFAULT_STORE_KEY),
             webhook_endpoint: env_value("CARDFORGE_WEBHOOK_ENDPOINT", DEFAULT_WEBHOOK_ENDPOINT),
-            webhook_secret: required_env("MERMER_PAY_WEBHOOK_SECRET")?,
+            webhook_secret: required_env("ZAMAPAY_WEBHOOK_SECRET")?,
         })
     }
 }

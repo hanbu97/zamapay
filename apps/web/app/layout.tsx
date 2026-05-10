@@ -9,7 +9,7 @@ const geist = Geist({
 })
 
 export const metadata: Metadata = {
-  title: 'Mermer Pay',
+  title: 'ZamaPay',
   description: 'Confidential merchant checkout powered by Zama FHEVM.',
 }
 

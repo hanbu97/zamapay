@@ -8,9 +8,9 @@ use storage::PortalStore;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let database_url = std::env::var("MERMER_TEST_DATABASE_URL")
+    let database_url = std::env::var("ZAMAPAY_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("set MERMER_TEST_DATABASE_URL or DATABASE_URL for API tests");
+        .expect("set ZAMAPAY_TEST_DATABASE_URL or DATABASE_URL for API tests");
     let state_key = format!("test-api-{}", Uuid::new_v4().simple());
     AppState::with_portal(PortalStore::connect_with_state_key(database_url, state_key).await)
 }
@@ -129,7 +129,7 @@ async fn project_withdraw_route_rejects_unavailable_balance() {
     let seeded_session = state
         .issue_dev_session("0x0000000000000000000000000000000000000009")
         .await;
-    let cookie = format!("mermer_session={}", seeded_session.session_id);
+    let cookie = format!("zamapay_session={}", seeded_session.session_id);
     let app = app(state);
 
     let project = app
@@ -145,7 +145,7 @@ async fn project_withdraw_route_rejects_unavailable_balance() {
                         "name": "Withdraw boundary",
                         "environment": "local_dev",
                         "billingPlan": "free",
-                        "webhookUrl": "http://127.0.0.1:9/webhooks/mermer"
+                        "webhookUrl": "http://127.0.0.1:9/webhooks/zamapay"
                     })
                     .to_string(),
                 ))
@@ -282,7 +282,7 @@ async fn create_invoice_requires_session_and_persists_new_record() {
                 .header("content-type", "application/json")
                 .header(
                     "cookie",
-                    format!("mermer_session={}", seeded_session.session_id),
+                    format!("zamapay_session={}", seeded_session.session_id),
                 )
                 .body(Body::from(
                     json!({
@@ -344,7 +344,7 @@ async fn operator_payment_projection_marks_invoice_paid() {
                 .header("content-type", "application/json")
                 .header(
                     "cookie",
-                    format!("mermer_session={}", seeded_session.session_id),
+                    format!("zamapay_session={}", seeded_session.session_id),
                 )
                 .body(Body::from(
                     json!({
@@ -457,7 +457,7 @@ async fn operator_payment_projection_can_target_chain_invoice_id() {
                 .header("content-type", "application/json")
                 .header(
                     "cookie",
-                    format!("mermer_session={}", seeded_session.session_id),
+                    format!("zamapay_session={}", seeded_session.session_id),
                 )
                 .body(Body::from(
                     json!({
@@ -689,7 +689,7 @@ async fn operator_settlement_event_surfaces_diagnostics() {
                 .header("content-type", "application/json")
                 .header(
                     "cookie",
-                    format!("mermer_session={}", seeded_session.session_id),
+                    format!("zamapay_session={}", seeded_session.session_id),
                 )
                 .body(Body::from(
                     json!({
@@ -787,7 +787,7 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
     let seeded_session = state
         .issue_dev_session("0x0000000000000000000000000000000000000009")
         .await;
-    let cookie = format!("mermer_session={}", seeded_session.session_id);
+    let cookie = format!("zamapay_session={}", seeded_session.session_id);
     let app = app(state);
 
     let project = app
@@ -803,7 +803,7 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
                         "name": "CardForge merchant",
                         "environment": "local_dev",
                         "billingPlan": "free",
-                        "webhookUrl": "http://127.0.0.1:9/webhooks/mermer"
+                        "webhookUrl": "http://127.0.0.1:9/webhooks/zamapay"
                     })
                     .to_string(),
                 ))
@@ -852,7 +852,7 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
     assert_eq!(key.status(), StatusCode::OK);
     let key = response_json(key).await;
     let api_key = key["apiKey"].as_str().unwrap();
-    assert!(api_key.starts_with("mmp_test_"));
+    assert!(api_key.starts_with("zmp_test_"));
 
     let missing_key = app
         .clone()
@@ -949,7 +949,7 @@ async fn project_operator_projection_creates_project_outbox_records() {
     let seeded_session = state
         .issue_dev_session("0x0000000000000000000000000000000000000009")
         .await;
-    let cookie = format!("mermer_session={}", seeded_session.session_id);
+    let cookie = format!("zamapay_session={}", seeded_session.session_id);
     let app = app(state);
 
     let project = app
@@ -964,7 +964,7 @@ async fn project_operator_projection_creates_project_outbox_records() {
                     json!({
                         "name": "Outbox merchant",
                         "environment": "local_dev",
-                        "webhookUrl": "http://127.0.0.1:9/webhooks/mermer"
+                        "webhookUrl": "http://127.0.0.1:9/webhooks/zamapay"
                     })
                     .to_string(),
                 ))

@@ -8,7 +8,7 @@ describe("MerchantRegistry", function () {
     const registry = await Registry.deploy();
     await registry.waitForDeployment();
 
-    await expect(registry.connect(merchant).registerMerchant(merchant.address, "Mermer Demo")).to.emit(
+    await expect(registry.connect(merchant).registerMerchant(merchant.address, "ZamaPay Demo")).to.emit(
       registry,
       "MerchantRegistered",
     );

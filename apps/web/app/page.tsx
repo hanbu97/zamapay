@@ -77,7 +77,7 @@ const operationFrames = [
 const boundaryRows = [
   ["Merchant frontend", "catalog, buyer journey, order copy"],
   ["Merchant backend", "order id, callback endpoint, fulfillment release"],
-  ["Mermer Pay", "checkout session, payment truth, finality, encrypted settlement"],
+  ["ZamaPay", "checkout session, payment truth, finality, encrypted settlement"],
 ]
 
 export default async function SiteHomePage() {
@@ -96,7 +96,7 @@ export default async function SiteHomePage() {
               Private checkout infrastructure for crypto merchants
             </h1>
             <p className="max-w-2xl text-lg leading-8 text-muted-foreground md:text-xl">
-              Mermer Pay gives merchant products a hosted crypto checkout, wallet-gated project console, encrypted Zama
+              ZamaPay gives merchant products a hosted crypto checkout, wallet-gated project console, encrypted Zama
               settlement, and finality-safe webhook release without mixing payment state into the merchant app.
             </p>
             <ButtonGroup className="w-fit flex-wrap">
@@ -131,7 +131,7 @@ export default async function SiteHomePage() {
         <div className="flex flex-col gap-4">
           <h2 className="text-4xl font-semibold tracking-normal text-balance">The payment layer stays outside your app</h2>
           <p className="text-base leading-7 text-muted-foreground">
-            Merchant products keep their catalog and fulfillment logic. Mermer Pay owns the payment rail, hosted
+            Merchant products keep their catalog and fulfillment logic. ZamaPay owns the payment rail, hosted
             checkout, settlement privacy, and callback truth.
           </p>
         </div>
@@ -203,7 +203,7 @@ export default async function SiteHomePage() {
         <div className="flex flex-col gap-4">
           <h2 className="text-4xl font-semibold tracking-normal text-balance">A developer boundary that stays clean</h2>
           <p className="text-base leading-7 text-muted-foreground">
-            Merchant products integrate through a compact backend contract. Mermer Pay keeps checkout, private
+            Merchant products integrate through a compact backend contract. ZamaPay keeps checkout, private
             settlement, and webhook truth outside the product codebase.
           </p>
         </div>
@@ -215,7 +215,7 @@ export default async function SiteHomePage() {
               integration contract
             </Badge>
             <CardTitle>Merchant project handoff</CardTitle>
-            <CardDescription>One direction of dependency: merchant product to Mermer Pay, never the reverse.</CardDescription>
+            <CardDescription>One direction of dependency: merchant product to ZamaPay, never the reverse.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-0 overflow-hidden rounded-lg border">
@@ -230,7 +230,7 @@ export default async function SiteHomePage() {
             <pre className="mt-4 max-w-full overflow-x-auto rounded-lg border bg-muted p-4 text-xs leading-6 text-muted-foreground">
               <code>{`POST /api/orders/checkout
 -> merchant backend
--> Mermer Pay /api/projects/{projectId}/checkout-sessions
+-> ZamaPay /api/projects/{projectId}/checkout-sessions
 -> hosted checkout URL
 -> webhook release event`}</code>
             </pre>

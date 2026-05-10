@@ -9,9 +9,9 @@ use storage::PortalStore;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let database_url = std::env::var("MERMER_TEST_DATABASE_URL")
+    let database_url = std::env::var("ZAMAPAY_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("set MERMER_TEST_DATABASE_URL or DATABASE_URL for API tests");
+        .expect("set ZAMAPAY_TEST_DATABASE_URL or DATABASE_URL for API tests");
     let state_key = format!("test-api-{}", Uuid::new_v4().simple());
     AppState::with_portal(PortalStore::connect_with_state_key(database_url, state_key).await)
 }
@@ -62,7 +62,7 @@ async fn operator_webhook_delivery_retries_dead_letters_and_recovers() {
     .await;
     assert_eq!(
         signed_dispatch["endpoint"],
-        "https://merchant.example/webhooks/mermer-pay"
+        "https://merchant.example/webhooks/zamapay"
     );
     assert_eq!(
         signed_dispatch["payload"]["event"],
@@ -81,10 +81,10 @@ async fn operator_webhook_delivery_retries_dead_letters_and_recovers() {
     );
     assert_eq!(signed_dispatch["payload"]["webhookAttemptCount"], 0);
 
-    let webhook_id = signed_dispatch["headers"]["x-mermer-webhook-id"]
+    let webhook_id = signed_dispatch["headers"]["x-zamapay-webhook-id"]
         .as_str()
         .expect("webhook id should be present");
-    let timestamp = signed_dispatch["headers"]["x-mermer-webhook-timestamp"]
+    let timestamp = signed_dispatch["headers"]["x-zamapay-webhook-timestamp"]
         .as_str()
         .expect("webhook timestamp should be present");
     let canonical_body = signed_dispatch["canonicalBody"]
@@ -98,7 +98,7 @@ async fn operator_webhook_delivery_retries_dead_letters_and_recovers() {
         format!("{webhook_id}.{timestamp}.{canonical_body}")
     );
     assert_eq!(
-        signed_dispatch["headers"]["x-mermer-webhook-signature"],
+        signed_dispatch["headers"]["x-zamapay-webhook-signature"],
         expected_webhook_signature(signature_base)
     );
 
@@ -175,7 +175,7 @@ async fn merchant_decrypt_request_rejects_duplicates_and_gateway_replay() {
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/invoices/decrypt-ref-0012/decrypt-request")
-                .header("cookie", format!("mermer_session={session_cookie}"))
+                .header("cookie", format!("zamapay_session={session_cookie}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -189,7 +189,7 @@ async fn merchant_decrypt_request_rejects_duplicates_and_gateway_replay() {
         Request::builder()
             .method(Method::POST)
             .uri("/api/invoices/decrypt-ref-0012/decrypt-request")
-            .header("cookie", format!("mermer_session={session_cookie}"))
+            .header("cookie", format!("zamapay_session={session_cookie}"))
             .body(Body::empty())
             .unwrap(),
         StatusCode::OK,
@@ -208,7 +208,7 @@ async fn merchant_decrypt_request_rejects_duplicates_and_gateway_replay() {
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/invoices/decrypt-ref-0012/decrypt-request")
-                .header("cookie", format!("mermer_session={session_cookie}"))
+                .header("cookie", format!("zamapay_session={session_cookie}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -275,7 +275,7 @@ async fn create_invoice(
                 .method(Method::POST)
                 .uri("/api/invoices")
                 .header("content-type", "application/json")
-                .header("cookie", format!("mermer_session={session_cookie}"))
+                .header("cookie", format!("zamapay_session={session_cookie}"))
                 .body(Body::from(
                     json!({
                         "title": "Operator reliability invoice",
@@ -413,7 +413,7 @@ async fn request_json(
 }
 
 fn expected_webhook_signature(signature_base: &str) -> String {
-    let secret = std::env::var("MERMER_WEBHOOK_SECRET")
+    let secret = std::env::var("ZAMAPAY_WEBHOOK_SECRET")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "local-webhook-dev-secret".to_string());

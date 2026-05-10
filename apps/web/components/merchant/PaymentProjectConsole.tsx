@@ -92,7 +92,7 @@ export function PaymentProjectConsole({
 }: PaymentProjectConsoleProps) {
   const router = useRouter()
   const [overview, setOverview] = useState(initialOverview)
-  const [webhookUrl, setWebhookUrl] = useState(overview.webhookEndpoints[0]?.url ?? 'http://127.0.0.1:8092/api/mermer-pay/webhook')
+  const [webhookUrl, setWebhookUrl] = useState(overview.webhookEndpoints[0]?.url ?? 'http://127.0.0.1:8092/api/zamapay/webhook')
   const [apiKeyLabel, setApiKeyLabel] = useState('Merchant backend')
   const [oneTimeSecret, setOneTimeSecret] = useState<OneTimeSecret | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -105,11 +105,11 @@ export function PaymentProjectConsole({
   const activeTab = normalizeTab(initialTab)
   const currentPlanCatalog = initialBilling.plans.find((plan) => plan.plan === initialBilling.subscription.plan)
   const integrationSnippet = [
-    buildEnvExport('MERMER_PAY_PROJECT_ID', project.projectId),
-    buildEnvExport('MERMER_PAY_API_KEY', '<generated once>'),
-    buildEnvExport('MERMER_PAY_API_URL', apiBaseUrl),
-    buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', '<shown once when webhook is created>'),
-    buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://mermer:mermer@127.0.0.1:5432/cardforge'),
+    buildEnvExport('ZAMAPAY_PROJECT_ID', project.projectId),
+    buildEnvExport('ZAMAPAY_API_KEY', '<generated once>'),
+    buildEnvExport('ZAMAPAY_API_URL', apiBaseUrl),
+    buildEnvExport('ZAMAPAY_WEBHOOK_SECRET', '<shown once when webhook is created>'),
+    buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://zamapay:zamapay@127.0.0.1:5432/cardforge'),
     buildEnvExport('CARDFORGE_STORE_KEY', 'local-dev'),
   ].join('\n')
 
@@ -164,7 +164,7 @@ export function PaymentProjectConsole({
         copyLabel: 'Shell export',
         description: 'This project API key is shown once. Paste this export line into the merchant backend terminal as a server-side secret.',
         title: 'Copy API key export',
-        value: buildEnvExport('MERMER_PAY_API_KEY', created.apiKey),
+        value: buildEnvExport('ZAMAPAY_API_KEY', created.apiKey),
       })
       await refresh()
     })
@@ -183,7 +183,7 @@ export function PaymentProjectConsole({
           copyLabel: 'Shell export',
           description: 'This webhook secret is shown once. Paste this export line into the merchant backend terminal so callbacks can be verified.',
           title: 'Copy webhook secret export',
-          value: buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', configured.webhookSecret),
+          value: buildEnvExport('ZAMAPAY_WEBHOOK_SECRET', configured.webhookSecret),
         })
       }
       await refresh()
@@ -276,7 +276,7 @@ export function PaymentProjectConsole({
       const authorization = await walletClient.signTypedData({
         account: signerAddress,
         domain: {
-          name: 'MermerPayPrivateCheckoutSettlement',
+          name: 'ZamaPayPrivateCheckoutSettlement',
           version: '1',
           chainId: config.chain.id,
           verifyingContract: settlement,
@@ -333,7 +333,7 @@ export function PaymentProjectConsole({
   }
 
   return (
-    <div className="mermer-flow-stack flex flex-col">
+    <div className="zamapay-flow-stack flex flex-col">
       <OneTimeSecretDialog
         onClose={closeCopiedSecret}
         onCopy={copyOneTimeSecret}
@@ -394,10 +394,10 @@ export function PaymentProjectConsole({
         </TabsContent>
 
         <TabsContent value="integration">
-          <div className="mermer-section-grid grid items-start xl:grid-cols-[minmax(320px,0.8fr)_minmax(0,1.2fr)]">
+          <div className="zamapay-section-grid grid items-start xl:grid-cols-[minmax(320px,0.8fr)_minmax(0,1.2fr)]">
             <MerchantSetupFlow overview={overview} selectedProject={project} />
 
-            <div className="mermer-section-grid grid lg:grid-cols-2">
+            <div className="zamapay-section-grid grid lg:grid-cols-2">
               <Card size="sm">
                 <CardHeader>
                   <CardAction>

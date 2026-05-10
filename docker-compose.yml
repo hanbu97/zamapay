@@ -1,21 +1,21 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: mermer-postgres
+    container_name: zamapay-postgres
     environment:
-      POSTGRES_DB: mermer
-      POSTGRES_USER: mermer
-      POSTGRES_PASSWORD: mermer
+      POSTGRES_DB: zamapay
+      POSTGRES_USER: zamapay
+      POSTGRES_PASSWORD: zamapay
     ports:
       - "5432:5432"
     volumes:
-      - mermer-postgres-data:/var/lib/postgresql/data
+      - zamapay-postgres-data:/var/lib/postgresql/data
       - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mermer -d mermer"]
+      test: ["CMD-SHELL", "pg_isready -U zamapay -d zamapay"]
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  mermer-postgres-data:
+  zamapay-postgres-data:

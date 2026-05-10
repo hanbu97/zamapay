@@ -50,7 +50,7 @@ test('dev signer stays off in production and unsupported environments', () => {
 test('dev signer rejects non-local request hosts', () => {
   assert.equal(isLocalRequestUrl('http://127.0.0.1:3001/api/dev/sign-message'), true)
   assert.equal(isLocalRequestUrl('http://localhost:3001/api/dev/sign-message'), true)
-  assert.equal(isLocalRequestUrl('https://mermer.example/api/dev/sign-message'), false)
+  assert.equal(isLocalRequestUrl('https://zamapay.example/api/dev/sign-message'), false)
 })
 
 test('local chain invoice bridge allows local non-production server calls without browser signer opt-in', () => {
@@ -77,7 +77,7 @@ test('local chain invoice bridge rejects production or remote hosts', () => {
     canUseLocalDevServerBridge({
       contractEnv: 'local-dev',
       nodeEnv: 'development',
-      requestUrl: 'https://mermer.example/api/dev/local-chain-invoice',
+      requestUrl: 'https://zamapay.example/api/dev/local-chain-invoice',
     }),
     false,
   )

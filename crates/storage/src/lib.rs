@@ -35,7 +35,7 @@ use projections::{
 };
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
-const PORTAL_STATE_KEY_ENV: &str = "MERMER_PORTAL_STATE_KEY";
+const PORTAL_STATE_KEY_ENV: &str = "ZAMAPAY_PORTAL_STATE_KEY";
 const DEFAULT_PORTAL_STATE_KEY: &str = "portal";
 
 #[derive(Debug, Clone)]
@@ -209,7 +209,7 @@ impl PortalStore {
         let invoice_list = invoices.values().cloned().collect::<Vec<_>>();
 
         DashboardOverview {
-            merchant_name: "Mermer merchant".to_string(),
+            merchant_name: "ZamaPay merchant".to_string(),
             merchant_address: merchant_address.to_string(),
             summary: DashboardSummary {
                 total_invoices: invoice_list.len() as u32,
@@ -274,7 +274,7 @@ impl PortalStore {
         let mut invoice = seeded_invoice(
             &invoice_id,
             title,
-            "Mermer merchant",
+            "ZamaPay merchant",
             amount_label,
             amount_minor_units,
             note,

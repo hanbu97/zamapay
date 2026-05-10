@@ -1,4 +1,4 @@
-# Mermer Pay Architecture
+# ZamaPay Architecture
 
 ## Tree
 
@@ -8,7 +8,7 @@
 |-- docker-compose.yml      # Local Postgres service for normalized portal state
 |-- README.md               # Platform quickstart, verification commands, and testnet handoff
 |-- apps/
-|   `-- web/                 # Next.js Mermer Pay platform shell
+|   `-- web/                 # Next.js ZamaPay platform shell
 |-- contracts/              # Hardhat + Zama FHEVM contracts and deploy pipeline
 |-- crates/
 |   |-- api/                # Rust HTTP API, auth session, CORS, cookie boundary
@@ -24,13 +24,13 @@
 |-- demo/
 |   `-- */                  # Standalone merchant templates, outside root workspaces
 |-- refs/                   # Read-only reference material
-|-- mermer-*.png            # Local visual QA evidence from Playwright and browser audits
+|-- zamapay-*.png            # Local visual QA evidence from Playwright and browser audits
 `-- .omx/                   # Planning and workflow state
 ```
 
 ## Decisions
 
-- `apps/web` owns Mermer Pay platform UX and browser wallet orchestration only; it never becomes session authority.
+- `apps/web` owns ZamaPay platform UX and browser wallet orchestration only; it never becomes session authority.
 - `demo/` is intentionally outside the root npm and Rust workspaces; templates must install and run from their own directories.
 - `crates/api` owns wallet nonce issuance, signature verification, and cookie sessions.
 - `crates/shared` holds API DTOs and typed ids only; ABI-derived schemas must stay in generated artifacts later.

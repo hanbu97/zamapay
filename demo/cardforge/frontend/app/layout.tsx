@@ -3,7 +3,7 @@ import './globals.css'
 
 export const metadata: Metadata = {
   title: 'CardForge Demo',
-  description: 'Independent merchant demo configured to use Mermer Pay hosted checkout.',
+  description: 'Independent merchant demo configured to use ZamaPay hosted checkout.',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

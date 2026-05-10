@@ -232,7 +232,7 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
         <CardContent>
           <div className="relative aspect-[4/3] overflow-hidden rounded-lg border bg-muted">
             <Image
-              alt="Mermer Pay merchant console showing project integration configuration"
+              alt="ZamaPay merchant console showing project integration configuration"
               className="object-cover object-top"
               fill
               sizes="(min-width: 1024px) 420px, 100vw"
@@ -241,7 +241,7 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
           </div>
           <div className="mt-3 grid gap-2 text-sm">
             <FigureRow label="Project" value="proj_..." />
-            <FigureRow label="Key prefix" value="mmp_test_..." />
+            <FigureRow label="Key prefix" value="zmp_test_..." />
             <FigureRow label="Webhook" value="enabled" />
           </div>
         </CardContent>
@@ -260,9 +260,9 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
           <div className="grid gap-3">
             <FlowNode icon={StoreIcon} label="Merchant app" value="Order intent" />
             <FlowArrow />
-            <FlowNode icon={KeyRoundIcon} label="Merchant backend" value="Bearer mmp_test_..." />
+            <FlowNode icon={KeyRoundIcon} label="Merchant backend" value="Bearer zmp_test_..." />
             <FlowArrow />
-            <FlowNode icon={ReceiptTextIcon} label="Mermer Pay" value="Hosted checkout URL" />
+            <FlowNode icon={ReceiptTextIcon} label="ZamaPay" value="Hosted checkout URL" />
           </div>
         </CardContent>
       </Card>
@@ -292,20 +292,20 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
     <Card>
       <CardHeader>
         <CardTitle>CardForge boundary</CardTitle>
-        <CardDescription>Standalone demo template consumes Mermer Pay configuration.</CardDescription>
+        <CardDescription>Standalone demo template consumes ZamaPay configuration.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="rounded-lg border bg-muted/40 p-4">
           <div className="flex items-center gap-2 text-sm font-medium">
             <LockKeyholeIcon />
-            No Mermer cookie forwarding
+            No ZamaPay cookie forwarding
           </div>
           <Separator className="my-3" />
           <div className="grid gap-2 text-sm">
             <FigureRow label="Frontend" value="CardForge storefront" />
             <FigureRow label="Backend" value="POST /api/orders/checkout" />
-            <FigureRow label="Mermer API" value="/api/projects/{id}/checkout-sessions" />
-            <FigureRow label="Webhook" value="/api/mermer-pay/webhook" />
+            <FigureRow label="ZamaPay API" value="/api/projects/{id}/checkout-sessions" />
+            <FigureRow label="Webhook" value="/api/zamapay/webhook" />
           </div>
         </div>
       </CardContent>

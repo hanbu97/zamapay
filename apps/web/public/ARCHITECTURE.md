@@ -14,4 +14,4 @@ apps/web/public
 ## Decisions
 
 - The public-testnet browser relayer UMD bundle is removed from the active app.
-- The wasm/worker files stay as inert protocol assets for future official SDK work; the current local-dev payment path uses Hardhat/FHEVM RPC helpers and does not load a Mermer-owned relayer.
+- The wasm/worker files stay as inert protocol assets for future official SDK work; the current local-dev payment path uses Hardhat/FHEVM RPC helpers and does not load a ZamaPay-owned relayer.

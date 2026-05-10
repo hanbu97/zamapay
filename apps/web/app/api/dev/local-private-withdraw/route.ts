@@ -19,7 +19,7 @@ function isEnabled(request: Request) {
   return (
     serverContractEnvironment() === 'local-dev' &&
     canUseLocalDevServerBridge({
-      contractEnv: process.env.MERMER_CONTRACT_ENV ?? process.env.NEXT_PUBLIC_CONTRACT_ENV,
+      contractEnv: process.env.ZAMAPAY_CONTRACT_ENV ?? process.env.NEXT_PUBLIC_CONTRACT_ENV,
       nodeEnv: process.env.NODE_ENV,
       requestUrl: request.url,
     })

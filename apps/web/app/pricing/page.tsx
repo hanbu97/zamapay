@@ -24,8 +24,8 @@ const enterpriseFee = formatFee("enterprise", "Custom")
 const growthMonthlyPrice = formatPlanPrice("growth")
 
 export const metadata = {
-  description: "Mermer Pay pricing for hosted crypto checkout, merchant billing workflows, and Zama confidential settlement.",
-  title: "Pricing - Mermer Pay",
+  description: "ZamaPay pricing for hosted crypto checkout, merchant billing workflows, and Zama confidential settlement.",
+  title: "Pricing - ZamaPay",
 }
 
 const tiers = [
@@ -263,7 +263,7 @@ export default async function PricingPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="h-9 px-4 text-xs uppercase text-muted-foreground">Product</TableHead>
-                  <TableHead className="h-9 px-4 text-xs uppercase text-muted-foreground">Mermer Pay fee</TableHead>
+                  <TableHead className="h-9 px-4 text-xs uppercase text-muted-foreground">ZamaPay fee</TableHead>
                   <TableHead className="h-9 px-4 text-xs uppercase text-muted-foreground">Settlement</TableHead>
                   <TableHead className="h-9 px-4 text-xs uppercase text-muted-foreground">Policy</TableHead>
                 </TableRow>

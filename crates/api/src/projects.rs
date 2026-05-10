@@ -459,11 +459,11 @@ async fn dispatch_delivery(
         .webhook_client
         .post(&endpoint.url)
         .header("content-type", "application/json")
-        .header("x-mermer-webhook-id", &delivery.delivery_id)
-        .header("x-mermer-event-id", &event.event_id)
-        .header("x-mermer-webhook-timestamp", &timestamp)
-        .header("x-mermer-webhook-signature", &signature)
-        .header("x-mermer-webhook-algorithm", "keccak256.secret_prefix.v1")
+        .header("x-zamapay-webhook-id", &delivery.delivery_id)
+        .header("x-zamapay-event-id", &event.event_id)
+        .header("x-zamapay-webhook-timestamp", &timestamp)
+        .header("x-zamapay-webhook-signature", &signature)
+        .header("x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1")
         .body(canonical_body)
         .send()
         .await;
@@ -576,7 +576,7 @@ fn checkout_error(error: CheckoutSessionError) -> ApiError {
 }
 
 fn checkout_base_url() -> String {
-    std::env::var("MERMER_CHECKOUT_BASE_URL")
+    std::env::var("ZAMAPAY_CHECKOUT_BASE_URL")
         .or_else(|_| std::env::var("NEXT_PUBLIC_APP_URL"))
         .unwrap_or_else(|_| DEFAULT_CHECKOUT_BASE_URL.to_string())
 }

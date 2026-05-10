@@ -14,7 +14,7 @@ import {
 
 const docsMenuItems = [
   {
-    description: "Start with the full Mermer Pay integration map.",
+    description: "Start with the full ZamaPay integration map.",
     href: "/docs",
     icon: BookOpenIcon,
     title: "Docs home",
@@ -39,7 +39,7 @@ export function PublicHeader({ isAuthenticated }: PublicHeaderProps) {
       <div className="mx-auto grid h-14 w-full max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 md:px-8">
         <Link className="flex min-w-0 items-center gap-2 justify-self-start font-semibold" href="/">
           <span className="grid size-8 place-items-center rounded-md border bg-muted text-xs">MP</span>
-          <span className="truncate">Mermer Pay</span>
+          <span className="truncate">ZamaPay</span>
         </Link>
 
         <div className="flex items-center justify-center gap-1 justify-self-center">

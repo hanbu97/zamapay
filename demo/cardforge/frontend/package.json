@@ -1,5 +1,5 @@
 {
-  "name": "@mermer/cardforge-frontend",
+  "name": "@zamapay/cardforge-frontend",
   "private": true,
   "type": "module",
   "scripts": {

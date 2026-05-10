@@ -114,7 +114,7 @@ export function StatusStepper({
       role="group"
       value={activeStep}
     >
-      <StepperNav className="mermer-step-list w-full" role="list">
+      <StepperNav className="zamapay-step-list w-full" role="list">
         {steps.map((step, index) => {
           const number = index + 1
           const completed = step.state === 'complete'
@@ -129,7 +129,7 @@ export function StatusStepper({
               role="listitem"
               step={number}
             >
-              <div className="mermer-step-row flex w-full items-start rounded-md">
+              <div className="zamapay-step-row flex w-full items-start rounded-md">
                 <StepperIndicator className="mt-0.5">{number}</StepperIndicator>
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">

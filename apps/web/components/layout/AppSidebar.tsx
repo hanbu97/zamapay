@@ -100,7 +100,7 @@ export function AppSidebar({ isAuthenticated }: AppSidebarProps) {
                 <AvatarFallback className="rounded-lg font-semibold">MP</AvatarFallback>
               </Avatar>
               <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-semibold">Mermer Pay</span>
+                <span className="truncate font-semibold">ZamaPay</span>
                 <span className="truncate text-xs text-muted-foreground">Back to home</span>
               </span>
             </SidebarMenuButton>

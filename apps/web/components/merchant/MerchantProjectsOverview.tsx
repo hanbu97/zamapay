@@ -60,7 +60,7 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
   const [view, setView] = useState<ProjectView>('grid')
   const [createOpen, setCreateOpen] = useState(false)
   const [projectName, setProjectName] = useState('Online store')
-  const [webhookUrl, setWebhookUrl] = useState('http://127.0.0.1:8092/api/mermer-pay/webhook')
+  const [webhookUrl, setWebhookUrl] = useState('http://127.0.0.1:8092/api/zamapay/webhook')
   const [apiKeyLabel, setApiKeyLabel] = useState('Merchant backend')
   const [oneTimeSecret, setOneTimeSecret] = useState<OneTimeSecret | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -153,7 +153,7 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
   }
 
   return (
-    <div className="mermer-flow-stack flex flex-col">
+    <div className="zamapay-flow-stack flex flex-col">
       <OneTimeSecretDialog
         onClose={closeCopiedSecret}
         onCopy={copyOneTimeSecret}

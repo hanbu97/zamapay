@@ -8,9 +8,9 @@ use storage::PortalStore;
 use uuid::Uuid;
 
 async fn test_state() -> AppState {
-    let database_url = std::env::var("MERMER_TEST_DATABASE_URL")
+    let database_url = std::env::var("ZAMAPAY_TEST_DATABASE_URL")
         .or_else(|_| std::env::var("DATABASE_URL"))
-        .expect("set MERMER_TEST_DATABASE_URL or DATABASE_URL for API tests");
+        .expect("set ZAMAPAY_TEST_DATABASE_URL or DATABASE_URL for API tests");
     let state_key = format!("test-api-{}", Uuid::new_v4().simple());
     AppState::with_portal(PortalStore::connect_with_state_key(database_url, state_key).await)
 }
@@ -73,7 +73,7 @@ async fn deleting_session_clears_cookie_and_invalidates_store_session() {
     let user = state
         .issue_dev_session("0x0000000000000000000000000000000000000001")
         .await;
-    let session_cookie = format!("mermer_session={}", user.session_id);
+    let session_cookie = format!("zamapay_session={}", user.session_id);
     let app = app(state);
 
     let active_session = app
@@ -117,7 +117,7 @@ async fn deleting_session_clears_cookie_and_invalidates_store_session() {
             .any(|value| value
                 .to_str()
                 .unwrap_or_default()
-                .starts_with("mermer_session="))
+                .starts_with("zamapay_session="))
     );
 
     let stale_session = app

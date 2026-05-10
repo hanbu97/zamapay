@@ -118,7 +118,7 @@ struct BillingTotals {
 
 pub(crate) fn signer_address(environment: &ProjectEnvironmentKind) -> String {
     let _ = environment;
-    std::env::var("MERMER_PAY_PROJECT_SIGNER_ADDRESS")
+    std::env::var("ZAMAPAY_PROJECT_SIGNER_ADDRESS")
         .ok()
         .filter(|address| !address.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_LOCAL_SIGNER_ADDRESS.to_string())
@@ -136,13 +136,13 @@ pub(crate) fn merchant_registered(environment: &ProjectEnvironmentKind) -> bool 
 
 pub(crate) fn hash_secret(secret: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "mermer-secret-v1".hash(&mut hasher);
+    "zamapay-secret-v1".hash(&mut hasher);
     secret.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
 
 pub(crate) fn webhook_secret(project_id: &str, endpoint_id: &str) -> String {
-    let root = std::env::var("MERMER_WEBHOOK_SECRET")
+    let root = std::env::var("ZAMAPAY_WEBHOOK_SECRET")
         .ok()
         .filter(|secret| !secret.trim().is_empty())
         .unwrap_or_else(|| "local-webhook-dev-secret".to_string());

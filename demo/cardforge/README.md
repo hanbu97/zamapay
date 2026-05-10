@@ -1,13 +1,13 @@
 # CardForge
 
-Standalone merchant template for proving a Mermer Pay integration without mounting merchant product code inside the payment platform.
+Standalone merchant template for proving a ZamaPay integration without mounting merchant product code inside the payment platform.
 
 ## Run
 
-Start Mermer Pay API and web from the repository root first. In the Mermer Pay console, create a project, create an API key, and add this webhook URL:
+Start ZamaPay API and web from the repository root first. In the ZamaPay console, create a project, create an API key, and add this webhook URL:
 
 ```text
-http://127.0.0.1:8092/api/mermer-pay/webhook
+http://127.0.0.1:8092/api/zamapay/webhook
 ```
 
 After every Hardhat Local reset, run the root reset command before starting the platform and demo services:
@@ -16,13 +16,13 @@ After every Hardhat Local reset, run the root reset command before starting the 
 npm run reset:local-dev
 ```
 
-This recreates the separate `mermer` and `cardforge` databases before redeploying local contracts.
+This recreates the separate `zamapay` and `cardforge` databases before redeploying local contracts.
 
-Copy the shell exports shown by the Mermer Pay project dialog into the CardForge backend terminal. The bundle includes `MERMER_PAY_CHAIN_INVOICE_API_URL=http://127.0.0.1:3001`, so CardForge creates a local-dev private settlement invoice before it opens hosted checkout. Then run the template from its own directories.
+Copy the shell exports shown by the ZamaPay project dialog into the CardForge backend terminal. The bundle includes `ZAMAPAY_CHAIN_INVOICE_API_URL=http://127.0.0.1:3001`, so CardForge creates a local-dev private settlement invoice before it opens hosted checkout. Then run the template from its own directories.
 
 ```bash
 cd demo/cardforge/backend
-export CARDFORGE_DATABASE_URL='postgres://mermer:mermer@127.0.0.1:5432/cardforge'
+export CARDFORGE_DATABASE_URL='postgres://zamapay:zamapay@127.0.0.1:5432/cardforge'
 cargo run
 ```
 
@@ -43,7 +43,7 @@ When no local explorer is running, CardForge still records and displays the conf
 ## Boundary
 
 - `frontend/` owns catalog UI and buyer intent; Buy sends only the selected product id.
-- `backend/` owns server-side product amounts, Mermer Pay checkout creation, local-dev private invoice creation, webhook receipt, release policy, and CardForge-owned Postgres state.
-- Mermer Pay owns login, project configuration, hosted checkout, invoice truth, finality, and settlement.
-- The root Mermer Pay workspace does not start, build, lint, or import this template.
-- CardForge uses `MERMER_PAY_PROJECT_ID` and `MERMER_PAY_API_KEY` only; it does not forward `mermer_session` cookies to Mermer Pay.
+- `backend/` owns server-side product amounts, ZamaPay checkout creation, local-dev private invoice creation, webhook receipt, release policy, and CardForge-owned Postgres state.
+- ZamaPay owns login, project configuration, hosted checkout, invoice truth, finality, and settlement.
+- The root ZamaPay workspace does not start, build, lint, or import this template.
+- CardForge uses `ZAMAPAY_PROJECT_ID` and `ZAMAPAY_API_KEY` only; it does not forward `zamapay_session` cookies to ZamaPay.

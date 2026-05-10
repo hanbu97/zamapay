@@ -40,7 +40,7 @@ src/
 - Upgrade intents read charge amount and term length from the generated contract manifest; local-dev projects Growth by executing the private subscription registry proof before the operator projection writes the read model.
 - Private entitlement metadata is accepted only from the operator projection boundary after chain verification; the chain registry remains the authority for encrypted fee terms.
 - `DATABASE_URL` is required for portal invoices, projects, checkout sessions, webhook state, subscriptions, and withdrawal read models; this is the shared local Docker and hosted Postgres/Supabase contract.
-- `MERMER_PORTAL_STATE_KEY` may namespace isolated local verification rows, but it stays inside the same normalized Postgres schema and does not introduce a second storage backend.
+- `ZAMAPAY_PORTAL_STATE_KEY` may namespace isolated local verification rows, but it stays inside the same normalized Postgres schema and does not introduce a second storage backend.
 - Portal durability is normalized into purpose-named tables: projects, environments, invoice authorities, API keys, subscriptions, billing payments, invoices, checkout sessions, metadata, idempotency keys, webhook events, webhook deliveries, withdrawals, and counters.
 - Runtime truth must live in normalized Postgres tables; there is no JSONB snapshot backend or memory-store fallback for portal data.
 - Project support helpers are outside `projects.rs` so the state machine stays readable and does not hide policy inside formatting or hashing code.

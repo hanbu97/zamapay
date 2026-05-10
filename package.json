@@ -1,5 +1,5 @@
 {
-  "name": "mermer-pay",
+  "name": "zamapay",
   "private": true,
   "packageManager": "npm@11.4.2",
   "workspaces": [

@@ -23,7 +23,7 @@ refs/
 # Browser QA evidence generated during local iteration.
 /*.png
 /*snapshot*.md
-/mermer-*.md
+/zamapay-*.md
 /cardforge-*.md
 /sepolia-faucet-*.md
 /zama-*.md

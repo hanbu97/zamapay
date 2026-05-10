@@ -22,7 +22,7 @@ static PRODUCT_CATALOG: &[ProductDefinition] = &[
         amount_minor_units: 40_000_000,
         codes: &["Credit shard", "Starter boost", "Instant access code"],
         id: "neon-credit",
-        note: "Credit shard, starter boost, and one instant access code release after Mermer Pay reports finality-safe payment.",
+        note: "Credit shard, starter boost, and one instant access code release after ZamaPay reports finality-safe payment.",
         title: "Neon Credit Card",
     },
     ProductDefinition {
@@ -42,7 +42,7 @@ static PRODUCT_CATALOG: &[ProductDefinition] = &[
             "Instant access code",
         ],
         id: DEFAULT_PRODUCT_ID,
-        note: "Three CardForge demo codes release after Mermer Pay reports finality-safe payment.",
+        note: "Three CardForge demo codes release after ZamaPay reports finality-safe payment.",
         title: "Mythic Loadout Card",
     },
     ProductDefinition {

@@ -32,12 +32,12 @@ export function CreateCheckoutButton({ config }: CreateCheckoutButtonProps) {
       const fee = formatMinorUnits(checkout.billing.platformFeeMinorUnits)
       const net = formatMinorUnits(checkout.billing.merchantNetMinorUnits)
 
-      setStatus(`Checkout ${checkout.checkoutSessionId} created. Mermer Pay fee ${fee}; merchant receives ${net}. Redirecting...`)
+      setStatus(`Checkout ${checkout.checkoutSessionId} created. ZamaPay fee ${fee}; merchant receives ${net}. Redirecting...`)
       window.location.assign(checkout.checkoutUrl)
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Checkout creation failed.'
-      if (caught instanceof CardForgeApiError && caught.code === 'mermer_project_auth_failed') {
-        setStatus('CardForge backend needs a valid Mermer Pay project API key.')
+      if (caught instanceof CardForgeApiError && caught.code === 'zamapay_project_auth_failed') {
+        setStatus('CardForge backend needs a valid ZamaPay project API key.')
         setError(message)
         return
       }
@@ -70,10 +70,10 @@ export function CreateCheckoutButton({ config }: CreateCheckoutButtonProps) {
 
       <a
         className="inline-flex h-10 items-center justify-center gap-2 rounded-md border bg-background px-4 text-sm font-medium hover:bg-accent"
-        href={config.mermerConsoleUrl}
+        href={config.zamapayConsoleUrl}
       >
         <Settings2Icon data-icon="inline-start" />
-        Mermer Pay console
+        ZamaPay console
       </a>
     </div>
   )
@@ -137,7 +137,7 @@ export function CardForgeFulfillmentPanel({ codes, config }: CardForgeFulfillmen
             <div className="min-w-0 flex-1">
               <div className="font-medium">{code}</div>
               <div className="text-sm text-muted-foreground">
-                {secret ?? 'Locked until Mermer Pay callback releases it.'}
+                {secret ?? 'Locked until ZamaPay callback releases it.'}
               </div>
             </div>
             <Badge variant={secret ? 'default' : 'secondary'}>{secret ? 'Released' : 'Locked'}</Badge>

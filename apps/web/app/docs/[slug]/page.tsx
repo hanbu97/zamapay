@@ -15,13 +15,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
   if (!page) {
     return {
-      title: "Docs - Mermer Pay",
+      title: "Docs - ZamaPay",
     }
   }
 
   return {
     description: page.description,
-    title: `${page.title} - Mermer Pay Docs`,
+    title: `${page.title} - ZamaPay Docs`,
   }
 }
 

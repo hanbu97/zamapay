@@ -31,9 +31,9 @@ export default function CardForgePage() {
               buttonVariants({ variant: 'outline', size: 'sm' }),
               'shrink-0 !border-white/15 !bg-white/[0.04] !text-white/90 hover:!bg-white/[0.1] hover:!text-white',
             )}
-            href={config.mermerConsoleUrl}
+            href={config.zamapayConsoleUrl}
           >
-            <span className="hidden sm:inline">Mermer Pay</span>
+            <span className="hidden sm:inline">ZamaPay</span>
             <span className="sm:hidden">Pay</span>
             <ArrowUpRightIcon data-icon="inline-end" />
           </a>

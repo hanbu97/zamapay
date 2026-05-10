@@ -552,7 +552,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
               Private subscription
             </Badge>
             <div className="flex flex-col gap-1">
-              <h1 className="text-3xl font-semibold tracking-tight">Upgrade Mermer Pay</h1>
+              <h1 className="text-3xl font-semibold tracking-tight">Upgrade ZamaPay</h1>
               <p className="text-sm text-muted-foreground">
                 Pick the account plan that controls new checkout fee snapshots. The selected tier is proven through a
                 local-dev private Zama subscription pass.

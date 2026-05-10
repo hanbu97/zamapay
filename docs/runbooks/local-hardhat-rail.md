@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Bring up a stable local chain, deploy the Mermer contracts, refresh `generated/*`, and confirm that Rust + web read the same manifest truth.
+Bring up a stable local chain, deploy the ZamaPay contracts, refresh `generated/*`, and confirm that Rust + web read the same manifest truth.
 
 ## Steps
 
@@ -33,7 +33,7 @@ cat generated/contracts/addresses/local-dev.json
 5. Start the Rust API:
 
 ```bash
-DATABASE_URL=postgres://mermer:mermer@127.0.0.1:5432/mermer cargo run -p api
+DATABASE_URL=postgres://zamapay:zamapay@127.0.0.1:5432/zamapay cargo run -p api
 ```
 
 6. Start the web app:
@@ -60,12 +60,12 @@ npm run verify:local
 ## Notes
 
 - `deploy:local` uses Hardhat's ephemeral network and is useful for fast validation, but its addresses die with the process.
-- `npm run reset:local-dev` is the stable path for real end-to-end local integration after a Hardhat Local reset. Run it before starting the API and CardForge backend. It recreates both local Postgres databases, `mermer` and `cardforge`, before deploying contracts so chain-local state and read models cannot drift.
+- `npm run reset:local-dev` is the stable path for real end-to-end local integration after a Hardhat Local reset. Run it before starting the API and CardForge backend. It recreates both local Postgres databases, `zamapay` and `cardforge`, before deploying contracts so chain-local state and read models cannot drift.
 - `deploy:localhost` is contract-only; use it only when you deliberately want to keep existing local database rows.
 - `DATABASE_URL` persists projects, API keys, checkout sessions, invoices, operator projections, webhook outbox state, subscriptions, and withdrawal read models in normalized Postgres tables; auth sessions stay process-local.
-- `MERMER_PORTAL_STATE_KEY` is only for isolated local verification namespaces; normal local development uses the default `portal` row.
+- `ZAMAPAY_PORTAL_STATE_KEY` is only for isolated local verification namespaces; normal local development uses the default `portal` row.
 - `NEXT_PUBLIC_CONTRACT_ENV=local-dev` is the default frontend manifest selector.
-- `demo/cardforge` is the independent card issuing merchant example. It starts from Mermer Pay project config and calls the configured Mermer Pay API/checkout URLs.
+- `demo/cardforge` is the independent card issuing merchant example. It starts from ZamaPay project config and calls the configured ZamaPay API/checkout URLs.
 - Browser-created platform checkouts ask the injected wallet to switch or add chain `31337` before writing merchant registry or settlement transactions.
 - `/api/checkout/project-finalized-payment` projects only finalized `PrivatePaymentFinalized` transactions from `PrivateCheckoutSettlement`.
 - The old transparent invoice smoke and public-testnet readiness scripts are intentionally removed; local-dev is the only active environment until Zama protocol-fee handling is designed.

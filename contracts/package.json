@@ -1,5 +1,5 @@
 {
-  "name": "@mermer/contracts",
+  "name": "@zamapay/contracts",
   "private": true,
   "scripts": {
     "node": "HOME=.hardhat-home hardhat node --hostname 127.0.0.1",

@@ -30,7 +30,7 @@ export function OneTimeSecretDialog({
 }) {
   return (
     <Dialog onOpenChange={onOpenChange} open={Boolean(secret)}>
-      <DialogContent className="[--mermer-dialog-width:44rem]" showCloseButton={false}>
+      <DialogContent className="[--zamapay-dialog-width:44rem]" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{secret?.title ?? 'Copy secret'}</DialogTitle>
           <DialogDescription>{secret?.description ?? 'Copy this value before continuing.'}</DialogDescription>
@@ -263,12 +263,12 @@ export function buildIntegrationBundle({
   webhookSecret: string | null
 }) {
   return [
-    buildEnvExport('MERMER_PAY_PROJECT_ID', projectId),
-    buildEnvExport('MERMER_PAY_API_KEY', apiKey),
-    buildEnvExport('MERMER_PAY_API_URL', apiBaseUrl),
-    buildEnvExport('MERMER_PAY_CHAIN_INVOICE_API_URL', 'http://127.0.0.1:3001'),
-    buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', webhookSecret ?? '<create a webhook endpoint first>'),
-    buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://mermer:mermer@127.0.0.1:5432/cardforge'),
+    buildEnvExport('ZAMAPAY_PROJECT_ID', projectId),
+    buildEnvExport('ZAMAPAY_API_KEY', apiKey),
+    buildEnvExport('ZAMAPAY_API_URL', apiBaseUrl),
+    buildEnvExport('ZAMAPAY_CHAIN_INVOICE_API_URL', 'http://127.0.0.1:3001'),
+    buildEnvExport('ZAMAPAY_WEBHOOK_SECRET', webhookSecret ?? '<create a webhook endpoint first>'),
+    buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://zamapay:zamapay@127.0.0.1:5432/cardforge'),
     buildEnvExport('CARDFORGE_STORE_KEY', 'local-dev'),
   ].join('\n')
 }

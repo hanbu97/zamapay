@@ -147,7 +147,7 @@ impl PortalStore {
     ) -> Option<CreateProjectApiKeyResponse> {
         self.project_by_id(project_id).await?;
 
-        let api_key = format!("mmp_test_{}", Uuid::new_v4().simple());
+        let api_key = format!("zmp_test_{}", Uuid::new_v4().simple());
         let key_id = format!("key_{}", Uuid::new_v4().simple());
         let prefix = api_key.chars().take(18).collect::<String>();
         let key_record = ProjectApiKey {
@@ -345,7 +345,7 @@ impl PortalStore {
         let mut invoice = seeded_invoice(
             &checkout_session_id,
             payload.title.trim(),
-            "Mermer merchant",
+            "ZamaPay merchant",
             payload.amount_label.trim(),
             payload.amount_minor_units,
             payload.note.trim(),

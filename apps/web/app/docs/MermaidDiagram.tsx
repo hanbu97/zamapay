@@ -43,7 +43,7 @@ export function MermaidDiagram({ chart }: MermaidDiagramProps) {
           },
         })
 
-        const result = await mermaid.render(`mermer-docs-${id}`, chart)
+        const result = await mermaid.render(`zamapay-docs-${id}`, chart)
 
         if (!cancelled) {
           setState({ error: null, svg: result.svg })

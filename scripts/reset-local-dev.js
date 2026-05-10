@@ -3,11 +3,11 @@
 const { execFileSync, spawnSync } = require('node:child_process')
 const http = require('node:http')
 
-const POSTGRES_CONTAINER = process.env.MERMER_POSTGRES_CONTAINER || 'mermer-postgres'
-const POSTGRES_USER = assertSafeIdentifier(process.env.MERMER_POSTGRES_USER || 'mermer')
-const PLATFORM_DATABASE = process.env.MERMER_DATABASE_NAME || 'mermer'
+const POSTGRES_CONTAINER = process.env.ZAMAPAY_POSTGRES_CONTAINER || 'zamapay-postgres'
+const POSTGRES_USER = assertSafeIdentifier(process.env.ZAMAPAY_POSTGRES_USER || 'zamapay')
+const PLATFORM_DATABASE = process.env.ZAMAPAY_DATABASE_NAME || 'zamapay'
 const CARDFORGE_DATABASE = process.env.CARDFORGE_DATABASE_NAME || 'cardforge'
-const HARDHAT_RPC_URL = process.env.MERMER_LOCAL_RPC_URL || 'http://127.0.0.1:8545'
+const HARDHAT_RPC_URL = process.env.ZAMAPAY_LOCAL_RPC_URL || 'http://127.0.0.1:8545'
 
 async function main() {
   await assertHardhatLocal()
@@ -15,7 +15,7 @@ async function main() {
   await waitForPostgres()
   resetDatabases([PLATFORM_DATABASE, CARDFORGE_DATABASE])
   run('npm', ['--workspace', 'contracts', 'run', 'deploy:localhost'])
-  console.log('local-dev reset complete. Restart Mermer Pay API and CardForge backend so they recreate fresh schemas.')
+  console.log('local-dev reset complete. Restart ZamaPay API and CardForge backend so they recreate fresh schemas.')
 }
 
 async function assertHardhatLocal() {

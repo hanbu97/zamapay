@@ -683,14 +683,14 @@ pub struct WebhookEventPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebhookSignatureHeaders {
-    #[serde(rename = "x-mermer-webhook-id")]
-    pub x_mermer_webhook_id: String,
-    #[serde(rename = "x-mermer-webhook-timestamp")]
-    pub x_mermer_webhook_timestamp: String,
-    #[serde(rename = "x-mermer-webhook-signature")]
-    pub x_mermer_webhook_signature: String,
-    #[serde(rename = "x-mermer-webhook-algorithm")]
-    pub x_mermer_webhook_algorithm: String,
+    #[serde(rename = "x-zamapay-webhook-id")]
+    pub x_zamapay_webhook_id: String,
+    #[serde(rename = "x-zamapay-webhook-timestamp")]
+    pub x_zamapay_webhook_timestamp: String,
+    #[serde(rename = "x-zamapay-webhook-signature")]
+    pub x_zamapay_webhook_signature: String,
+    #[serde(rename = "x-zamapay-webhook-algorithm")]
+    pub x_zamapay_webhook_algorithm: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

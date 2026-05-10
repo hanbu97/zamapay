@@ -30,7 +30,7 @@ export default async function MerchantPage() {
   }
 
   return (
-    <div className="mermer-flow-stack flex flex-col">
+    <div className="zamapay-flow-stack flex flex-col">
       <PageHeader
         description="Create, search, and open merchant payment projects."
         title="Projects"

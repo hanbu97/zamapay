@@ -8,7 +8,7 @@ pub use payment::{
     SettlementSnapshot, WebhookDeliveryOutcome, WebhookDeliverySnapshot, WebhookDeliveryStatus,
 };
 
-pub const LOGIN_MESSAGE_PREFIX: &str = "Mermer Pay merchant login";
+pub const LOGIN_MESSAGE_PREFIX: &str = "ZamaPay merchant login";
 pub const NONCE_TTL_SECONDS: i64 = 300;
 
 #[derive(Debug, Error, PartialEq, Eq)]

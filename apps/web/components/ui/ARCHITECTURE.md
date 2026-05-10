@@ -37,5 +37,5 @@ apps/web/components/ui
 
 - This directory is generated and updated through `npx shadcn@latest`; manual changes should stay minimal and preserve registry compatibility.
 - Primitive files own appearance, state attributes, focus behavior, modal focus traps, and accessibility defaults. They do not import merchant payment APIs.
-- `card.tsx` and `dialog.tsx` consume the Mermer spacing tokens from `app/globals.css`, so dense merchant pages and one-time secret dialogs share one rhythm.
+- `card.tsx` and `dialog.tsx` consume the ZamaPay spacing tokens from `app/globals.css`, so dense merchant pages and one-time secret dialogs share one rhythm.
 - The folder intentionally exceeds the normal eight-file preference because shadcn update compatibility is the stronger constraint here.

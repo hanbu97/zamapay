@@ -25,8 +25,8 @@ type ConfirmationBody = {
   finalityThreshold: number
 }
 
-const rustApiBaseUrl = process.env.MERMER_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
-const operatorKey = process.env.MERMER_OPERATOR_KEY ?? 'local-operator-dev-key'
+const rustApiBaseUrl = process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
+const operatorKey = process.env.ZAMAPAY_OPERATOR_KEY ?? 'local-operator-dev-key'
 const confirmations = Number(process.env.CONFIRMATIONS ?? 2)
 const finalityThreshold = Number(process.env.FINALITY_THRESHOLD ?? 2)
 

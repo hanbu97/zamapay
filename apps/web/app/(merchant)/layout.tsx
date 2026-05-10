@@ -20,8 +20,8 @@ export default async function MerchantLayout({ children }: Readonly<{ children: 
         <AppSidebar isAuthenticated={isAuthenticated} />
         <SidebarInset>
           <TopBar isAuthenticated={isAuthenticated} subscriptionPlan={subscriptionPlan} userAddress={userAddress} />
-          <main className="mermer-page-shell flex flex-1 flex-col">
-            <div className="mermer-content-stack mx-auto flex flex-col">{children}</div>
+          <main className="zamapay-page-shell flex flex-1 flex-col">
+            <div className="zamapay-content-stack mx-auto flex flex-col">{children}</div>
           </main>
         </SidebarInset>
       </SidebarProvider>

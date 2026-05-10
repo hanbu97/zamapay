@@ -22,7 +22,7 @@ export function MerchantBillingOverview({ billing }: MerchantBillingOverviewProp
   const payments = billing.payments ?? []
 
   return (
-    <div className="mermer-flow-stack flex flex-col">
+    <div className="zamapay-flow-stack flex flex-col">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>

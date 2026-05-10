@@ -1,11 +1,11 @@
 const fs = require('fs')
 const path = require('path')
 
-const API_BASE_URL = process.env.MERMER_API_BASE_URL ?? 'http://127.0.0.1:8080'
-const WEB_BASE_URL = process.env.MERMER_WEB_BASE_URL ?? 'http://127.0.0.1:3001'
+const API_BASE_URL = process.env.ZAMAPAY_API_BASE_URL ?? 'http://127.0.0.1:8080'
+const WEB_BASE_URL = process.env.ZAMAPAY_WEB_BASE_URL ?? 'http://127.0.0.1:3001'
 const ROOT = path.resolve(__dirname, '..')
 const LOCAL_LOGIN_PRIVATE_KEY =
-  process.env.MERMER_LOCAL_LOGIN_PRIVATE_KEY ??
+  process.env.ZAMAPAY_LOCAL_LOGIN_PRIVATE_KEY ??
   '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
 function assert(condition, message) {
@@ -109,7 +109,7 @@ async function runWalletLoginProof() {
   }
 
   const setCookie = firstSetCookie(verifyResponse.headers)
-  assert(setCookie?.startsWith('mermer_session='), 'wallet login did not mint mermer_session cookie')
+  assert(setCookie?.startsWith('zamapay_session='), 'wallet login did not mint zamapay_session cookie')
   const sessionCookie = setCookie.split(';')[0]
   const session = await json(`${API_BASE_URL}/api/session`, {
     headers: { cookie: sessionCookie },
@@ -184,7 +184,7 @@ async function main() {
   }))
   checks.push(await check('Next homepage', async () => {
     const html = await text(`${WEB_BASE_URL}/`)
-    assert(html.includes('Mermer Pay'), 'homepage does not contain Mermer Pay')
+    assert(html.includes('ZamaPay'), 'homepage does not contain ZamaPay')
     return 'loaded'
   }))
   checks.push(await check('Payment platform boundary', async () => {

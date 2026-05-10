@@ -11,7 +11,7 @@ async function main() {
   }
 
   await assertSafePublicNetworkSigner(hre, deployer, 'deployer')
-  const platformFeeWallet = process.env.MERMER_PLATFORM_FEE_WALLET || deployer.address
+  const platformFeeWallet = process.env.ZAMAPAY_PLATFORM_FEE_WALLET || deployer.address
 
   const registryFactory = await ethers.getContractFactory('MerchantRegistry')
   const registry = await registryFactory.deploy()

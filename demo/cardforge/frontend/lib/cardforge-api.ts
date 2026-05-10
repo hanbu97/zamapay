@@ -113,7 +113,7 @@ export async function createCardForgeCheckout(
   if (!response.ok) {
     const body = await readErrorBody(response)
     const code =
-      body.code === 'mermer_project_auth_failed' || body.code === 'unknown_product' ? body.code : 'checkout_create_failed'
+      body.code === 'zamapay_project_auth_failed' || body.code === 'unknown_product' ? body.code : 'checkout_create_failed'
 
     throw new CardForgeApiError(code, body.message ?? `CardForge backend returned ${response.status}.`, body.loginUrl)
   }
@@ -136,7 +136,7 @@ export async function getCardForgeFulfillment(config: CardForgeConfig) {
 }
 
 export async function getCardForgeWebhookLog(config: CardForgeConfig) {
-  const response = await fetch(`${config.apiBaseUrl}/api/mermer-pay/webhooks`, {
+  const response = await fetch(`${config.apiBaseUrl}/api/zamapay/webhooks`, {
     credentials: 'omit',
     cache: 'no-store',
   })
@@ -192,7 +192,7 @@ export class CardForgeApiError extends Error {
     public readonly code:
       | 'checkout_create_failed'
       | 'fulfillment_read_failed'
-      | 'mermer_project_auth_failed'
+      | 'zamapay_project_auth_failed'
       | 'webhook_log_read_failed'
       | 'wallet_activity_read_failed'
       | 'unknown_product',

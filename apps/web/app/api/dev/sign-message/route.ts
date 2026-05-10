@@ -7,13 +7,13 @@ type SignMessageRequest = {
 }
 
 const localLoginPrivateKey =
-  process.env.MERMER_LOCAL_LOGIN_PRIVATE_KEY ??
+  process.env.ZAMAPAY_LOCAL_LOGIN_PRIVATE_KEY ??
   '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
 
 function isEnabled(request: Request) {
   return canUseDevSigner({
     contractEnv: process.env.NEXT_PUBLIC_CONTRACT_ENV,
-    enableDevSigner: process.env.MERMER_ENABLE_DEV_SIGNER,
+    enableDevSigner: process.env.ZAMAPAY_ENABLE_DEV_SIGNER,
     nodeEnv: process.env.NODE_ENV,
     requestUrl: request.url,
   })

@@ -5,7 +5,7 @@ import { FHE, ebool, euint64, externalEuint64 } from "@fhevm/solidity/lib/FHE.so
 import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 
 contract ConfidentialUSDMock is ZamaEthereumConfig {
-    string public constant name = "Mermer Confidential USD";
+    string public constant name = "ZamaPay Confidential USD";
     string public constant symbol = "cUSDT";
     uint8 public constant decimals = 6;
     uint64 public constant TEST_CLAIM_AMOUNT = 1000_000000;

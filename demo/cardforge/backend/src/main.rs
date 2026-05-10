@@ -34,7 +34,7 @@ use store::CardForgeStore;
 use types::{
     CheckoutQuoteRequest, CheckoutQuoteResponse, CheckoutResponse, CreateCheckoutRequest,
     CreateCheckoutSessionRequest, FulfillmentSnapshot, LocalChainInvoiceResponse,
-    MermerCheckoutSessionResponse, PendingOrder, ReleasedOrder, StorefrontResponse,
+    ZamaPayCheckoutSessionResponse, PendingOrder, ReleasedOrder, StorefrontResponse,
     WalletActivityResponse, WebhookAck, WebhookLog, WebhookReceipt,
     epoch_millis,
 };
@@ -69,8 +69,8 @@ fn app(state: AppState) -> Router {
             "/api/wallets/{wallet_address}/activity",
             get(wallet_activity),
         )
-        .route("/api/mermer-pay/webhook", post(receive_webhook))
-        .route("/api/mermer-pay/webhooks", get(webhook_log))
+        .route("/api/zamapay/webhook", post(receive_webhook))
+        .route("/api/zamapay/webhooks", get(webhook_log))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(cors())
@@ -94,8 +94,8 @@ async fn health() -> &'static str {
 async fn storefront(State(state): State<AppState>) -> Json<StorefrontResponse> {
     Json(StorefrontResponse {
         merchant_label: state.config.merchant_label.clone(),
-        mermer_console_url: state.config.mermer_console_url.clone(),
-        mermer_login_url: state.config.login_url.clone(),
+        zamapay_console_url: state.config.zamapay_console_url.clone(),
+        zamapay_login_url: state.config.login_url.clone(),
         product: product(default_product()),
         products: products().collect(),
         project_id: state.config.project_id.clone(),
@@ -127,7 +127,7 @@ async fn create_checkout(
             .and_then(|payload| payload.buyer_wallet_address.as_deref()),
     )?;
     let selected = selected_product(product_id)?;
-    let checkout = create_mermer_checkout_session(&state, selected).await?;
+    let checkout = create_zamapay_checkout_session(&state, selected).await?;
     record_pending_checkout(&state, selected, &checkout, buyer_wallet_address).await?;
 
     Ok(Json(CheckoutResponse {
@@ -161,8 +161,8 @@ async fn receive_webhook(
     verify_webhook_signature(&state.config, &headers, &payload)?;
     let release_status = release_from_webhook(&state, &payload).await?;
     let receipt = WebhookReceipt {
-        id: header_text(&headers, "x-mermer-webhook-id"),
-        signature: header_text(&headers, "x-mermer-webhook-signature"),
+        id: header_text(&headers, "x-zamapay-webhook-id"),
+        signature: header_text(&headers, "x-zamapay-webhook-signature"),
         payload,
     };
     let received_event_count = state
@@ -191,12 +191,12 @@ async fn webhook_log(State(state): State<AppState>) -> Result<Json<WebhookLog>, 
     }))
 }
 
-async fn create_mermer_checkout_session(
+async fn create_zamapay_checkout_session(
     state: &AppState,
     selected: &ProductDefinition,
-) -> Result<MermerCheckoutSessionResponse, ApiError> {
+) -> Result<ZamaPayCheckoutSessionResponse, ApiError> {
     let mut payload = checkout_payload(selected);
-    let quote = create_mermer_checkout_quote(state, selected.amount_minor_units).await?;
+    let quote = create_zamapay_checkout_quote(state, selected.amount_minor_units).await?;
     let chain_invoice = create_local_chain_invoice(state, &payload, &quote).await?;
     payload.chain_invoice_id = Some(chain_invoice.chain_invoice_id);
     payload.chain_tx_hash = Some(chain_invoice.chain_tx_hash);
@@ -205,7 +205,7 @@ async fn create_mermer_checkout_session(
         .client
         .post(format!(
             "{}/api/projects/{}/checkout-sessions",
-            state.config.mermer_api_url, state.config.project_id
+            state.config.zamapay_api_url, state.config.project_id
         ))
         .bearer_auth(&state.config.project_api_key)
         .header("idempotency-key", &payload.merchant_order_id)
@@ -223,18 +223,18 @@ async fn create_mermer_checkout_session(
         return Err(ApiError::upstream_rejected(status.as_u16(), response).await);
     }
 
-    let checkout: MermerCheckoutSessionResponse =
+    let checkout: ZamaPayCheckoutSessionResponse =
         response.json().await.map_err(ApiError::bad_upstream_json)?;
     if !checkout.billing.is_valid() {
         return Err(ApiError::bad_upstream_shape(
-            "Mermer Pay returned an invalid billing split.",
+            "ZamaPay returned an invalid billing split.",
         ));
     }
 
     Ok(checkout)
 }
 
-async fn create_mermer_checkout_quote(
+async fn create_zamapay_checkout_quote(
     state: &AppState,
     amount_minor_units: u64,
 ) -> Result<CheckoutQuoteResponse, ApiError> {
@@ -242,7 +242,7 @@ async fn create_mermer_checkout_quote(
         .client
         .post(format!(
             "{}/api/projects/{}/checkout-quote",
-            state.config.mermer_api_url, state.config.project_id
+            state.config.zamapay_api_url, state.config.project_id
         ))
         .bearer_auth(&state.config.project_api_key)
         .json(&CheckoutQuoteRequest { amount_minor_units })
@@ -261,7 +261,7 @@ async fn create_mermer_checkout_quote(
     let quote: CheckoutQuoteResponse = response.json().await.map_err(ApiError::bad_upstream_json)?;
     if !quote.billing.is_valid() {
         return Err(ApiError::bad_upstream_shape(
-            "Mermer Pay returned an invalid checkout quote.",
+            "ZamaPay returned an invalid checkout quote.",
         ));
     }
 
@@ -305,7 +305,7 @@ async fn create_local_chain_invoice(
 async fn record_pending_checkout(
     state: &AppState,
     selected: &ProductDefinition,
-    checkout: &MermerCheckoutSessionResponse,
+    checkout: &ZamaPayCheckoutSessionResponse,
     buyer_wallet_address: Option<String>,
 ) -> Result<(), ApiError> {
     let pending = PendingOrder {
@@ -375,14 +375,14 @@ fn verify_webhook_signature(
     headers: &HeaderMap,
     payload: &Value,
 ) -> Result<(), ApiError> {
-    let webhook_id = required_header(headers, "x-mermer-webhook-id")?;
-    let timestamp = required_header(headers, "x-mermer-webhook-timestamp")?;
-    let provided = required_header(headers, "x-mermer-webhook-signature")?;
-    let algorithm = required_header(headers, "x-mermer-webhook-algorithm")?;
+    let webhook_id = required_header(headers, "x-zamapay-webhook-id")?;
+    let timestamp = required_header(headers, "x-zamapay-webhook-timestamp")?;
+    let provided = required_header(headers, "x-zamapay-webhook-signature")?;
+    let algorithm = required_header(headers, "x-zamapay-webhook-algorithm")?;
 
     if algorithm != "keccak256.secret_prefix.v1" {
         return Err(ApiError::invalid_webhook_signature(
-            "Unsupported Mermer Pay webhook signature algorithm.",
+            "Unsupported ZamaPay webhook signature algorithm.",
         ));
     }
 
@@ -396,7 +396,7 @@ fn verify_webhook_signature(
 
     if provided != expected {
         return Err(ApiError::invalid_webhook_signature(
-            "Mermer Pay webhook signature mismatch.",
+            "ZamaPay webhook signature mismatch.",
         ));
     }
 
@@ -416,7 +416,7 @@ fn required_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Ap
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.trim().is_empty())
         .ok_or(ApiError::invalid_webhook_signature(
-            "Mermer Pay webhook signature headers are incomplete.",
+            "ZamaPay webhook signature headers are incomplete.",
         ))
 }
 

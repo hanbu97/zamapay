@@ -9,13 +9,13 @@ The demo must prove one clean case:
 - `PrivateCheckoutSettlement` checkout creation, payment storage, and payment events do not expose the merchant or payout wallet.
 - `PrivateCheckoutSettlement` storage and events do not expose the amount.
 - `PrivateCheckoutSettlement` storage and events do not expose the project id or merchant order id.
-- Mermer Pay can still know whether a checkout was paid and can trigger CardForge fulfillment.
+- ZamaPay can still know whether a checkout was paid and can trigger CardForge fulfillment.
 
 This is a **Private Checkout Proof MVP**, not a full private settlement network. It proves encrypted amount validation, a private fulfillment trigger, encrypted merchant pending balance, and merchant-authorized withdraw. Local-dev uses `ConfidentialUSDMock`, an official-style mintable confidential token mock, so the demo proves a mock cUSDT debit without making cUSDT a MetaMask ERC20 token.
 
-The privacy claim is scoped to business data in `PrivateCheckoutSettlement`. In the direct-wallet payment MVP, the buyer wallet is still visible as the EVM transaction sender. Withdraw is merchant-signed and may reveal the authorized recipient in calldata; v1 does not claim payout-recipient privacy. Token wrapping, funding, gas payment, and any future confidential-token transfer can also leak address relationships if their own contracts expose `from`, `to`, or receiver events. Mermer Pay may keep the checkout/order mapping needed for the demo. A future merchant-only data model can remove that trust assumption.
+The privacy claim is scoped to business data in `PrivateCheckoutSettlement`. In the direct-wallet payment MVP, the buyer wallet is still visible as the EVM transaction sender. Withdraw is merchant-signed and may reveal the authorized recipient in calldata; v1 does not claim payout-recipient privacy. Token wrapping, funding, gas payment, and any future confidential-token transfer can also leak address relationships if their own contracts expose `from`, `to`, or receiver events. ZamaPay may keep the checkout/order mapping needed for the demo. A future merchant-only data model can remove that trust assumption.
 
-Mermer Pay does not run a product-owned relayer in the MVP. Browser/local-dev code uses the chain's FHEVM relayer RPC methods for encrypted input proofs and public decrypts. The only local server submitter is a Hardhat test shim for deterministic local-dev transactions; Sepolia should replace that shim with Zama/chain relayer surfaces.
+ZamaPay does not run a product-owned relayer in the MVP. Browser/local-dev code uses the chain's FHEVM relayer RPC methods for encrypted input proofs and public decrypts. The only local server submitter is a Hardhat test shim for deterministic local-dev transactions; Sepolia should replace that shim with Zama/chain relayer surfaces.
 
 ## MVP Layers
 
@@ -29,11 +29,11 @@ Mermer Pay does not run a product-owned relayer in the MVP. Browser/local-dev co
 
 | Data | Public chain treatment | Who can know it in v1 | Reason |
 | --- | --- | --- | --- |
-| Buyer wallet | Direct payment submits as `msg.sender`; not stored as an order/business field | Public chain observers can see the transaction sender; Mermer Pay can map the checkout | Payer hiding is explicitly post-MVP. |
-| Merchant wallet | Checkout uses a bucket-owner commitment; withdraw uses merchant signature authorization | Mermer Pay, merchant backend, and observers of the withdraw authorization | v1 proves checkout amount/order privacy, not full payout-recipient privacy. |
+| Buyer wallet | Direct payment submits as `msg.sender`; not stored as an order/business field | Public chain observers can see the transaction sender; ZamaPay can map the checkout | Payer hiding is explicitly post-MVP. |
+| Merchant wallet | Checkout uses a bucket-owner commitment; withdraw uses merchant signature authorization | ZamaPay, merchant backend, and observers of the withdraw authorization | v1 proves checkout amount/order privacy, not full payout-recipient privacy. |
 | Payout wallet | Withdraw recipient is authorized by merchant signature | Merchant backend and observers of the withdraw calldata | v1 keeps checkout amounts private but does not hide withdraw recipient. |
-| Project id / order id | Hashed into `orderCommitment` | Mermer Pay and merchant backend | Keep business identifiers off-chain. |
-| Gross amount | Stored as encrypted `expectedAmount` | Mermer Pay in v1; encrypted on-chain | Contract can validate payment without exposing price. |
+| Project id / order id | Hashed into `orderCommitment` | ZamaPay and merchant backend | Keep business identifiers off-chain. |
+| Gross amount | Stored as encrypted `expectedAmount` | ZamaPay in v1; encrypted on-chain | Contract can validate payment without exposing price. |
 | Paid amount | Submitted as encrypted `paidAmount` | Buyer before encryption; encrypted on-chain | Contract can compare payment to expected amount. |
 | Merchant net | Encrypted accumulator outside the per-checkout struct | Merchant dashboard projection; encrypted on-chain | Avoid per-order public split disclosure. |
 | Platform fee | Encrypted accumulator outside the per-checkout struct | Platform projection; encrypted on-chain | Avoid per-order public fee disclosure. |
@@ -45,7 +45,7 @@ Mermer Pay does not run a product-owned relayer in the MVP. Browser/local-dev co
 | --- | --- |
 | On-chain encrypted | The value exists on-chain as an FHE ciphertext handle. Contracts can compute over it, but observers cannot read it. |
 | Not public on-chain | The raw value never appears on-chain. It is either kept off-chain, represented by a commitment, or represented by an encrypted handle. |
-| Commitment | A one-way hash that lets Mermer Pay correlate an order without revealing the raw order id, project id, merchant, buyer, or amount. |
+| Commitment | A one-way hash that lets ZamaPay correlate an order without revealing the raw order id, project id, merchant, buyer, or amount. |
 | Settlement bucket commitment | A rotating commitment-like settlement identifier used to group encrypted merchant balances without publishing wallet addresses or a long-lived merchant graph. |
 | Bucket owner commitment | `hash(settlementBucketCommitment, ownerAddress)`, used during checkout creation so the raw merchant wallet is not submitted until the merchant later signs withdraw. |
 
@@ -189,7 +189,7 @@ Mermer Pay does not run a product-owned relayer in the MVP. Browser/local-dev co
     <tr>
       <td><code>projectId plaintext</code></td>
       <td><code>string / bytes</code></td>
-      <td>Mermer Pay project id.</td>
+      <td>ZamaPay project id.</td>
       <td>Hash into <code>orderCommitment</code>; never store the raw business id.</td>
     </tr>
     <tr>
@@ -252,9 +252,9 @@ Local-dev issues mock cUSDT the same way the Zama `fhevm-mocks` `ConfidentialERC
 
 ## Flow
 
-1. CardForge creates an order; Mermer Pay derives `orderCommitment`.
-2. Mermer Pay derives a rotating `settlementBucketCommitment` and `bucketOwnerCommitment`.
-3. Mermer Pay encrypts `expectedAmount`, `merchantNetAmount`, and `platformFeeAmount` with the local FHEVM input helper and calls `createPrivateCheckout` with encrypted handles plus one `inputProof`.
+1. CardForge creates an order; ZamaPay derives `orderCommitment`.
+2. ZamaPay derives a rotating `settlementBucketCommitment` and `bucketOwnerCommitment`.
+3. ZamaPay encrypts `expectedAmount`, `merchantNetAmount`, and `platformFeeAmount` with the local FHEVM input helper and calls `createPrivateCheckout` with encrypted handles plus one `inputProof`.
 4. The buyer connects a wallet on the hosted checkout page.
 5. The browser encrypts `paidAmount` through the local Hardhat/FHEVM mock RPC and obtains `encryptedPaidAmount + inputProof`.
 6. The buyer wallet submits `submitPrivatePayment` directly. The transaction sender is the buyer in this MVP.
@@ -266,13 +266,13 @@ accepted = FHE.eq(paidAmount, expectedAmount);
 
 8. Each order publicly decrypts only one value: `accepted ebool`.
 9. If accepted, the contract credits encrypted merchant/platform pending buckets before finalization is projected.
-10. Mermer Pay listens for `PrivatePaymentFinalized(orderCommitment, accepted)`.
-11. If `accepted` is true, Mermer Pay maps `orderCommitment` to the CardForge order off-chain, sends the webhook, and CardForge releases the card.
+10. ZamaPay listens for `PrivatePaymentFinalized(orderCommitment, accepted)`.
+11. If `accepted` is true, ZamaPay maps `orderCommitment` to the CardForge order off-chain, sends the webhook, and CardForge releases the card.
 12. Amounts are not decrypted per order. Merchant dashboard projects business totals from its order ledger and uses encrypted pending for chain withdraw checks.
 
 ```mermaid
 flowchart TD
-    A["CardForge creates order"] --> B["Mermer Pay derives orderCommitment"]
+    A["CardForge creates order"] --> B["ZamaPay derives orderCommitment"]
     B --> C["Rotate settlementBucketCommitment"]
     C --> D["Encrypt expectedAmount + inputProof"]
     D --> E["createPrivateCheckout with bucketOwnerCommitment"]
@@ -292,7 +292,7 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant CF as CardForge / merchant
-    participant MP as Mermer Pay API
+    participant MP as ZamaPay API
     participant B as Buyer browser
     participant C as PrivateCheckoutSettlement
     participant R as Local FHEVM input helper
@@ -320,7 +320,7 @@ sequenceDiagram
 | --- | --- | --- | --- |
 | Submit `expectedAmount` encrypted input | ZKPoK verification | Once per checkout | Local-dev is free in Hardhat; Sepolia should use Zama official relayer/gateway policy. |
 | Submit `merchantNetAmount` and `platformFeeAmount` encrypted inputs | ZKPoK verification | Once per checkout | Keep splits encrypted and validate `net + fee == gross`. |
-| Submit `paidAmount` encrypted input | ZKPoK verification | Once per payment attempt | Direct-wallet local-dev keeps Mermer-owned relayer out of scope. |
+| Submit `paidAmount` encrypted input | ZKPoK verification | Once per payment attempt | Direct-wallet local-dev keeps ZamaPay-owned relayer out of scope. |
 | Decrypt `accepted` | Decryption | Once per payment attempt | Decrypt only one `ebool`, not amounts. |
 | Submit encrypted withdraw amount | ZKPoK verification | Once per withdraw request | Merchant signs authorization; local-dev submitter only forwards the package. |
 | Decrypt withdraw check | Decryption | Once per withdraw request | Decrypt only one `ebool`, not the aggregate amount. |
@@ -337,7 +337,7 @@ Do not decrypt per-order gross, merchant net, or platform fee in the normal chec
 4. No raw merchant address, payout wallet, project id, order id, or amount appears in checkout creation, payment submission, payment storage, or payment events.
 5. The contract validates `paidAmount == expectedAmount` with FHE.
 6. The contract publicly finalizes only `accepted`.
-7. Mermer Pay maps `orderCommitment` back to the demo order and sends the CardForge fulfillment webhook.
+7. ZamaPay maps `orderCommitment` back to the demo order and sends the CardForge fulfillment webhook.
 8. CardForge records the fulfillment-ready event and releases the card.
 9. The selected payment rail is explicitly labeled as mock cUSDT confidential balance on local-dev.
 10. Merchant withdraw requires a wallet signature over bucket, nonce, owner, recipient, encrypted amount handle, input proof hash, deadline, chain id, and settlement contract.
@@ -364,7 +364,7 @@ Do not decrypt per-order gross, merchant net, or platform fee in the normal chec
 - Rotate `settlementBucketCommitment`; do not use one permanent merchant bucket.
 - Keep `accepted` as the only per-order decrypted value.
 - Reject expired checkouts, reused payment nonces, resubmission after final status, and double finalization.
-- Keep Mermer Pay platform relayer out of the MVP. Local-dev uses Hardhat/FHEVM mock RPC plus a server submitter for merchant-signed withdraw packages; future Sepolia uses Zama official relayer/gateway surfaces for FHE operations.
+- Keep ZamaPay platform relayer out of the MVP. Local-dev uses Hardhat/FHEVM mock RPC plus a server submitter for merchant-signed withdraw packages; future Sepolia uses Zama official relayer/gateway surfaces for FHE operations.
 - Keep local-dev clean: no transparent settlement fallback and no public-testnet branch in the active app.
 
 ## Implementation Direction

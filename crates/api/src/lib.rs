@@ -29,13 +29,13 @@ use uuid::Uuid;
 mod billing;
 mod projects;
 
-const SESSION_COOKIE_NAME: &str = "mermer_session";
+const SESSION_COOKIE_NAME: &str = "zamapay_session";
 const OPERATOR_KEY_HEADER: &str = "x-operator-key";
 const GATEWAY_KEY_HEADER: &str = "x-zama-gateway-key";
 const DEFAULT_OPERATOR_KEY: &str = "local-operator-dev-key";
 const DEFAULT_GATEWAY_CALLBACK_KEY: &str = "local-zama-gateway-dev-key";
 const DEFAULT_WEBHOOK_SECRET: &str = "local-webhook-dev-secret";
-const DEFAULT_WEBHOOK_ENDPOINT: &str = "https://merchant.example/webhooks/mermer-pay";
+const DEFAULT_WEBHOOK_ENDPOINT: &str = "https://merchant.example/webhooks/zamapay";
 const DEFAULT_WEBHOOK_MAX_ATTEMPTS: u32 = 3;
 
 #[derive(Clone)]
@@ -598,10 +598,10 @@ fn signed_webhook_dispatch(
     Ok(WebhookDispatchResponse {
         endpoint: endpoint.to_string(),
         headers: WebhookSignatureHeaders {
-            x_mermer_webhook_id: webhook_id,
-            x_mermer_webhook_timestamp: timestamp,
-            x_mermer_webhook_signature: signature,
-            x_mermer_webhook_algorithm: "keccak256.secret_prefix.v1".to_string(),
+            x_zamapay_webhook_id: webhook_id,
+            x_zamapay_webhook_timestamp: timestamp,
+            x_zamapay_webhook_signature: signature,
+            x_zamapay_webhook_algorithm: "keccak256.secret_prefix.v1".to_string(),
         },
         payload,
         canonical_body,
@@ -610,14 +610,14 @@ fn signed_webhook_dispatch(
 }
 
 fn webhook_endpoint() -> String {
-    std::env::var("MERMER_WEBHOOK_ENDPOINT")
+    std::env::var("ZAMAPAY_WEBHOOK_ENDPOINT")
         .ok()
         .filter(|endpoint| !endpoint.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_WEBHOOK_ENDPOINT.to_string())
 }
 
 fn webhook_secret() -> Result<String, ApiError> {
-    let secret = std::env::var("MERMER_WEBHOOK_SECRET")
+    let secret = std::env::var("ZAMAPAY_WEBHOOK_SECRET")
         .ok()
         .filter(|secret| !secret.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_WEBHOOK_SECRET.to_string());
@@ -687,7 +687,7 @@ fn validate_operator_key(headers: &axum::http::HeaderMap) -> Result<(), ApiError
     };
 
     let expected =
-        std::env::var("MERMER_OPERATOR_KEY").unwrap_or_else(|_| DEFAULT_OPERATOR_KEY.to_string());
+        std::env::var("ZAMAPAY_OPERATOR_KEY").unwrap_or_else(|_| DEFAULT_OPERATOR_KEY.to_string());
     if provided != expected.as_str() {
         return Err(ApiError::unauthorized("invalid operator key"));
     }
@@ -700,7 +700,7 @@ fn require_gateway_key(headers: &axum::http::HeaderMap) -> Result<(), ApiError> 
         return Err(ApiError::unauthorized("missing gateway callback key"));
     };
 
-    let expected = std::env::var("MERMER_GATEWAY_CALLBACK_KEY")
+    let expected = std::env::var("ZAMAPAY_GATEWAY_CALLBACK_KEY")
         .unwrap_or_else(|_| DEFAULT_GATEWAY_CALLBACK_KEY.to_string());
     if provided != expected.as_str() {
         return Err(ApiError::unauthorized("invalid gateway callback key"));
