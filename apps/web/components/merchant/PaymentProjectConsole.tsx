@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useMemo, useState } from 'react'
-import { bytesToHex, createPublicClient, createWalletClient, custom, getAddress, http, keccak256, type Hex } from 'viem'
 import {
   ArrowDownToLineIcon,
   BellRingIcon,
@@ -36,11 +35,6 @@ import {
   type ProjectDashboardOverview,
   type WebhookDeliveryRecord,
 } from '@/lib/api'
-import { contractEnvironmentConfig } from '@/lib/contract-environment'
-import { privateCheckoutSettlementAbi } from '@/lib/contracts'
-import { decryptLocalEuint64Handle, encryptLocalEuint64, publicDecryptLocalBool } from '@/lib/local-fhevm-browser'
-import { settlementBucketCommitment } from '@/lib/settlement-bucket'
-import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 import {
   CodeBlock,
   FactRow,
@@ -63,6 +57,7 @@ import {
   projectBalanceActivities,
   type BalanceRangeKey,
 } from './PaymentProjectBalance'
+import { runProjectWithdraw } from './PaymentProjectWithdraw'
 
 export type ProjectConsoleTab = 'overview' | 'integration' | 'webhooks' | 'payments'
 
@@ -213,118 +208,20 @@ export function PaymentProjectConsole({
         throw new Error('No project balance is available to withdraw.')
       }
 
-      const config = contractEnvironmentConfig('local-dev')
-      const settlement = ensureHexAddress(
-        config.manifest?.contracts.PrivateCheckoutSettlement ?? null,
-        'PrivateCheckoutSettlement',
-      )
-      const chainSubmitter = ensureHexAddress(config.manifest?.deployer ?? null, 'local-dev chain submitter')
-      const rpcUrl = config.walletChain.rpcUrls[0]
-      if (!rpcUrl) {
-        throw new Error('Hardhat RPC URL is missing from the local-dev wallet chain.')
-      }
-
-      const provider = ensureEthereumProvider()
-      setStatus('Switching wallet to Hardhat Local...')
-      await ensureWalletChain(provider, config.walletChain)
-
-      const walletClient = createWalletClient({ chain: config.chain, transport: custom(provider) })
-      const publicClient = createPublicClient({ chain: config.chain, transport: http(rpcUrl) })
-      const [selectedAddress] = await walletClient.requestAddresses()
-      if (!selectedAddress) {
-        throw new Error('No wallet account selected.')
-      }
-
-      const signerAddress = getAddress(selectedAddress) as Hex
-      const merchantAddress = getAddress(ownerAddress)
-      if (signerAddress !== merchantAddress) {
-        throw new Error(`Switch MetaMask to the merchant wallet ${merchantAddress.slice(0, 6)}...${merchantAddress.slice(-4)} before withdrawing.`)
-      }
-
-      const settlementCode = await publicClient.getBytecode({ address: settlement })
-      if (!settlementCode || settlementCode === '0x') {
-        throw new Error(`PrivateCheckoutSettlement is not deployed at ${settlement}.`)
-      }
-
-      const bucketCommitment = settlementBucketCommitment(project.projectId)
-      setStatus('Reading encrypted merchant pending balance...')
-      const pendingHandle = (await publicClient.readContract({
-        address: settlement,
-        abi: privateCheckoutSettlementAbi,
-        functionName: 'merchantPendingHandleOf',
-        args: [bucketCommitment],
-      })) as Hex
-      const pending = await decryptLocalEuint64Handle(rpcUrl, pendingHandle)
-      const requestedAmount = BigInt(amountMinorUnits)
-      if (pending < requestedAmount) {
-        throw new Error('On-chain encrypted merchant pending balance is lower than the dashboard projection. Refresh and try again.')
-      }
-
-      setStatus('Encrypting withdraw amount for the local chain submitter...')
-      const encryptedAmount = await encryptLocalEuint64({
-        amountMinorUnits: requestedAmount,
-        chainId: config.chain.id,
-        contractAddress: settlement,
-        rpcUrl,
-        userAddress: chainSubmitter,
+      const submitted = await runProjectWithdraw({
+        amountMinorUnits,
+        environment: project.defaultEnvironment,
+        ownerAddress,
+        projectId: project.projectId,
+        setStatus,
       })
-      const withdrawalNonce = randomNonce()
-      const deadline = Math.floor(Date.now() / 1000) + 600
-      const inputProofHash = keccak256(encryptedAmount.inputProof)
-
-      setStatus('Sign withdraw authorization...')
-      const authorization = await walletClient.signTypedData({
-        account: signerAddress,
-        domain: {
-          name: 'ZamaPayPrivateCheckoutSettlement',
-          version: '1',
-          chainId: config.chain.id,
-          verifyingContract: settlement,
-        },
-        primaryType: 'PrivateWithdraw',
-        types: privateWithdrawAuthorizationTypes,
-        message: {
-          settlementBucketCommitment: bucketCommitment,
-          withdrawalNonce,
-          bucketOwner: signerAddress,
-          recipient: signerAddress,
-          encryptedAmount: encryptedAmount.handle,
-          inputProofHash,
-          deadline: BigInt(deadline),
-        },
-      })
-
-      setStatus('Submitting signed withdraw through the local chain submitter...')
-      const submitted = await submitLocalPrivateWithdraw({
-        authorization,
-        bucketOwner: signerAddress,
-        deadline,
-        encryptedAmount: encryptedAmount.handle,
-        inputProof: encryptedAmount.inputProof,
-        recipient: signerAddress,
-        settlementBucketCommitment: bucketCommitment,
-        withdrawalNonce,
-      })
-      await publicClient.waitForTransactionReceipt({ hash: submitted.chainTxHash })
-
-      const withdrawCheckHandle = (await publicClient.readContract({
-        address: settlement,
-        abi: privateCheckoutSettlementAbi,
-        functionName: 'withdrawalCheckHandleOf',
-        args: [withdrawalNonce],
-      })) as Hex
-      const withdrawCheck = await publicDecryptLocalBool(rpcUrl, withdrawCheckHandle)
-      if (!withdrawCheck.accepted) {
-        throw new Error('The encrypted withdraw check was rejected on chain.')
-      }
-
       const projected = await createProjectWithdrawal(project.projectId, {
         amountMinorUnits,
         chainTxHash: submitted.chainTxHash,
-        recipientAddress: signerAddress,
-        settlementBucketCommitment: bucketCommitment,
-        withdrawalNonce,
-        withdrawCheckHandle,
+        recipientAddress: submitted.recipientAddress,
+        settlementBucketCommitment: submitted.settlementBucketCommitment,
+        withdrawalNonce: submitted.withdrawalNonce,
+        withdrawCheckHandle: submitted.withdrawCheckHandle,
       })
       setOverview(projected)
       setStatus('Encrypted withdraw completed and projected into the project balance.')
@@ -649,7 +546,7 @@ function WithdrawMetricCard({
             disabled={busyAction === 'withdraw' || overview.summary.withdrawableMinorUnits <= 0}
             onClick={onWithdraw}
             size="sm"
-            title="Sign a withdraw authorization for the local chain submitter."
+            title="Sign a withdraw authorization and submit it on the project chain."
             type="button"
           >
             {busyAction === 'withdraw' ? <Spinner data-icon="inline-start" /> : <ArrowDownToLineIcon data-icon="inline-start" />}
@@ -661,68 +558,4 @@ function WithdrawMetricCard({
       </CardHeader>
     </Card>
   )
-}
-
-function ensureHexAddress(address: string | null, label: string): Hex {
-  if (!address) {
-    throw new Error(`${label} is not deployed in the contract manifest.`)
-  }
-
-  try {
-    return getAddress(address) as Hex
-  } catch {
-    throw new Error(`${label} is not a valid EVM address.`)
-  }
-}
-
-function randomNonce(): Hex {
-  const bytes = new Uint8Array(32)
-  crypto.getRandomValues(bytes)
-  return bytesToHex(bytes)
-}
-
-const privateWithdrawAuthorizationTypes = {
-  PrivateWithdraw: [
-    { name: 'settlementBucketCommitment', type: 'bytes32' },
-    { name: 'withdrawalNonce', type: 'bytes32' },
-    { name: 'bucketOwner', type: 'address' },
-    { name: 'recipient', type: 'address' },
-    { name: 'encryptedAmount', type: 'bytes32' },
-    { name: 'inputProofHash', type: 'bytes32' },
-    { name: 'deadline', type: 'uint64' },
-  ],
-} as const
-
-async function submitLocalPrivateWithdraw(payload: {
-  authorization: Hex
-  bucketOwner: Hex
-  deadline: number
-  encryptedAmount: Hex
-  inputProof: Hex
-  recipient: Hex
-  settlementBucketCommitment: Hex
-  withdrawalNonce: Hex
-}): Promise<{ chainTxHash: Hex; withdrawCheckHandle: Hex }> {
-  const response = await fetch('/api/dev/local-private-withdraw', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  const body = await response.json().catch(() => ({})) as {
-    chainTxHash?: Hex
-    error?: string
-    withdrawCheckHandle?: Hex
-  }
-
-  if (!response.ok) {
-    throw new Error(body.error ?? `Local private withdraw submission failed with ${response.status}.`)
-  }
-  if (!body.chainTxHash || !body.withdrawCheckHandle) {
-    throw new Error('Local private withdraw submission returned incomplete chain evidence.')
-  }
-
-  return {
-    chainTxHash: body.chainTxHash,
-    withdrawCheckHandle: body.withdrawCheckHandle,
-  }
 }

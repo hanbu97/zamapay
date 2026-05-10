@@ -18,6 +18,12 @@ export type ZamaPublicBoolProof = {
   decryptionProof: Hex
 }
 
+type PublicDecryptRetryState = {
+  error: Error
+  maxAttempts: number
+  nextAttempt: number
+}
+
 type RelayerEncryptedInputBuilder = {
   add16(value: bigint): RelayerEncryptedInputBuilder
   add64(value: bigint): RelayerEncryptedInputBuilder
@@ -35,6 +41,16 @@ type RelayerInstance = {
     decryptionProof: Uint8Array | string
   }>
 }
+
+const defaultPublicDecryptRetries = 6
+const defaultPublicDecryptRetryDelayMs = 2500
+const transientPublicDecryptErrors = [
+  'not allowed for public decryption',
+  'not found',
+  'not ready',
+  'not yet',
+  'not available',
+]
 
 type RelayerSdk = {
   SepoliaConfig: Record<string, unknown>
@@ -128,11 +144,40 @@ export async function encryptSepoliaSubscriptionChange(input: {
 
 export async function publicDecryptSepoliaBool(input: {
   handle: Hex
+  onRetry?: (state: PublicDecryptRetryState) => void
   provider: EthereumProvider
+  retries?: number
+  retryDelayMs?: number
 }): Promise<ZamaPublicBoolProof> {
   const instance = await sepoliaInstance(input.provider)
-  const proof = await instance.publicDecrypt([input.handle])
-  const clearValue = proof.clearValues[input.handle] ?? proof.clearValues[input.handle.toLowerCase() as Hex]
+  const maxAttempts = Math.max(1, Math.floor(input.retries ?? defaultPublicDecryptRetries) + 1)
+  const retryDelayMs = input.retryDelayMs ?? defaultPublicDecryptRetryDelayMs
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const proof = await instance.publicDecrypt([input.handle])
+      return publicBoolProofFromRelayerResult(input.handle, proof)
+    } catch (caught) {
+      const error = normalizeError(caught)
+      lastError = error
+      if (attempt >= maxAttempts || !isTransientPublicDecryptError(error)) {
+        throw error
+      }
+
+      input.onRetry?.({ error, maxAttempts, nextAttempt: attempt + 1 })
+      await sleep(retryDelayMs)
+    }
+  }
+
+  throw lastError ?? new Error('Public decrypt failed.')
+}
+
+function publicBoolProofFromRelayerResult(
+  handle: Hex,
+  proof: Awaited<ReturnType<RelayerInstance['publicDecrypt']>>,
+): ZamaPublicBoolProof {
+  const clearValue = proof.clearValues[handle] ?? proof.clearValues[handle.toLowerCase() as Hex]
   const abiEncodedClearValues = toHexValue(proof.abiEncodedClearValues, 'ABI-encoded public decrypt value')
 
   return {
@@ -140,4 +185,19 @@ export async function publicDecryptSepoliaBool(input: {
     abiEncodedClearValues,
     decryptionProof: toHexValue(proof.decryptionProof, 'public decrypt proof'),
   }
+}
+
+function normalizeError(caught: unknown): Error {
+  return caught instanceof Error ? caught : new Error(String(caught))
+}
+
+function isTransientPublicDecryptError(error: Error): boolean {
+  const message = error.message.toLowerCase()
+  return transientPublicDecryptErrors.some((marker) => message.includes(marker))
+}
+
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, milliseconds)
+  })
 }
