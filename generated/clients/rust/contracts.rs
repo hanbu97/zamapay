@@ -50,6 +50,57 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
     "generatedAt": "2026-05-10T05:12:13.489Z",
     "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+  },
+  "sepolia": {
+    "network": "sepolia",
+    "chainId": 11155111,
+    "contracts": {
+      "MerchantRegistry": "0x2B7201f4f839cBDA6fFFDba8403bD44E7B34c478",
+      "ConfidentialUSDMock": "0xa22cb3a087B478535e2eFf389d89b2bF434B962F",
+      "SubscriptionPass": "0x62CCD2ca573d6da8e60c8FEcB5241754DA89D946",
+      "PrivateSubscriptionRegistry": "0x0C3E7F3cdd82775e9Dd52a97AC152aCF12BdA7fB",
+      "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE"
+    },
+    "billing": {
+      "source": "PrivateSubscriptionRegistry",
+      "defaultFeeBps": 50,
+      "monthlyPeriodSeconds": 2592000,
+      "annualPeriodSeconds": 31536000,
+      "plans": [
+        {
+          "plan": "free",
+          "planCode": 1,
+          "checkoutFeeBps": 50,
+          "monthlyPriceMinorUnits": 0,
+          "annualPriceMinorUnits": 0,
+          "selfServe": true
+        },
+        {
+          "plan": "growth",
+          "planCode": 2,
+          "checkoutFeeBps": 25,
+          "monthlyPriceMinorUnits": 99000000,
+          "annualPriceMinorUnits": 990000000,
+          "selfServe": true
+        },
+        {
+          "plan": "enterprise",
+          "planCode": null,
+          "checkoutFeeBps": null,
+          "monthlyPriceMinorUnits": null,
+          "annualPriceMinorUnits": null,
+          "selfServe": false
+        }
+      ]
+    },
+    "testTokenFaucet": {
+      "token": "0xa22cb3a087B478535e2eFf389d89b2bF434B962F",
+      "claimAmountMinorUnits": "1000000000",
+      "functionName": "claimTestTokens"
+    },
+    "generatedAt": "2026-05-10T09:36:52.169Z",
+    "deployer": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE",
+    "platformFeeWallet": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE"
   }
 }
 "#;
@@ -105,6 +156,60 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
   "generatedAt": "2026-05-10T05:12:13.489Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+}
+"#;
+
+pub const SEPOLIA_MANIFEST_JSON: &str = r#"
+{
+  "network": "sepolia",
+  "chainId": 11155111,
+  "contracts": {
+    "MerchantRegistry": "0x2B7201f4f839cBDA6fFFDba8403bD44E7B34c478",
+    "ConfidentialUSDMock": "0xa22cb3a087B478535e2eFf389d89b2bF434B962F",
+    "SubscriptionPass": "0x62CCD2ca573d6da8e60c8FEcB5241754DA89D946",
+    "PrivateSubscriptionRegistry": "0x0C3E7F3cdd82775e9Dd52a97AC152aCF12BdA7fB",
+    "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE"
+  },
+  "billing": {
+    "source": "PrivateSubscriptionRegistry",
+    "defaultFeeBps": 50,
+    "monthlyPeriodSeconds": 2592000,
+    "annualPeriodSeconds": 31536000,
+    "plans": [
+      {
+        "plan": "free",
+        "planCode": 1,
+        "checkoutFeeBps": 50,
+        "monthlyPriceMinorUnits": 0,
+        "annualPriceMinorUnits": 0,
+        "selfServe": true
+      },
+      {
+        "plan": "growth",
+        "planCode": 2,
+        "checkoutFeeBps": 25,
+        "monthlyPriceMinorUnits": 99000000,
+        "annualPriceMinorUnits": 990000000,
+        "selfServe": true
+      },
+      {
+        "plan": "enterprise",
+        "planCode": null,
+        "checkoutFeeBps": null,
+        "monthlyPriceMinorUnits": null,
+        "annualPriceMinorUnits": null,
+        "selfServe": false
+      }
+    ]
+  },
+  "testTokenFaucet": {
+    "token": "0xa22cb3a087B478535e2eFf389d89b2bF434B962F",
+    "claimAmountMinorUnits": "1000000000",
+    "functionName": "claimTestTokens"
+  },
+  "generatedAt": "2026-05-10T09:36:52.169Z",
+  "deployer": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE",
+  "platformFeeWallet": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE"
 }
 "#;
 

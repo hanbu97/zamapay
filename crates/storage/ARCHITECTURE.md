@@ -2,12 +2,12 @@
 
 ## Scope
 
-- `src/lib.rs` owns async process-local auth/session stores, session deletion, portal read-model projections, operator/indexer projection methods, diagnostics counters, and the `PortalStore` cache surface.
+- `src/lib.rs` owns async process-local auth/session stores, session deletion, portal read-model projections, operator/indexer projection methods, diagnostics counters, the shared Postgres connection pool, and the `PortalStore` cache surface.
 - `src/billing.rs` owns the merchant billing read model, subscription payment history, self-serve upgrade intent projection, operator-projected chain entitlement, and contract-manifest fee-term lookup; dashboard/API-key callers still cannot write paid entitlement.
 - `src/projects.rs` owns payment-project state transitions: project creation, project API keys, hosted checkout quote snapshots, hosted checkout sessions, project-scoped invoice projection, webhook outbox records, delivery attempts, retries, local withdraw records, and dashboard overview reads.
 - `src/projections.rs` owns pure invoice projection and diagnostics helpers shared by the store surface.
 - `src/project_support.rs` owns project-only support types and pure helpers: stored API-key hash records, checkout-session errors, environment manifests, signer metadata, secret hashing, webhook secrets, billing/withdraw totals, and dashboard counters.
-- `src/pg_store/` owns async SeaORM-backed normalized tables, DTO row mapping, schema creation, and full-record replacement transactions.
+- `src/pg_store/` owns async SeaORM-backed normalized tables, DTO row mapping, schema creation, connection setup, and full-record replacement transactions.
 - `src/invoice_seed.rs` owns deterministic local invoice construction shared by legacy invoices and project checkout projection.
 
 ## Structure
@@ -43,6 +43,7 @@ src/
 - `ZAMAPAY_PORTAL_STATE_KEY` may namespace isolated local verification rows, but it stays inside the same normalized Postgres schema and does not introduce a second storage backend.
 - Portal durability is normalized into purpose-named tables: projects, environments, invoice authorities, API keys, subscriptions, billing payments, invoices, checkout sessions, metadata, idempotency keys, webhook events, webhook deliveries, withdrawals, and counters.
 - Runtime truth must live in normalized Postgres tables; there is no JSONB snapshot backend or memory-store fallback for portal data.
+- The portal store opens the SeaORM/Postgres pool once at startup and reuses it for saves; request-time persistence must not rebuild remote Supabase connections or rerun schema DDL.
 - Project support helpers are outside `projects.rs` so the state machine stays readable and does not hide policy inside formatting or hashing code.
 - SeaORM DTOs are outside `lib.rs`; row shape is a storage detail, not the public store contract.
 - Store APIs are async end-to-end: Tokio `RwLock` protects in-process maps, and SeaORM load/save awaits directly on the API runtime rather than spawning a blocking runtime bridge.

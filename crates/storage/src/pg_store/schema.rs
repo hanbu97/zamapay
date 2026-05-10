@@ -1,21 +1,15 @@
-use sea_orm::{ConnectionTrait, DbErr, Statement};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, Statement, TransactionTrait};
 
 const BACKEND: sea_orm::DbBackend = sea_orm::DbBackend::Postgres;
 
-pub(crate) async fn ensure_schema<C>(connection: &C) -> Result<(), DbErr>
-where
-    C: ConnectionTrait,
-{
-    advisory_lock(connection).await?;
+pub(crate) async fn ensure_schema(connection: &DatabaseConnection) -> Result<(), DbErr> {
+    let transaction = connection.begin().await?;
+    advisory_lock(&transaction).await?;
     for statement in SCHEMA_SQL {
         let statement = Statement::from_string(BACKEND, (*statement).to_string());
-        if let Err(err) = connection.execute_raw(statement).await {
-            advisory_unlock(connection).await?;
-            return Err(err);
-        }
+        transaction.execute_raw(statement).await?;
     }
-    advisory_unlock(connection).await?;
-    Ok(())
+    transaction.commit().await
 }
 
 static SCHEMA_SQL: &[&str] = &[
@@ -298,16 +292,9 @@ async fn advisory_lock<C>(connection: &C) -> Result<(), DbErr>
 where
     C: ConnectionTrait,
 {
-    let statement =
-        Statement::from_string(BACKEND, "select pg_advisory_lock(770177001)".to_string());
-    connection.query_one_raw(statement).await.map(|_| ())
-}
-
-async fn advisory_unlock<C>(connection: &C) -> Result<(), DbErr>
-where
-    C: ConnectionTrait,
-{
-    let statement =
-        Statement::from_string(BACKEND, "select pg_advisory_unlock(770177001)".to_string());
+    let statement = Statement::from_string(
+        BACKEND,
+        "select pg_advisory_xact_lock(770177001)".to_string(),
+    );
     connection.query_one_raw(statement).await.map(|_| ())
 }

@@ -26,7 +26,7 @@ backend
 - Startup replaces only an older `cardforge-backend` process listening on the same bind port; unrelated listeners are reported and left untouched.
 - `/api/orders/checkout` accepts a product id plus optional buyer wallet for the merchant-owned local read model, derives amount and card release data from the server catalog, creates a local-dev private settlement invoice, then creates a project checkout session with bearer API-key auth and never forwards buyer or merchant cookies.
 - Local-dev private settlement is mandatory for buy flow demos; checkout creation fails if the encrypted chain invoice bridge is unavailable.
-- `CARDFORGE_DATABASE_URL` is required and points at a CardForge-owned Postgres database, separate from the ZamaPay platform database.
+- `CARDFORGE_DATABASE_URL` is required and points at a CardForge-owned Postgres database, separate from the ZamaPay platform database; startup uses bounded Postgres connect, acquire, and statement timeouts so a slow Supabase endpoint fails clearly instead of half-starting the demo.
 - `CARDFORGE_STORE_KEY` namespaces local runs inside that database without becoming a second storage backend.
 - `/api/zamapay/webhook` verifies ZamaPay signatures, records callbacks, releases demo cards only for `invoice.fulfillment_ready` payloads that are `paid` and `finality_safe`, then persists the fulfilled card under the buyer wallet captured at checkout creation.
 - `/api/wallets/{wallet}/activity` exposes only that wallet's owned-card read model and confirmed checkout payment hashes for the storefront sidebar.

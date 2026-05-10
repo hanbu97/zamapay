@@ -6,13 +6,14 @@ use domain::{
     DecryptJobStatus, FinalityStatus, FulfillmentStatus, NONCE_TTL_SECONDS, PaymentTruth,
     SettlementSnapshot, WebhookDeliveryOutcome, WebhookDeliveryStatus, build_login_message,
 };
+use sea_orm::DatabaseConnection;
 use shared::{
     BillingPaymentRecord, BillingProtocolManifest, BillingSubscription, CheckoutSession,
     DashboardOverview, DashboardSummary, DecryptCallbackOutcome, DecryptRequestSnapshot,
     FulfillmentReleaseAudit, InvoiceRecord, OperatorDiagnostics, PaymentProject,
     PaymentProjectEnvironment, ProjectInvoiceAuthority, ProjectWebhookEndpoint,
     ProjectWithdrawalRecord, SessionUser, WebhookDeliveryRecord, WebhookEventRecord,
-    local_dev_contract_manifest,
+    contract_manifest,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -27,7 +28,9 @@ pub use billing::BillingSubscriptionError;
 pub use project_support::CheckoutSessionError;
 
 use invoice_seed::seeded_invoice;
-use pg_store::{PortalRecordSet, load_portal_records, save_portal_records};
+use pg_store::{
+    PortalRecordSet, load_portal_records_from, open_portal_database, save_portal_records_to,
+};
 use projections::{
     FinalityProgress, apply_finality_progress, chain_sync_status, has_indexer_stalled,
     has_operator_action_required, indexer_cursor, mark_webhook_pending_if_due,
@@ -141,7 +144,7 @@ pub struct PortalStore {
     webhook_deliveries: Arc<RwLock<HashMap<String, WebhookDeliveryRecord>>>,
     project_withdrawals: Arc<RwLock<HashMap<String, ProjectWithdrawalRecord>>>,
     next_invoice_number: Arc<RwLock<u64>>,
-    database_url: Arc<String>,
+    database: Arc<DatabaseConnection>,
     state_key: Arc<String>,
 }
 
@@ -178,11 +181,16 @@ impl PortalStore {
     ) -> Self {
         let database_url = database_url.into();
         let state_key = state_key.into();
-        let records = load_portal_records(&database_url, &state_key).await;
-        Self::from_record_set(records, database_url, state_key)
+        let database = open_portal_database(&database_url).await;
+        let records = load_portal_records_from(&database, &state_key).await;
+        Self::from_record_set(records, database, state_key)
     }
 
-    fn from_record_set(records: PortalRecordSet, database_url: String, state_key: String) -> Self {
+    fn from_record_set(
+        records: PortalRecordSet,
+        database: DatabaseConnection,
+        state_key: String,
+    ) -> Self {
         Self {
             invoices: Arc::new(RwLock::new(records.invoices)),
             projects: Arc::new(RwLock::new(records.projects)),
@@ -199,7 +207,7 @@ impl PortalStore {
             webhook_deliveries: Arc::new(RwLock::new(records.webhook_deliveries)),
             project_withdrawals: Arc::new(RwLock::new(records.project_withdrawals)),
             next_invoice_number: Arc::new(RwLock::new(records.next_invoice_number)),
-            database_url: Arc::new(database_url),
+            database: Arc::new(database),
             state_key: Arc::new(state_key),
         }
     }
@@ -635,7 +643,7 @@ impl PortalStore {
             next_invoice_number,
         };
 
-        save_portal_records(&self.database_url, &self.state_key, &records).await;
+        save_portal_records_to(&self.database, &self.state_key, &records).await;
     }
 
     async fn latest_invoice_id_for_chain_invoice(&self, chain_invoice_id: u64) -> Option<String> {
@@ -666,7 +674,11 @@ fn chain_invoice_rank(
 }
 
 fn contract_billing_protocol() -> BillingProtocolManifest {
-    local_dev_contract_manifest()
-        .map(|manifest| manifest.billing)
-        .unwrap_or_default()
+    contract_manifest(
+        &std::env::var("ZAMAPAY_CONTRACT_ENV").unwrap_or_else(|_| "local-dev".to_string()),
+    )
+    .ok()
+    .flatten()
+    .map(|manifest| manifest.billing)
+    .unwrap_or_default()
 }

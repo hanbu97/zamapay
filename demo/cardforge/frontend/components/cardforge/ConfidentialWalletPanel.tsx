@@ -21,11 +21,14 @@ import {
 } from 'lucide-react'
 import { getAddress } from 'viem'
 import {
-  claimLocalTestCusd,
+  claimTestCusd,
+  ensureWalletNetwork,
   readConfidentialWallet,
-  readLocalTransactionReceipt,
+  readChainTransactionReceipt,
+  transactionExplorerHref,
+  walletNetwork,
   type ConfidentialWalletSnapshot,
-} from '@/lib/local-confidential-wallet'
+} from '@/lib/confidential-wallet'
 import {
   getCardForgeWalletActivity,
   type OwnedCardRecord,
@@ -75,20 +78,8 @@ type OwnedCardGroup = {
   title: string
 }
 
-const hardhatChain = {
-  chainId: '0x7a69',
-  chainName: 'Hardhat Local',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'Ether',
-    symbol: 'ETH',
-  },
-  rpcUrls: ['http://127.0.0.1:8545'],
-}
-const hardhatChainId = 31337
 const maxActivityRecords = 8
 const walletActivityStoragePrefix = 'cardforge:confidential-wallet:activity:v1'
-const localExplorerUrl = process.env.NEXT_PUBLIC_LOCAL_EXPLORER_URL?.trim()
 
 export function ConfidentialWalletPanel({ className, config, onWalletChange }: ConfidentialWalletPanelProps) {
   const [address, setAddress] = useState<string | null>(null)
@@ -108,7 +99,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
 
     try {
       const provider = ensureProvider()
-      await ensureHardhatLocal(provider)
+      await ensureWalletNetwork(provider)
       const selected = await requestSelectedAccount(provider)
       if (!selected) {
         throw new Error('MetaMask returned no selected account.')
@@ -132,7 +123,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
     try {
       const provider = ensureProvider()
       await revokeAccounts(provider)
-      await ensureHardhatLocal(provider)
+      await ensureWalletNetwork(provider)
       const selected = await requestSelectedAccount(provider)
       if (!selected) {
         throw new Error('MetaMask returned no selected account.')
@@ -151,18 +142,18 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
   async function claimTestTokens() {
     setIsBusy(true)
     setError(null)
-    setStatus('Confirm the 1000 cUSDT test-token transaction in MetaMask...')
+    setStatus(`Confirm the 1000 cUSDT test-token transaction on ${walletNetwork.label}...`)
 
     try {
       const provider = ensureProvider()
-      await ensureHardhatLocal(provider)
+      await ensureWalletNetwork(provider)
       const selected = address ?? (await requestSelectedAccount(provider))
       if (!selected) {
-        throw new Error('Connect a wallet before claiming local cUSDT.')
+        throw new Error('Connect a wallet before claiming test cUSDT.')
       }
 
       setAddress(selected)
-      const claim = await claimLocalTestCusd(provider, selected)
+      const claim = await claimTestCusd(provider, selected)
       const record = createMintActivity(selected, claim)
       appendActivity(record)
       setStatus(
@@ -173,7 +164,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
       await refreshWallet(selected)
     } catch (caught) {
       setError(readableError(caught))
-      setStatus('Local cUSDT claim did not complete.')
+      setStatus('Test cUSDT claim did not complete.')
     } finally {
       setIsBusy(false)
     }
@@ -186,20 +177,21 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
 
     setIsBusy(true)
     setError(null)
-    setStatus('Reading local confidential cUSDT balance...')
+    setStatus(`Reading ${walletNetwork.label} confidential cUSDT balance...`)
 
     try {
-      const snapshot = await readConfidentialWallet(selectedAddress)
+      const provider = ensureProvider()
+      const snapshot = await readConfidentialWallet(selectedAddress, provider)
       setWallet(snapshot)
       setActivity(await restoreWalletActivity(snapshot.address, snapshot.tokenAddress))
       await refreshWalletRecords(snapshot.address).catch(() => undefined)
       setStatus(
         BigInt(snapshot.balanceMinorUnits) > 0n
           ? 'Confidential wallet balance is ready for encrypted checkout.'
-          : 'No local cUSDT balance is available for this wallet.',
+          : `No ${walletNetwork.label} cUSDT balance is available for this wallet.`,
       )
     } catch (caught) {
-      setStatus('Browser could not read the local confidential balance from Hardhat RPC.')
+      setStatus(`Browser could not read the confidential balance from ${walletNetwork.label}.`)
       setError(readableError(caught))
     } finally {
       setIsBusy(false)
@@ -471,7 +463,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
             <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-semibold">Transaction history</h2>
-                <p className="mt-1 truncate text-xs text-white/45">Hardhat Local chain {hardhatChainId}</p>
+                <p className="mt-1 truncate text-xs text-white/45">{walletNetwork.activityLabel}</p>
               </div>
               <Badge className="shrink-0 border-white/10 bg-white/[0.06] text-white/65 hover:bg-white/[0.06]" variant="outline">
                 {visibleActivity.length}
@@ -517,12 +509,12 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
                               </button>
                               {href ? (
                                 <a
-                                  aria-label="Open transaction in local explorer"
+                                  aria-label="Open transaction in explorer"
                                   className="inline-flex size-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.06] text-white/70 transition-colors hover:bg-white/[0.12] hover:text-white"
                                   href={href}
                                   rel="noreferrer"
                                   target="_blank"
-                                  title="Open transaction in local explorer"
+                                  title="Open transaction in explorer"
                                 >
                                   <ExternalLinkIcon className="size-3.5" />
                                 </a>
@@ -543,7 +535,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
                 <CoinsIcon className="size-7 text-white/30" />
                 <p className="mt-3 text-sm font-medium text-white/75">No wallet transactions yet</p>
                 <p className="mt-1 max-w-52 text-xs leading-5 text-white/45">
-                  Mint local cUSDT or complete a checkout. Confirmed chain hashes will appear here.
+                  Mint test cUSDT or complete a checkout. Confirmed chain hashes will appear here.
                 </p>
               </div>
             )}
@@ -560,24 +552,6 @@ function ensureProvider(): EthereumProvider {
   }
 
   return window.ethereum
-}
-
-async function ensureHardhatLocal(provider: EthereumProvider) {
-  try {
-    await provider.request({
-      method: 'wallet_switchEthereumChain',
-      params: [{ chainId: hardhatChain.chainId }],
-    })
-  } catch (caught) {
-    if (walletErrorCode(caught) !== 4902) {
-      throw caught
-    }
-
-    await provider.request({
-      method: 'wallet_addEthereumChain',
-      params: [hardhatChain],
-    })
-  }
 }
 
 async function requestAccounts(provider: EthereumProvider): Promise<string[]> {
@@ -632,11 +606,11 @@ function readableError(caught: unknown): string {
   return caught instanceof Error ? caught.message : 'Confidential wallet lookup failed.'
 }
 
-function createMintActivity(address: string, claim: Awaited<ReturnType<typeof claimLocalTestCusd>>): MintActivityRecord {
+function createMintActivity(address: string, claim: Awaited<ReturnType<typeof claimTestCusd>>): MintActivityRecord {
   return {
     amountMinorUnits: claim.amountMinorUnits,
     blockNumber: claim.blockNumber,
-    chainId: hardhatChainId,
+    chainId: walletNetwork.chainId,
     recordedAt: new Date().toISOString(),
     status: claim.receiptStatus === 'success' ? 'confirmed' : 'reverted',
     tokenAddress: claim.tokenAddress,
@@ -672,7 +646,7 @@ async function restoreWalletActivity(address: string, tokenAddress: string): Pro
 
   const verified = await Promise.all(
     stored.map(async (record) => {
-      const receipt = await readLocalTransactionReceipt(record.txHash).catch(() => null)
+      const receipt = await readChainTransactionReceipt(record.txHash).catch(() => null)
       if (!receipt?.to || getAddress(receipt.to) !== getAddress(tokenAddress)) {
         return null
       }
@@ -792,7 +766,7 @@ function activityTimestamp(record: WalletActivityRecord): number {
 }
 
 function transactionHref(txHash: string): string | null {
-  return localExplorerUrl ? `${localExplorerUrl.replace(/\/$/, '')}/tx/${txHash}` : null
+  return transactionExplorerHref(txHash)
 }
 
 function toActivityStatus(status: 'success' | 'reverted'): MintActivityRecord['status'] {

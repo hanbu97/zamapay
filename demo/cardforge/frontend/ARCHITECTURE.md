@@ -10,7 +10,7 @@ frontend
 |   |-- cardforge/CreateCheckoutButton.tsx    # Checkout creation and fulfillment refresh clients
 |   |-- cardforge/ProductCoverflow.tsx        # Swiper Coverflow catalog and buyer checkout intent
 |   `-- ui/                              # shadcn primitives
-|-- lib/              # Browser-safe config, CardForge backend client, and local Hardhat wallet reader
+|-- lib/              # Browser-safe config, CardForge backend client, and active-chain wallet reader
 |-- components.json   # shadcn registry contract
 |-- package.json      # Standalone frontend package
 |-- package-lock.json # Frontend dependency lockfile owned by the template
@@ -23,9 +23,10 @@ frontend
 - It is a standalone Next.js package; it does not join the root npm workspace.
 - `lib/config.ts` exposes only the CardForge backend URL and ZamaPay console link.
 - `lib/cardforge-api.ts` calls only the CardForge backend checkout, fulfillment, and webhook-log endpoints without browser credentials, so ZamaPay session cookies never enter the demo backend.
-- `lib/local-confidential-wallet.ts` reads and claims `ConfidentialUSDMock` directly through Hardhat/FHEVM mock RPC; successful claims return the wallet tx hash and receipt metadata.
+- `lib/confidential-wallet.ts` selects the active contract environment from `NEXT_PUBLIC_CONTRACT_ENV`, reads the generated address manifest, and keeps local-dev and Sepolia behind one browser wallet API.
 - `app/page.tsx` owns the selected wallet address so the catalog can tag checkout intent with the buyer wallet while the wallet panel can render wallet-scoped records.
-- `ConfidentialWalletPanel.tsx` opens MetaMask for account connection, Hardhat chain selection, and `claimTestTokens()` faucet transactions; it renders local cUSDT from `ConfidentialUSDMock`, not from a public ERC20 token list.
+- `ConfidentialWalletPanel.tsx` opens MetaMask for account connection, active-chain selection, and `claimTestTokens()` faucet transactions; it renders confidential cUSDT from `ConfidentialUSDMock`, not from a public ERC20 token list.
+- Local-dev balance reveal uses the Hardhat FHEVM mock RPC. Sepolia balance reveal uses Zama's browser relayer SDK and wallet-signed user decrypt permission.
 - The wallet panel splits buyer feedback into two internally scrolling surfaces: unlocked cards from the CardForge backend and chain transaction history from browser-local mint hashes plus wallet-scoped checkout payment records.
 - Wallet transaction history keeps mint hashes keyed by wallet plus token address; checkout payment hashes come from `/api/wallets/{wallet}/activity`.
 - `ProductCoverflow.tsx` sends selected product id and optional connected buyer wallet only to the merchant backend. It never sends merchant wallet, payout wallet, raw order id, or client-chosen amount.

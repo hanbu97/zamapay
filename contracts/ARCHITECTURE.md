@@ -7,12 +7,12 @@
 - `SubscriptionPass.sol` owns the soulbound merchant subscription NFT; it is identity, not transferable value.
 - `PrivateSubscriptionRegistry.sol` owns encrypted subscription terms, local Growth self-serve checks, and pass issuance.
 - `PrivateCheckoutSettlement.sol` owns Private Checkout v1: commitment-only checkout storage, bucket-owner commitments, encrypted gross/net/fee split validation, encrypted buyer debit, merchant/platform pending buckets, replay/expiry guards, public decrypt of only payment/withdraw booleans, and EIP-712 merchant-authorized encrypted withdraw that a chain submitter can send.
-- `scripts/sync-generated.js` and `scripts/deploy-contracts.js` are the bridge from Hardhat artifacts into generated clients and the single local-dev address manifest.
+- `scripts/sync-generated.js` and `scripts/deploy-contracts.js` are the bridge from Hardhat artifacts into generated clients and the selected address manifests.
 
 ## Decisions
 
-- Public-testnet deployment and the old transparent invoice settlement are not active paths. Future Sepolia support should submit the same signed withdraw package through Zama/chain relayer surfaces instead of a ZamaPay platform-owned relayer.
-- Generated ABI/address clients expose only local-dev active contracts. `ConfidentialUSDMock` is the single cUSDT mock for subscription charging, faucet claims, checkout payment, and private withdraw settlement movement.
+- Sepolia deployment is an active target. Browser FHE input/public-decrypt work must use Zama's official test relayer; ZamaPay must not reintroduce a product-owned relayer.
+- Generated ABI/address clients expose the selected active manifest. `ConfidentialUSDMock` is the single cUSDT mock for subscription charging, faucet claims, checkout payment, and private withdraw settlement movement.
 - Hardhat keeps ephemeral local and persistent localhost lanes only.
 
 ## Verification

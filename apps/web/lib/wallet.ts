@@ -40,6 +40,18 @@ export const localHardhatWalletChain: WalletChain = {
   rpcUrls: ['http://127.0.0.1:8545'],
 }
 
+export const sepoliaWalletChain: WalletChain = {
+  id: 11155111,
+  name: 'Sepolia',
+  nativeCurrency: {
+    decimals: 18,
+    name: 'Sepolia Ether',
+    symbol: 'ETH',
+  },
+  rpcUrls: [process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'],
+  blockExplorerUrls: ['https://sepolia.etherscan.io'],
+}
+
 declare global {
   interface Window {
     ethereum?: EthereumProvider

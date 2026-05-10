@@ -5,8 +5,7 @@ use axum::{Json, Router};
 use axum_extra::extract::cookie::CookieJar;
 use shared::{
     BillingSubscriptionResponse, BillingUpgradeIntentRequest, BillingUpgradeIntentResponse,
-    SubscriptionEntitlementProjectionRequest, UpgradeBillingSubscriptionRequest,
-    local_dev_contract_manifest,
+    SubscriptionEntitlementProjectionRequest, UpgradeBillingSubscriptionRequest, contract_manifest,
 };
 use storage::BillingSubscriptionError;
 
@@ -121,8 +120,11 @@ fn billing_projection_error(error: BillingSubscriptionError) -> ApiError {
 }
 
 fn active_manifest() -> Result<shared::AddressManifest, ApiError> {
-    local_dev_contract_manifest()
-        .map_err(|_| ApiError::internal("generated local-dev contract manifest is invalid"))
+    let environment =
+        std::env::var("ZAMAPAY_CONTRACT_ENV").unwrap_or_else(|_| "local-dev".to_string());
+    contract_manifest(&environment)
+        .map_err(|_| ApiError::internal("generated contract manifest is invalid"))?
+        .ok_or_else(|| ApiError::locked("active contract manifest is not deployed"))
 }
 
 async fn require_session(

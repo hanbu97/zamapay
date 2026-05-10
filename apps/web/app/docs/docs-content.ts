@@ -560,7 +560,7 @@ npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002
       {
         body: [
           "The normal checkout path decrypts only accepted, an ebool. Per-order gross, merchant net, and platform fee stay encrypted and can be handled by settlement batches later.",
-          "Expected and paid amounts are encrypted as external inputs with input proofs, then imported by the contract. In local-dev, the buyer browser encrypts paidAmount through Hardhat/FHEVM mock RPC and the buyer wallet submits the encrypted payment directly.",
+          "Expected and paid amounts are encrypted as external inputs with input proofs, then imported by the contract. Local-dev uses Hardhat/FHEVM mock RPC; Sepolia uses Zama's official test relayer through `@zama-fhe/relayer-sdk` `SepoliaConfig`.",
         ],
         code: `accepted = FHE.eq(paidAmount, expectedAmount)`,
         id: "payment-flow",
@@ -643,11 +643,11 @@ struct PrivateCheckout {
         id: "acceptance",
         steps: [
           {
-            detail: "Create one private checkout on local-dev from a CardForge order and store only commitments plus encrypted expectedAmount on-chain.",
+            detail: "Create one private checkout on the active contract environment from a CardForge order and store only commitments plus encrypted expectedAmount on-chain.",
             title: "Create private checkout",
           },
           {
-            detail: "Submit encrypted payment directly from the buyer wallet in local-dev. This keeps any ZamaPay-owned platform relayer out of the MVP.",
+            detail: "Submit encrypted payment directly from the buyer wallet. Local-dev uses mock RPC for proofs; Sepolia uses Zama official test relayer proofs.",
             title: "Submit buyer payment",
           },
           {
@@ -680,15 +680,15 @@ struct PrivateCheckout {
     sections: [
       {
         body: [
-          "`local-dev` is the only active environment in this hackathon build. Public testnets are intentionally disabled until the Sepolia path is wired through Zama official relayer/gateway surfaces.",
-          "Keep environment explicit in projects, API keys, checkout sessions, webhook endpoints, events, and delivery records even while the only accepted value is `local-dev`.",
+          "`local-dev` is the fast mock-encryption product loop. `sepolia` is the public-testnet target that uses the real Zama FHEVM stack and deployed manifests.",
+          "Keep environment explicit in projects, API keys, checkout sessions, webhook endpoints, events, and delivery records so the same read model can move from local-dev to Sepolia without hidden defaults.",
         ],
         id: "environment-policy",
         table: {
           headers: ["Environment", "Use", "Required proof"],
           rows: [
             ["local-dev", "Fast product loop and CI smoke.", "npm run verify:local"],
-            ["public testnet", "Paused.", "Re-enable through Zama official relayer/gateway surfaces, not a ZamaPay platform relayer."],
+            ["sepolia", "Public demo with real FHEVM encryption.", "Deploy contracts with `npm --workspace contracts run deploy:sepolia`, then run the UI with `NEXT_PUBLIC_CONTRACT_ENV=sepolia`."],
             ["production", "Not enabled in this hackathon build.", "Real merchant signer custody, public HTTPS webhook, monitoring, and rate limits."],
           ],
         },
@@ -703,6 +703,18 @@ struct PrivateCheckout {
 npm run verify:local`,
         id: "local-readiness",
         title: "Local readiness",
+      },
+      {
+        body: [
+          "Sepolia deployment reads `env/sepolia.contracts.env`, writes `generated/contracts/addresses/sepolia.json`, and regenerates the TypeScript/Rust contract clients.",
+          "Local dashboards and CardForge can still run on `127.0.0.1`; chain/RPC/manifest move to Sepolia, and browser FHE operations use Zama's official test relayer via `SepoliaConfig`.",
+        ],
+        code: `set -a
+. env/sepolia.contracts.env
+set +a
+npm --workspace contracts run deploy:sepolia`,
+        id: "sepolia-readiness",
+        title: "Sepolia readiness",
       },
     ],
   },

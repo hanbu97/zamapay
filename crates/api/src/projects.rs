@@ -90,18 +90,16 @@ async fn create_project(
     }
 
     let now = Utc::now();
-    let subscription = state
-        .portal
-        .billing_subscription(&session.user.address, now)
-        .await;
-    let effective_plan = subscription.subscription.effective_plan();
-    if payload
-        .billing_plan
-        .is_some_and(|requested| requested != effective_plan)
-    {
-        return Err(ApiError::forbidden(
-            "project billing plan comes from the active subscription; upgrade before using a paid rate",
-        ));
+    if let Some(requested_plan) = payload.billing_plan {
+        let subscription = state
+            .portal
+            .billing_subscription(&session.user.address, now)
+            .await;
+        if requested_plan != subscription.subscription.effective_plan() {
+            return Err(ApiError::forbidden(
+                "project billing plan comes from the active subscription; upgrade before using a paid rate",
+            ));
+        }
     }
 
     let created = state

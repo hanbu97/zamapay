@@ -11,6 +11,7 @@ use shared::{
 };
 use uuid::Uuid;
 
+use crate::pg_store::{save_payment_project_bundle_to, save_project_api_key_to};
 use crate::project_support::{
     CheckoutSessionError, DEFAULT_DELIVERY_MAX_ATTEMPTS, StoredProjectApiKey, clean_base_url,
     hash_secret, merchant_registered, parse_environment, project_environment, project_summary,
@@ -99,7 +100,15 @@ impl PortalStore {
             None => (None, None),
         };
 
-        self.persist().await;
+        save_payment_project_bundle_to(
+            &self.database,
+            &self.state_key,
+            &project,
+            &environment_record,
+            &authority,
+            webhook_endpoint.as_ref(),
+        )
+        .await;
 
         CreatePaymentProjectResponse {
             project,
@@ -161,14 +170,15 @@ impl PortalStore {
             revoked_at: None,
         };
 
-        self.api_keys.write().await.insert(
-            key_id,
-            StoredProjectApiKey {
-                record: key_record.clone(),
-                secret_hash: hash_secret(&api_key),
-            },
-        );
-        self.persist().await;
+        let stored_key = StoredProjectApiKey {
+            record: key_record.clone(),
+            secret_hash: hash_secret(&api_key),
+        };
+        self.api_keys
+            .write()
+            .await
+            .insert(key_id, stored_key.clone());
+        save_project_api_key_to(&self.database, &self.state_key, &stored_key).await;
 
         Some(CreateProjectApiKeyResponse {
             api_key,

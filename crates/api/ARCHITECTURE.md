@@ -30,4 +30,4 @@
 - Project checkout quote responses expose the immutable fee split and merchant owner wallet needed by the local-dev chain invoice bridge before the checkout session is persisted.
 - Project withdraw writes are blocked until a wallet-signed settlement contract transaction exists; the API may display historic read-model rows but must not create payout records from session auth alone.
 - Generated contract truth is served from here so frontend code does not need to inspect Hardhat artifact folders directly.
-- The only contract manifest route is `/api/contracts/local-dev`; aliases and public-testnet manifests are not served.
+- Contract manifests are served through `/api/contracts/{environment}`. Unknown environments fail closed; generated local-dev and Sepolia manifests are the only intended active inputs.

@@ -28,6 +28,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import { createPaymentProject, createProjectApiKey, type PaymentProject } from '@/lib/api'
+import { contractEnvironmentConfig, publicContractEnvironment } from '@/lib/contract-environment'
 import { OneTimeSecretDialog, buildIntegrationBundle, formatEnvironment, type OneTimeSecret } from './PaymentProjectConsoleParts'
 
 type MerchantProjectsOverviewProps = {
@@ -38,7 +39,7 @@ type ProjectFilter = 'all' | 'active' | 'disabled'
 type ProjectSort = 'name' | 'newest'
 type ProjectView = 'grid' | 'list'
 
-const defaultProjectEnvironment = 'local_dev'
+const defaultProjectEnvironment = contractEnvironmentConfig(publicContractEnvironment()).projectEnvironment
 
 const statusOptions: Array<{ label: string; value: ProjectFilter }> = [
   { label: 'All status', value: 'all' },

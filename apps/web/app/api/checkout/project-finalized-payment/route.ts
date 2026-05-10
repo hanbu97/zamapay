@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createPublicClient, http, parseEventLogs, type Hex } from 'viem'
-import { localDevAddresses, privateCheckoutSettlementAbi } from '@/lib/contracts'
-import { contractEnvironmentConfig } from '@/lib/contract-environment'
+import { privateCheckoutSettlementAbi } from '@/lib/contracts'
+import { contractEnvironmentConfig, serverContractEnvironment, type ContractEnvironmentConfig } from '@/lib/contract-environment'
 import { finalizeLocalPrivatePayment } from '@/lib/local-fhevm-dev'
 
 type ProjectionRequest = {
@@ -18,6 +18,11 @@ type FinalizedPayment = {
   chainInvoiceId: number
   payerAddress: string
   paymentTxHash: Hex
+}
+
+type ActiveSettlement = {
+  config: ContractEnvironmentConfig
+  settlementAddress: Hex
 }
 
 type ConfirmationBody = {
@@ -55,13 +60,24 @@ function routeFailure(caught: unknown) {
   return NextResponse.json({ error: readableError(caught) }, { status: 502 })
 }
 
-function publicClient() {
-  const config = contractEnvironmentConfig('local-dev')
-
+function publicClient(config: ContractEnvironmentConfig) {
   return createPublicClient({
     chain: config.chain,
-    transport: http(),
+    transport: http(config.walletChain.rpcUrls[0]),
   })
+}
+
+function activeSettlement(): ActiveSettlement {
+  const config = contractEnvironmentConfig(serverContractEnvironment())
+  const settlementAddress = config.manifest?.contracts.PrivateCheckoutSettlement
+  if (!settlementAddress?.startsWith('0x')) {
+    throw new RouteError(`PrivateCheckoutSettlement is missing from the ${config.label} manifest.`, 409)
+  }
+
+  return {
+    config,
+    settlementAddress: settlementAddress as Hex,
+  }
 }
 
 async function rustJson<T>(pathname: string, body: PaymentProjectionBody | ConfirmationBody): Promise<T> {
@@ -83,15 +99,12 @@ async function rustJson<T>(pathname: string, body: PaymentProjectionBody | Confi
 }
 
 async function findFinalizedPayment(input: {
+  active: ActiveSettlement
   paymentTxHash: Hex
   requestedChainInvoiceId?: number | null
 }): Promise<FinalizedPayment> {
-  const settlementAddress = localDevAddresses.contracts.PrivateCheckoutSettlement
-  if (!settlementAddress?.startsWith('0x')) {
-    throw new RouteError('PrivateCheckoutSettlement is missing from the local-dev manifest.', 409)
-  }
-
-  const client = publicClient()
+  const { config, settlementAddress } = input.active
+  const client = publicClient(config)
   const receipt = await client.getTransactionReceipt({ hash: input.paymentTxHash }).catch(() => null)
   if (!receipt) {
     throw new RouteError('Finalization transaction receipt was not found.', 404)
@@ -109,7 +122,7 @@ async function findFinalizedPayment(input: {
   })
   const finalizedLog = finalizedLogs[0]
   if (!finalizedLog) {
-    throw new RouteError('PrivatePaymentFinalized event was not emitted by the local-dev settlement contract.', 409)
+    throw new RouteError(`PrivatePaymentFinalized event was not emitted by the ${config.label} settlement contract.`, 409)
   }
 
   if (!finalizedLog.args.accepted) {
@@ -120,7 +133,7 @@ async function findFinalizedPayment(input: {
     input.requestedChainInvoiceId ??
     Number(
       await client.readContract({
-        address: settlementAddress as Hex,
+        address: settlementAddress,
         abi: privateCheckoutSettlementAbi,
         functionName: 'checkoutIdOf',
         args: [finalizedLog.args.orderCommitment],
@@ -170,14 +183,20 @@ export async function POST(request: Request) {
 
   if (!paymentTxHash && requestedChainInvoiceId === null) {
     return NextResponse.json(
-      { error: 'chainInvoiceId or paymentTxHash is required for local private checkout projection.' },
+      { error: 'chainInvoiceId or paymentTxHash is required for private checkout projection.' },
       { status: 400 },
     )
   }
 
   try {
+    const active = activeSettlement()
+    if (!paymentTxHash && active.config.key !== 'local-dev') {
+      throw new RouteError('paymentTxHash is required for Sepolia projection; the browser must finalize with the official Zama public-decrypt proof.', 400)
+    }
+
     const paid = paymentTxHash
       ? await findFinalizedPayment({
+          active,
           paymentTxHash,
           requestedChainInvoiceId,
         })
@@ -185,7 +204,7 @@ export async function POST(request: Request) {
     const { projected, finality } = await projectPayment(paid.paymentTxHash, paid.chainInvoiceId, paid.payerAddress)
 
     return NextResponse.json({
-      chainId: localDevAddresses.chainId,
+      chainId: active.config.manifest?.chainId ?? active.config.chain.id,
       chainInvoiceId: paid.chainInvoiceId,
       paymentTxHash: paid.paymentTxHash,
       payerAddress: paid.payerAddress,

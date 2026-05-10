@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { serverContractEnvironment } from '@/lib/contract-environment'
-import { canUseLocalDevServerBridge } from '@/lib/dev-signer-gate'
+import { canUseLocalDevServerBridge, isLocalRequestUrl } from '@/lib/dev-signer-gate'
 import { createLocalChainInvoice } from '@/lib/local-fhevm-dev'
+import { createSepoliaChainInvoice } from '@/lib/sepolia-fhevm-server'
+
+export const runtime = 'nodejs'
 
 type LocalChainInvoiceRequest = {
   amountMinorUnits?: unknown
@@ -13,7 +16,7 @@ type LocalChainInvoiceRequest = {
   settlementBucketSeed?: unknown
 }
 
-function isEnabled(request: Request) {
+function isLocalDevEnabled(request: Request) {
   return (
     serverContractEnvironment() === 'local-dev' &&
     canUseLocalDevServerBridge({
@@ -22,6 +25,10 @@ function isEnabled(request: Request) {
       requestUrl: request.url,
     })
   )
+}
+
+function isSepoliaDevBridgeEnabled(request: Request) {
+  return process.env.NODE_ENV !== 'production' && isLocalRequestUrl(request.url)
 }
 
 function readPositiveSafeInteger(value: unknown): number | null {
@@ -33,8 +40,12 @@ function readNonNegativeSafeInteger(value: unknown): number | null {
 }
 
 export async function POST(request: Request) {
-  if (!isEnabled(request)) {
+  const contractEnvironment = serverContractEnvironment()
+  if (contractEnvironment === 'local-dev' && !isLocalDevEnabled(request)) {
     return NextResponse.json({ error: 'local chain invoice bridge is disabled' }, { status: 404 })
+  }
+  if (contractEnvironment === 'sepolia' && !isSepoliaDevBridgeEnabled(request)) {
+    return NextResponse.json({ error: 'sepolia chain invoice bridge is disabled' }, { status: 404 })
   }
 
   const body = (await request.json().catch(() => ({}))) as LocalChainInvoiceRequest
@@ -70,19 +81,23 @@ export async function POST(request: Request) {
   }
 
   try {
+    const invoiceInput = {
+      amountMinorUnits: BigInt(amountMinorUnits),
+      expiresInSeconds: expiresInSeconds ?? undefined,
+      externalRef: body.externalRef,
+      merchantNetMinorUnits: BigInt(merchantNetMinorUnits),
+      merchantOwnerAddress: body.merchantOwnerAddress,
+      platformFeeMinorUnits: BigInt(platformFeeMinorUnits),
+      settlementBucketSeed: body.settlementBucketSeed,
+    }
+
     return NextResponse.json(
-      await createLocalChainInvoice({
-        amountMinorUnits: BigInt(amountMinorUnits),
-        expiresInSeconds: expiresInSeconds ?? undefined,
-        externalRef: body.externalRef,
-        merchantNetMinorUnits: BigInt(merchantNetMinorUnits),
-        merchantOwnerAddress: body.merchantOwnerAddress,
-        platformFeeMinorUnits: BigInt(platformFeeMinorUnits),
-        settlementBucketSeed: body.settlementBucketSeed,
-      }),
+      contractEnvironment === 'local-dev'
+        ? await createLocalChainInvoice(invoiceInput)
+        : await createSepoliaChainInvoice(invoiceInput),
     )
   } catch (caught) {
-    const message = caught instanceof Error ? caught.message : 'local chain invoice creation failed'
+    const message = caught instanceof Error ? caught.message : 'chain invoice creation failed'
     return NextResponse.json({ error: message }, { status: 502 })
   }
 }

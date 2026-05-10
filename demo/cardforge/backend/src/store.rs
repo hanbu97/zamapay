@@ -1,8 +1,9 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use sea_orm::{
-    ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr, FromQueryResult, Statement,
-    Value as DbValue,
+    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr,
+    FromQueryResult, Statement, Value as DbValue,
 };
 use serde_json::Value;
 
@@ -12,6 +13,10 @@ use crate::types::{
 };
 
 const BACKEND: DbBackend = DbBackend::Postgres;
+const CONNECT_TIMEOUT_SECONDS: u64 = 10;
+const ACQUIRE_TIMEOUT_SECONDS: u64 = 10;
+const STATEMENT_TIMEOUT_SECONDS: u64 = 15;
+const MAX_CONNECTIONS: u32 = 5;
 
 #[derive(Clone)]
 pub(crate) struct CardForgeStore {
@@ -21,7 +26,7 @@ pub(crate) struct CardForgeStore {
 
 impl CardForgeStore {
     pub(crate) async fn connect(database_url: &str, store_key: String) -> Result<Self, DbErr> {
-        let db = Database::connect(database_url).await?;
+        let db = connect_database(database_url).await?;
         ensure_schema(&db).await?;
         Ok(Self {
             db,
@@ -339,6 +344,20 @@ impl CardForgeStore {
         .await
         .map(|row| row.map_or(0, |row| usize_from_i64(row.count, "release count")))
     }
+}
+
+async fn connect_database(database_url: &str) -> Result<DatabaseConnection, DbErr> {
+    let mut options = ConnectOptions::new(database_url.to_string());
+    options
+        .max_connections(MAX_CONNECTIONS)
+        .min_connections(0)
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+        .acquire_timeout(Duration::from_secs(ACQUIRE_TIMEOUT_SECONDS))
+        .statement_timeout(Duration::from_secs(STATEMENT_TIMEOUT_SECONDS))
+        .sqlx_logging(false)
+        .set_application_name("cardforge-backend");
+
+    Database::connect(options).await
 }
 
 #[derive(FromQueryResult)]

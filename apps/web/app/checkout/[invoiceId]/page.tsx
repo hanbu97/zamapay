@@ -8,14 +8,13 @@ type CheckoutPageProps = {
 
 export default async function CheckoutPage({ params }: CheckoutPageProps) {
   const { invoiceId } = await params
-  const [invoice, manifest] = await Promise.all([
-    getInvoiceRecord(invoiceId),
-    getContractManifest(),
-  ])
+  const invoice = await getInvoiceRecord(invoiceId)
 
   if (!invoice) {
     notFound()
   }
+
+  const manifest = await getContractManifest(invoice.environment)
 
   return (
     <main className="relative isolate flex min-h-dvh items-center justify-center overflow-hidden bg-[#f7f8fb] px-4 py-8 text-foreground sm:px-6 lg:px-8">

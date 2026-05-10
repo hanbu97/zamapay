@@ -17,8 +17,7 @@ use shared::{
     DecryptCallbackRequest, FulfillmentResponse, InvoiceRecord, NonceRequest, NonceResponse,
     OperatorDiagnostics, OperatorSettlementEventRequest, PaymentConfirmationsRequest,
     PaymentProjectionRequest, SessionResponse, VerifyRequest, WebhookDeliveryRequest,
-    WebhookDispatchResponse, WebhookEventPayload, WebhookSignatureHeaders,
-    local_dev_contract_manifest,
+    WebhookDispatchResponse, WebhookEventPayload, WebhookSignatureHeaders, contract_manifest,
 };
 use storage::{AuthStore, DecryptRequestProjection, PortalStore, StoredSession};
 use tokio::sync::RwLock;
@@ -90,7 +89,10 @@ pub fn app(state: AppState) -> Router {
         .route("/api/session", get(current_session).delete(delete_session))
         .merge(billing::routes())
         .merge(projects::routes())
-        .route("/api/contracts/local-dev", get(local_dev_contracts))
+        .route(
+            "/api/contracts/{environment}",
+            get(contract_environment_manifest),
+        )
         .route("/api/dashboard/overview", get(dashboard_overview))
         .route("/api/invoices", post(create_invoice))
         .route(
@@ -238,9 +240,14 @@ async fn dashboard_overview(
     ))
 }
 
-async fn local_dev_contracts() -> Result<Json<AddressManifest>, ApiError> {
-    let manifest = local_dev_contract_manifest()
-        .map_err(|_| ApiError::internal("generated contract manifest is invalid"))?;
+async fn contract_environment_manifest(
+    Path(environment): Path<String>,
+) -> Result<Json<AddressManifest>, ApiError> {
+    let manifest = contract_manifest(&environment)
+        .map_err(|_| ApiError::internal("generated contract manifest is invalid"))?
+        .ok_or_else(|| {
+            ApiError::not_found("contract manifest is not available for this environment")
+        })?;
     Ok(Json(manifest))
 }
 

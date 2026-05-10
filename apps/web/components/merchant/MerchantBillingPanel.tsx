@@ -44,6 +44,7 @@ import {
 } from '@/lib/local-fhevm-browser'
 import { cn } from '@/lib/utils'
 import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
+import { encryptSepoliaSubscriptionChange, publicDecryptSepoliaBool } from '@/lib/zama-relayer-browser'
 
 type MerchantBillingPanelProps = {
   initialBilling: BillingSubscriptionResponse
@@ -81,6 +82,8 @@ type ChainSubscriptionState = {
 
 type BillingChainConfig = {
   chain: ContractEnvironmentConfig['chain']
+  environment: ContractEnvironmentConfig['key']
+  label: string
   token: Hex
   walletChain: ContractEnvironmentConfig['walletChain']
   registry: Hex
@@ -108,6 +111,25 @@ async function projectLocalGrowthEntitlement(ownerAddress: string, payload: Subs
   return JSON.parse(text) as BillingSubscriptionResponse
 }
 
+async function projectFinalizedGrowthEntitlement(
+  ownerAddress: string,
+  payload: Omit<SubscriptionProjectionPayload, 'subscriptionRequestTxHash'> & { finalizationTxHash: Hex },
+) {
+  const response = await fetch('/api/billing/project-growth', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ownerAddress, ...payload }),
+  })
+  const text = await response.text()
+
+  if (!response.ok) {
+    const message = parseLocalProjectionError(text)
+    throw new Error(message || `Growth projection failed with ${response.status}.`)
+  }
+
+  return JSON.parse(text) as BillingSubscriptionResponse
+}
+
 function parseLocalProjectionError(text: string): string {
   try {
     const body = JSON.parse(text) as { error?: unknown }
@@ -129,7 +151,7 @@ const planViews: PlanView[] = [
     title: 'Growth',
     summary: 'Lower take rate with a private Zama subscription proof.',
     featured: true,
-    features: ['Private subscription pass', 'Immutable checkout snapshots', 'Webhook retry outbox', 'Local-dev proof support'],
+    features: ['Private subscription pass', 'Immutable checkout snapshots', 'Webhook retry outbox', 'Zama proof support'],
   },
   {
     plan: 'enterprise',
@@ -255,21 +277,27 @@ function defaultChainState(plansByKey: Map<BillingPlan, BillingPlanCatalogEntry>
 }
 
 function chainConfigForEnvironment(): BillingChainConfig {
-  const config = contractEnvironmentConfig('local-dev')
+  const config = contractEnvironmentConfig(process.env.NEXT_PUBLIC_CONTRACT_ENV)
   const manifest = config.manifest
   const registry = ensureHexAddress(manifest?.contracts.PrivateSubscriptionRegistry ?? null, 'PrivateSubscriptionRegistry')
   const token = ensureHexAddress(manifest?.contracts.ConfidentialUSDMock ?? null, 'ConfidentialUSDMock')
 
   return {
     chain: config.chain,
+    environment: config.key,
+    label: config.label,
     token,
     walletChain: config.walletChain,
     registry,
   }
 }
 
+function chainLabelForEnvironment() {
+  return contractEnvironmentConfig(process.env.NEXT_PUBLIC_CONTRACT_ENV).label
+}
+
 function contractUnavailableMessage(config: BillingChainConfig): string {
-  return `PrivateSubscriptionRegistry is not deployed at ${config.registry} on ${config.chain.name}. Start the local chain and run deploy:localhost before reading the chain source.`
+  return `PrivateSubscriptionRegistry is not deployed at ${config.registry} on ${config.chain.name}. Deploy the ${config.label} contract manifest before reading the chain source.`
 }
 
 function chainReadErrorMessage(caught: unknown, config: BillingChainConfig | null): string {
@@ -283,10 +311,59 @@ function chainReadErrorMessage(caught: unknown, config: BillingChainConfig | nul
     return contractUnavailableMessage(config)
   }
   if (message.includes('fetch failed') || message.includes('HTTP request failed')) {
-    return `${config.chain.name} RPC is not reachable. Start the local chain before reading the subscription contract.`
+    return `${config.chain.name} RPC is not reachable. Check the configured RPC URL before reading the subscription contract.`
   }
 
   return message
+}
+
+async function finalizeSepoliaGrowthEntitlement(input: {
+  billingCycle: BillingCycle
+  config: BillingChainConfig
+  merchantAddress: Hex
+  provider: ReturnType<typeof ensureEthereumProvider>
+  publicClient: ReturnType<typeof createPublicClient>
+  walletClient: ReturnType<typeof createWalletClient>
+}) {
+  const passId = (await input.publicClient.readContract({
+    address: input.config.registry,
+    abi: privateSubscriptionRegistryAbi,
+    functionName: 'passOfMerchant',
+    args: [input.merchantAddress],
+  })) as bigint
+  if (passId === 0n) {
+    throw new Error('Subscription pass was not created by the Growth request transaction.')
+  }
+
+  const subscriptionCheckHandle = (await input.publicClient.readContract({
+    address: input.config.registry,
+    abi: privateSubscriptionRegistryAbi,
+    functionName: 'subscriptionCheckHandleOf',
+    args: [passId],
+  })) as Hex
+  const proof = await publicDecryptSepoliaBool({
+    handle: subscriptionCheckHandle,
+    provider: input.provider,
+  })
+  if (!proof.accepted) {
+    throw new Error('SubscriptionChangeFinalized was rejected.')
+  }
+
+  const finalizationTxHash = await input.walletClient.writeContract({
+    account: input.merchantAddress,
+    address: input.config.registry,
+    abi: privateSubscriptionRegistryAbi,
+    chain: input.config.chain,
+    functionName: 'finalizeSubscriptionChange',
+    args: [passId, proof.abiEncodedClearValues, proof.decryptionProof],
+  })
+  await input.publicClient.waitForTransactionReceipt({ hash: finalizationTxHash })
+
+  return projectFinalizedGrowthEntitlement(input.merchantAddress, {
+    billingCycle: input.billingCycle,
+    finalizationTxHash,
+    plan: 'growth',
+  })
 }
 
 export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantBillingPanelProps) {
@@ -315,15 +392,16 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
     growthCycle === 'annual' ? growthCatalog?.annualPriceMinorUnits : growthCatalog?.monthlyPriceMinorUnits
   const growthIntentAmount = growthPriceMinorUnits ?? null
   const growthPeriodLabel = growthCycle === 'annual' ? '365 days' : '30 days'
+  const chainLabel = chainLabelForEnvironment()
   const isGrowthCurrent = currentPlan === 'growth' && currentCycle === growthCycle
   const growthBusy = busyKey === `growth:${growthCycle}`
   const upgradeDisabled = growthBusy || isGrowthCurrent || !growthCatalog?.selfServe
   const upgradeLabels: Array<[boolean, string]> = [
     [isGrowthCurrent, 'Current entitlement'],
     [growthBusy, 'Processing...'],
-    [true, 'Project local-dev Growth'],
+    [true, `Project ${chainLabel} Growth`],
   ]
-  const upgradeLabel = upgradeLabels.find(([matches]) => matches)?.[1] ?? 'Project local-dev Growth'
+  const upgradeLabel = upgradeLabels.find(([matches]) => matches)?.[1] ?? 'Project Growth'
 
   const refreshChainSubscription = useCallback(
     async () => {
@@ -331,7 +409,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
 
       try {
         config = chainConfigForEnvironment()
-        const publicClient = createPublicClient({ chain: config.chain, transport: http() })
+        const publicClient = createPublicClient({ chain: config.chain, transport: http(config.walletChain.rpcUrls[0]) })
         const registryBytecode = await publicClient.getBytecode({ address: config.registry })
 
         if (!registryBytecode || registryBytecode === '0x') {
@@ -373,6 +451,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
           args: [passId],
         })) as bigint
 
+        const chainLabel = config.label
         setChainSubscription((current) => ({
           status: current.status === 'anchored' ? 'anchored' : 'encrypted',
           plan: initialBilling.subscription.plan,
@@ -382,7 +461,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
             current.status === 'anchored'
               ? current.feeBps
               : plansByKey.get(initialBilling.subscription.plan)?.checkoutFeeBps ?? null,
-          message: `Subscription pass #${passId.toString()} found on local-dev; encrypted terms v${termsVersion.toString()}.`,
+          message: `Subscription pass #${passId.toString()} found on ${chainLabel}; encrypted terms v${termsVersion.toString()}.`,
         }))
       } catch (caught) {
         setChainSubscription({
@@ -409,7 +488,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
       cycle === 'annual' ? catalog?.annualPriceMinorUnits : catalog?.monthlyPriceMinorUnits
     const intentAmount = priceMinorUnitsValue ?? null
     const isCurrentSelection = currentPlan === plan && currentCycle === cycle
-    const canUseLocalProjection = plan === 'growth'
+    const canUsePrivateProjection = plan === 'growth'
 
     setSelectedPlan(plan)
 
@@ -428,7 +507,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
     setError(null)
 
     try {
-      if (canUseLocalProjection) {
+      if (canUsePrivateProjection) {
         if (intentAmount === null || intentAmount <= 0 || !Number.isSafeInteger(intentAmount)) {
           throw new Error('Growth subscription price is not available in the contract manifest.')
         }
@@ -436,14 +515,14 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
         const config = chainConfigForEnvironment()
         const rpcUrl = config.walletChain.rpcUrls[0]
         if (!rpcUrl) {
-          throw new Error('Hardhat RPC URL is missing from the local-dev wallet chain.')
+          throw new Error(`${config.label} RPC URL is missing from the wallet chain.`)
         }
 
         const provider = ensureEthereumProvider()
         const merchantAddress = getAddress(ownerAddress)
         const priceMinorUnits = BigInt(intentAmount)
 
-        setStatus('Switching wallet to Hardhat Local...')
+        setStatus(`Switching wallet to ${config.walletChain.name}...`)
         await ensureWalletChain(provider, config.walletChain)
 
         const walletClient = createWalletClient({ chain: config.chain, transport: custom(provider) })
@@ -469,27 +548,38 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
           throw new Error(`ConfidentialUSDMock is not deployed at ${config.token} on ${config.chain.name}.`)
         }
 
-        setStatus(`Reading encrypted cUSDT balance for ${signerAddress.slice(0, 6)}...${signerAddress.slice(-4)}...`)
-        const balanceHandle = (await publicClient.readContract({
-          address: config.token,
-          abi: confidentialUsdMockAbi,
-          functionName: 'balanceOf',
-          args: [signerAddress],
-        })) as Hex
-        const balance = await decryptLocalEuint64Handle(rpcUrl, balanceHandle)
-        if (balance < priceMinorUnits) {
-          throw new Error(`Encrypted cUSDT balance is ${formatMinorUnitsBigInt(balance)}; ${formatMinorUnitsBigInt(priceMinorUnits)} is required. Claim local cUSDT before upgrading.`)
+        if (config.environment === 'local-dev') {
+          setStatus(`Reading encrypted cUSDT balance for ${signerAddress.slice(0, 6)}...${signerAddress.slice(-4)}...`)
+          const balanceHandle = (await publicClient.readContract({
+            address: config.token,
+            abi: confidentialUsdMockAbi,
+            functionName: 'balanceOf',
+            args: [signerAddress],
+          })) as Hex
+          const balance = await decryptLocalEuint64Handle(rpcUrl, balanceHandle)
+          if (balance < priceMinorUnits) {
+            throw new Error(`Encrypted cUSDT balance is ${formatMinorUnitsBigInt(balance)}; ${formatMinorUnitsBigInt(priceMinorUnits)} is required. Claim local cUSDT before upgrading.`)
+          }
         }
 
         setStatus('Submitting encrypted Growth plan and cUSDT charge...')
-        const encryptedUpgrade = await encryptLocalSubscriptionChange({
-          chainId: config.chain.id,
-          contractAddress: config.registry,
-          paidAmount: priceMinorUnits,
-          planCode: 2n,
-          rpcUrl,
-          userAddress: signerAddress,
-        })
+        const encryptedUpgrade =
+          config.environment === 'local-dev'
+            ? await encryptLocalSubscriptionChange({
+                chainId: config.chain.id,
+                contractAddress: config.registry,
+                paidAmount: priceMinorUnits,
+                planCode: 2n,
+                rpcUrl,
+                userAddress: signerAddress,
+              })
+            : await encryptSepoliaSubscriptionChange({
+                contractAddress: config.registry,
+                paidAmount: priceMinorUnits,
+                planCode: 2n,
+                provider,
+                userAddress: signerAddress,
+              })
         const requestTxHash = await walletClient.writeContract({
           account: signerAddress,
           address: config.registry,
@@ -500,11 +590,21 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
         await publicClient.waitForTransactionReceipt({ hash: requestTxHash })
 
         setStatus('Finalizing the encrypted boolean and projecting Growth entitlement...')
-        const projected = await projectLocalGrowthEntitlement(merchantAddress, {
-          billingCycle: cycle,
-          plan: 'growth',
-          subscriptionRequestTxHash: requestTxHash,
-        })
+        const projected =
+          config.environment === 'local-dev'
+            ? await projectLocalGrowthEntitlement(merchantAddress, {
+                billingCycle: cycle,
+                plan: 'growth',
+                subscriptionRequestTxHash: requestTxHash,
+              })
+            : await finalizeSepoliaGrowthEntitlement({
+                billingCycle: cycle,
+                config,
+                merchantAddress,
+                provider,
+                publicClient,
+                walletClient,
+              })
         const projectedPlan = projected.plans.find((plan) => plan.plan === 'growth')
         setChainSubscription({
           status: 'anchored',
@@ -512,16 +612,17 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
           billingCycle: projected.subscription.billingCycle,
           passId: projected.subscription.passId ?? null,
           feeBps: projectedPlan?.checkoutFeeBps ?? null,
-          message: `Local-dev Growth entitlement projected from ${projected.subscription.entitlementTxHash?.slice(0, 10) ?? 'operator'}...`,
+          message: `${config.label} Growth entitlement projected from ${projected.subscription.entitlementTxHash?.slice(0, 10) ?? 'operator'}...`,
         })
         setBillingCycle(projected.subscription.billingCycle)
         setSelectedPlan('growth')
-        setStatus('Local-dev Growth entitlement projected. New checkout sessions will snapshot the Growth fee.')
+        setStatus(`${config.label} Growth entitlement projected. Redirecting to billing...`)
+        router.replace('/billing')
         router.refresh()
         return
       }
 
-      throw new Error('Only local-dev Growth projection is enabled in this MVP.')
+      throw new Error('Only Growth projection is enabled in this MVP.')
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Subscription update failed.')
     } finally {
@@ -555,7 +656,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
               <h1 className="text-3xl font-semibold tracking-tight">Upgrade ZamaPay</h1>
               <p className="text-sm text-muted-foreground">
                 Pick the account plan that controls new checkout fee snapshots. The selected tier is proven through a
-                local-dev private Zama subscription pass.
+                private Zama subscription pass on the active contract environment.
               </p>
             </div>
           </div>

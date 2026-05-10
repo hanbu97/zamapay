@@ -15,7 +15,7 @@ This is a **Private Checkout Proof MVP**, not a full private settlement network.
 
 The privacy claim is scoped to business data in `PrivateCheckoutSettlement`. In the direct-wallet payment MVP, the buyer wallet is still visible as the EVM transaction sender. Withdraw is merchant-signed and may reveal the authorized recipient in calldata; v1 does not claim payout-recipient privacy. Token wrapping, funding, gas payment, and any future confidential-token transfer can also leak address relationships if their own contracts expose `from`, `to`, or receiver events. ZamaPay may keep the checkout/order mapping needed for the demo. A future merchant-only data model can remove that trust assumption.
 
-ZamaPay does not run a product-owned relayer in the MVP. Browser/local-dev code uses the chain's FHEVM relayer RPC methods for encrypted input proofs and public decrypts. The only local server submitter is a Hardhat test shim for deterministic local-dev transactions; Sepolia should replace that shim with Zama/chain relayer surfaces.
+ZamaPay does not run a product-owned relayer in the MVP. Local-dev browser code uses Hardhat/FHEVM mock RPC methods for encrypted input proofs and public decrypts. Sepolia browser code uses `@zama-fhe/relayer-sdk/web` with `SepoliaConfig`, which points to Zama's official test relayer. The official relayer provides encrypted-input and public-decrypt proofs; it does not replace the EVM signer for `submit*` or `finalize*` transactions.
 
 ## MVP Layers
 
@@ -318,9 +318,9 @@ sequenceDiagram
 
 | Step | Zama protocol fee | Frequency | Optimization |
 | --- | --- | --- | --- |
-| Submit `expectedAmount` encrypted input | ZKPoK verification | Once per checkout | Local-dev is free in Hardhat; Sepolia should use Zama official relayer/gateway policy. |
+| Submit `expectedAmount` encrypted input | ZKPoK verification | Once per checkout | Local-dev is free in Hardhat; Sepolia uses Zama official test relayer/gateway policy. |
 | Submit `merchantNetAmount` and `platformFeeAmount` encrypted inputs | ZKPoK verification | Once per checkout | Keep splits encrypted and validate `net + fee == gross`. |
-| Submit `paidAmount` encrypted input | ZKPoK verification | Once per payment attempt | Direct-wallet local-dev keeps ZamaPay-owned relayer out of scope. |
+| Submit `paidAmount` encrypted input | ZKPoK verification | Once per payment attempt | Browser selects local mock RPC or Zama official Sepolia relayer from the active manifest environment. |
 | Decrypt `accepted` | Decryption | Once per payment attempt | Decrypt only one `ebool`, not amounts. |
 | Submit encrypted withdraw amount | ZKPoK verification | Once per withdraw request | Merchant signs authorization; local-dev submitter only forwards the package. |
 | Decrypt withdraw check | Decryption | Once per withdraw request | Decrypt only one `ebool`, not the aggregate amount. |
@@ -364,8 +364,8 @@ Do not decrypt per-order gross, merchant net, or platform fee in the normal chec
 - Rotate `settlementBucketCommitment`; do not use one permanent merchant bucket.
 - Keep `accepted` as the only per-order decrypted value.
 - Reject expired checkouts, reused payment nonces, resubmission after final status, and double finalization.
-- Keep ZamaPay platform relayer out of the MVP. Local-dev uses Hardhat/FHEVM mock RPC plus a server submitter for merchant-signed withdraw packages; future Sepolia uses Zama official relayer/gateway surfaces for FHE operations.
-- Keep local-dev clean: no transparent settlement fallback and no public-testnet branch in the active app.
+- Keep ZamaPay platform relayer out of the MVP. Local-dev uses Hardhat/FHEVM mock RPC plus a server submitter for merchant-signed withdraw packages; Sepolia uses Zama official relayer/gateway surfaces for FHE operations.
+- Keep environments explicit: no transparent settlement fallback and no hidden local-dev branch when `NEXT_PUBLIC_CONTRACT_ENV=sepolia`.
 
 ## Implementation Direction
 

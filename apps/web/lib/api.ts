@@ -1,4 +1,4 @@
-import { localDevAddresses } from './contracts.ts'
+import { contractEnvironmentConfig } from './contract-environment.ts'
 
 export type NonceResponse = {
   nonce: string
@@ -127,7 +127,7 @@ export type ContractManifest = {
   }
 }
 
-export type ProjectEnvironmentKind = 'local_dev'
+export type ProjectEnvironmentKind = 'local_dev' | 'sepolia'
 export type ProjectStatus = 'active' | 'disabled'
 export type CheckoutSessionStatus = 'created' | 'open' | 'paid' | 'expired' | 'cancelled' | 'failed'
 export type BillingPlan = 'free' | 'growth' | 'enterprise'
@@ -528,8 +528,13 @@ async function clearBrowserSessionCookie(): Promise<void> {
   }
 }
 
-export async function getContractManifest(): Promise<ContractManifest> {
-  return localDevAddresses as ContractManifest
+export async function getContractManifest(environment?: string | null): Promise<ContractManifest> {
+  const manifest = contractEnvironmentConfig(environment ?? process.env.NEXT_PUBLIC_CONTRACT_ENV).manifest
+  if (!manifest) {
+    throw new Error(`Contract manifest is not available for ${environment ?? 'the active environment'}.`)
+  }
+
+  return manifest as ContractManifest
 }
 
 export async function getInvoiceRecord(invoiceId: string): Promise<InvoiceRecord | null> {

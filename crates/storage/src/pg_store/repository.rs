@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
+use std::time::Duration;
 
 use sea_orm::{
-    ConnectionTrait, Database, DatabaseConnection, DatabaseTransaction, DbBackend, DbErr,
-    FromQueryResult, Statement, TransactionTrait, Value,
+    ConnectOptions, ConnectionTrait, Database, DatabaseConnection, DatabaseTransaction, DbBackend,
+    DbErr, FromQueryResult, Statement, TransactionTrait, Value,
 };
 use shared::{
     BillingPaymentRecord, BillingSubscription, CheckoutSession, InvoiceRecord, PaymentProject,
@@ -19,11 +20,23 @@ use super::dto::{
 use super::schema;
 
 const BACKEND: DbBackend = DbBackend::Postgres;
+const CONNECT_TIMEOUT_SECONDS: u64 = 10;
+const ACQUIRE_TIMEOUT_SECONDS: u64 = 10;
+const STATEMENT_TIMEOUT_SECONDS: u64 = 15;
+const MAX_CONNECTIONS: u32 = 5;
+const WRITE_RETRY_ATTEMPTS: u8 = 3;
+const WRITE_RETRY_DELAY_MS: u64 = 250;
 
-pub(crate) async fn load_portal_records(database_url: &str, state_key: &str) -> PortalRecordSet {
-    let db = Database::connect(database_url)
+pub(crate) async fn open_portal_database(database_url: &str) -> DatabaseConnection {
+    connect_database(database_url)
         .await
-        .unwrap_or_else(|err| panic!("load normalized portal postgres state: {err}"));
+        .unwrap_or_else(|err| panic!("connect normalized portal postgres state: {err}"))
+}
+
+pub(crate) async fn load_portal_records_from(
+    db: &DatabaseConnection,
+    state_key: &str,
+) -> PortalRecordSet {
     schema::ensure_schema(&db)
         .await
         .unwrap_or_else(|err| panic!("load normalized portal postgres state: {err}"));
@@ -40,20 +53,164 @@ pub(crate) async fn load_portal_records(database_url: &str, state_key: &str) -> 
         .unwrap_or_else(|err| panic!("load normalized portal postgres state: {err}"))
 }
 
-pub(crate) async fn save_portal_records(
-    database_url: &str,
+pub(crate) async fn save_portal_records_to(
+    db: &DatabaseConnection,
     state_key: &str,
     records: &PortalRecordSet,
 ) {
-    let db = Database::connect(database_url)
-        .await
-        .unwrap_or_else(|err| panic!("save normalized portal postgres state: {err}"));
-    schema::ensure_schema(&db)
-        .await
-        .unwrap_or_else(|err| panic!("save normalized portal postgres state: {err}"));
-    replace_portal_rows(&db, state_key, records)
-        .await
-        .unwrap_or_else(|err| panic!("save normalized portal postgres state: {err}"));
+    for attempt in 1..=WRITE_RETRY_ATTEMPTS {
+        match replace_portal_rows(db, state_key, records).await {
+            Ok(()) => return,
+            Err(err) if attempt < WRITE_RETRY_ATTEMPTS => {
+                log_retry("save normalized portal postgres state", attempt, &err);
+                tokio::time::sleep(Duration::from_millis(WRITE_RETRY_DELAY_MS)).await;
+            }
+            Err(err) => {
+                log_persist_failure("save normalized portal postgres state", &err);
+                return;
+            }
+        }
+    }
+}
+
+pub(crate) async fn save_payment_project_bundle_to(
+    db: &DatabaseConnection,
+    state_key: &str,
+    project: &PaymentProject,
+    environment: &PaymentProjectEnvironment,
+    authority: &ProjectInvoiceAuthority,
+    webhook_endpoint: Option<&ProjectWebhookEndpoint>,
+) {
+    for attempt in 1..=WRITE_RETRY_ATTEMPTS {
+        let result = async {
+            let tx = db.begin().await?;
+            insert_projects(&tx, state_key, std::iter::once(project)).await?;
+            insert_environments(&tx, state_key, std::iter::once(environment)).await?;
+            insert_authorities(&tx, state_key, std::iter::once(authority)).await?;
+            if let Some(webhook_endpoint) = webhook_endpoint {
+                insert_webhook_endpoints(&tx, state_key, std::iter::once(webhook_endpoint)).await?;
+            }
+            tx.commit().await
+        }
+        .await;
+
+        match result {
+            Ok(()) => return,
+            Err(err) if attempt < WRITE_RETRY_ATTEMPTS => {
+                log_retry("save payment project postgres rows", attempt, &err);
+                tokio::time::sleep(Duration::from_millis(WRITE_RETRY_DELAY_MS)).await;
+            }
+            Err(err) => {
+                log_persist_failure("save payment project postgres rows", &err);
+                return;
+            }
+        }
+    }
+}
+
+pub(crate) async fn save_project_api_key_to(
+    db: &DatabaseConnection,
+    state_key: &str,
+    api_key: &crate::project_support::StoredProjectApiKey,
+) {
+    for attempt in 1..=WRITE_RETRY_ATTEMPTS {
+        let result = async {
+            let tx = db.begin().await?;
+            insert_api_keys(&tx, state_key, std::iter::once(api_key)).await?;
+            tx.commit().await
+        }
+        .await;
+
+        match result {
+            Ok(()) => return,
+            Err(err) if attempt < WRITE_RETRY_ATTEMPTS => {
+                log_retry("save project api key postgres row", attempt, &err);
+                tokio::time::sleep(Duration::from_millis(WRITE_RETRY_DELAY_MS)).await;
+            }
+            Err(err) => {
+                log_persist_failure("save project api key postgres row", &err);
+                return;
+            }
+        }
+    }
+}
+
+fn log_retry(context: &str, attempt: u8, err: &DbErr) {
+    eprintln!(
+        "{context}: postgres write failed on attempt {attempt}/{WRITE_RETRY_ATTEMPTS}; retrying: {err}"
+    );
+}
+
+fn log_persist_failure(context: &str, err: &DbErr) {
+    eprintln!("{context}: postgres write failed after retries; keeping in-memory state: {err}");
+}
+
+pub(crate) async fn save_billing_subscription_to(
+    db: &DatabaseConnection,
+    state_key: &str,
+    subscription: &BillingSubscription,
+) {
+    save_billing_projection_to(db, state_key, subscription, None).await;
+}
+
+pub(crate) async fn save_billing_projection_to(
+    db: &DatabaseConnection,
+    state_key: &str,
+    subscription: &BillingSubscription,
+    payment: Option<&BillingPaymentRecord>,
+) {
+    for attempt in 1..=WRITE_RETRY_ATTEMPTS {
+        let result = async {
+            let tx = db.begin().await?;
+            exec(
+                &tx,
+                r#"
+                delete from zamapay_billing_subscriptions
+                where state_key = $1 and owner_wallet_key = $2
+                "#,
+                vec![
+                    state_key.into(),
+                    owner_key(&subscription.owner_wallet).into(),
+                ],
+            )
+            .await?;
+            insert_subscriptions(&tx, state_key, std::iter::once(subscription)).await?;
+            if let Some(payment) = payment {
+                let mut histories = HashMap::new();
+                histories.insert(owner_key(&payment.owner_wallet), vec![payment.clone()]);
+                insert_billing_payments(&tx, state_key, &histories).await?;
+            }
+            tx.commit().await
+        }
+        .await;
+
+        match result {
+            Ok(()) => return,
+            Err(err) if attempt < WRITE_RETRY_ATTEMPTS => {
+                log_retry("save billing projection postgres rows", attempt, &err);
+                tokio::time::sleep(Duration::from_millis(WRITE_RETRY_DELAY_MS)).await;
+            }
+            Err(err) => {
+                log_persist_failure("save billing projection postgres rows", &err);
+                return;
+            }
+        }
+    }
+}
+
+async fn connect_database(database_url: &str) -> Result<DatabaseConnection, DbErr> {
+    let mut options = ConnectOptions::new(database_url.to_string());
+    options
+        .max_connections(MAX_CONNECTIONS)
+        .min_connections(1)
+        .connect_timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS))
+        .acquire_timeout(Duration::from_secs(ACQUIRE_TIMEOUT_SECONDS))
+        .statement_timeout(Duration::from_secs(STATEMENT_TIMEOUT_SECONDS))
+        .test_before_acquire(false)
+        .sqlx_logging(false)
+        .set_application_name("zamapay-api");
+
+    Database::connect(options).await
 }
 
 async fn normalized_state_exists(db: &DatabaseConnection, state_key: &str) -> Result<bool, DbErr> {
@@ -75,97 +232,145 @@ async fn read_portal_rows(
     db: &DatabaseConnection,
     state_key: &str,
 ) -> Result<PortalRecordSet, DbErr> {
-    let counters = CounterRow::find_by_statement(stmt(
-        r#"
-        select next_invoice_number
-        from zamapay_portal_counters
-        where state_key = $1
-        "#,
-        vec![state_key.into()],
-    ))
-    .one(db)
-    .await?
-    .expect("portal counters should exist after schema initialization");
+    let (
+        counters,
+        project_rows,
+        environment_rows,
+        authority_rows,
+        api_key_rows,
+        endpoint_rows,
+        subscription_rows,
+        billing_payment_rows,
+        invoice_rows,
+    ) = tokio::try_join!(
+        async {
+            CounterRow::find_by_statement(stmt(
+                r#"
+                select next_invoice_number
+                from zamapay_portal_counters
+                where state_key = $1
+                "#,
+                vec![state_key.into()],
+            ))
+            .one(db)
+            .await
+        },
+        select::<ProjectRow>(
+            db,
+            "select * from zamapay_payment_projects where state_key = $1",
+            state_key,
+        ),
+        select::<EnvironmentRow>(
+            db,
+            "select * from zamapay_project_environments where state_key = $1",
+            state_key,
+        ),
+        select::<AuthorityRow>(
+            db,
+            "select * from zamapay_invoice_authorities where state_key = $1",
+            state_key,
+        ),
+        select::<ApiKeyRow>(
+            db,
+            "select * from zamapay_project_api_keys where state_key = $1",
+            state_key,
+        ),
+        select::<WebhookEndpointRow>(
+            db,
+            "select * from zamapay_webhook_endpoints where state_key = $1",
+            state_key,
+        ),
+        select::<SubscriptionRow>(
+            db,
+            "select * from zamapay_billing_subscriptions where state_key = $1",
+            state_key,
+        ),
+        select::<BillingPaymentRow>(
+            db,
+            "select * from zamapay_billing_payments where state_key = $1",
+            state_key,
+        ),
+        select::<InvoiceRow>(
+            db,
+            "select * from zamapay_invoices where state_key = $1",
+            state_key,
+        ),
+    )?;
 
+    let (
+        checkout_metadata,
+        checkout_rows,
+        idempotency_rows,
+        event_rows,
+        delivery_rows,
+        withdrawal_rows,
+    ) = tokio::try_join!(
+        checkout_metadata_by_session(db, state_key),
+        select::<CheckoutRow>(
+            db,
+            "select * from zamapay_checkout_sessions where state_key = $1",
+            state_key,
+        ),
+        select::<IdempotencyRow>(
+            db,
+            "select * from zamapay_checkout_idempotency where state_key = $1",
+            state_key,
+        ),
+        select::<WebhookEventRow>(
+            db,
+            "select * from zamapay_webhook_events where state_key = $1",
+            state_key,
+        ),
+        select::<WebhookDeliveryRow>(
+            db,
+            "select * from zamapay_webhook_deliveries where state_key = $1",
+            state_key,
+        ),
+        select::<WithdrawalRow>(
+            db,
+            "select * from zamapay_project_withdrawals where state_key = $1",
+            state_key,
+        ),
+    )?;
+
+    let counters = counters.expect("portal counters should exist after schema initialization");
     let mut records = PortalRecordSet {
         next_invoice_number: u64::try_from(counters.next_invoice_number)
             .expect("next invoice number should be positive"),
         ..PortalRecordSet::default()
     };
 
-    for row in select::<ProjectRow>(
-        db,
-        "select * from zamapay_payment_projects where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in project_rows {
         let project = row.into_domain();
         records.projects.insert(project.project_id.clone(), project);
     }
-    for row in select::<EnvironmentRow>(
-        db,
-        "select * from zamapay_project_environments where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in environment_rows {
         let environment = row.into_domain();
         records
             .environments
             .insert(environment.environment_id.clone(), environment);
     }
-    for row in select::<AuthorityRow>(
-        db,
-        "select * from zamapay_invoice_authorities where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in authority_rows {
         let authority = row.into_domain();
         records
             .invoice_authorities
             .insert(authority.authority_id.clone(), authority);
     }
-    for row in select::<ApiKeyRow>(
-        db,
-        "select * from zamapay_project_api_keys where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in api_key_rows {
         let key = row.into_domain();
         records.api_keys.insert(key.record.key_id.clone(), key);
     }
-    for row in select::<WebhookEndpointRow>(
-        db,
-        "select * from zamapay_webhook_endpoints where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in endpoint_rows {
         let endpoint = row.into_domain();
         records
             .webhook_endpoints
             .insert(endpoint.endpoint_id.clone(), endpoint);
     }
-    for row in select::<SubscriptionRow>(
-        db,
-        "select * from zamapay_billing_subscriptions where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in subscription_rows {
         let (key, subscription) = row.into_domain();
         records.subscriptions.insert(key, subscription);
     }
-    for row in select::<BillingPaymentRow>(
-        db,
-        "select * from zamapay_billing_payments where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in billing_payment_rows {
         let (key, payment) = row.into_domain();
         records
             .billing_payments
@@ -173,25 +378,12 @@ async fn read_portal_rows(
             .or_default()
             .push(payment);
     }
-    for row in select::<InvoiceRow>(
-        db,
-        "select * from zamapay_invoices where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in invoice_rows {
         let invoice = row.into_domain();
         records.invoices.insert(invoice.invoice_id.clone(), invoice);
     }
 
-    let checkout_metadata = checkout_metadata_by_session(db, state_key).await?;
-    for row in select::<CheckoutRow>(
-        db,
-        "select * from zamapay_checkout_sessions where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in checkout_rows {
         let session_id = row.checkout_session_id.clone();
         let session = row.into_domain(
             checkout_metadata
@@ -203,46 +395,22 @@ async fn read_portal_rows(
             .checkout_sessions
             .insert(session.checkout_session_id.clone(), session);
     }
-    for row in select::<IdempotencyRow>(
-        db,
-        "select * from zamapay_checkout_idempotency where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in idempotency_rows {
         records
             .idempotency_keys
             .insert(row.scope, row.checkout_session_id);
     }
-    for row in select::<WebhookEventRow>(
-        db,
-        "select * from zamapay_webhook_events where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in event_rows {
         let event = row.into_domain();
         records.webhook_events.insert(event.event_id.clone(), event);
     }
-    for row in select::<WebhookDeliveryRow>(
-        db,
-        "select * from zamapay_webhook_deliveries where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in delivery_rows {
         let delivery = row.into_domain();
         records
             .webhook_deliveries
             .insert(delivery.delivery_id.clone(), delivery);
     }
-    for row in select::<WithdrawalRow>(
-        db,
-        "select * from zamapay_project_withdrawals where state_key = $1",
-        state_key,
-    )
-    .await?
-    {
+    for row in withdrawal_rows {
         let withdrawal = row.into_domain();
         records
             .project_withdrawals

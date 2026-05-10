@@ -125,8 +125,7 @@ pub(crate) fn signer_address(environment: &ProjectEnvironmentKind) -> String {
 }
 
 pub(crate) fn signer_key_ref(environment: &ProjectEnvironmentKind) -> String {
-    let _ = environment;
-    "local-dev-project-signer".to_string()
+    format!("{}-project-signer", environment.as_str())
 }
 
 pub(crate) fn merchant_registered(environment: &ProjectEnvironmentKind) -> bool {
@@ -161,6 +160,8 @@ pub(crate) fn clean_base_url(value: &str) -> String {
 }
 
 pub(crate) fn parse_environment(value: &str) -> ProjectEnvironmentKind {
-    let _ = value;
-    ProjectEnvironmentKind::LocalDev
+    match shared::normalize_contract_environment(value) {
+        Some("sepolia") => ProjectEnvironmentKind::Sepolia,
+        _ => ProjectEnvironmentKind::LocalDev,
+    }
 }

@@ -55,8 +55,19 @@ function defaultManifest() {
   }
 }
 
+function manifestEnvironment(manifest) {
+  const network = String(manifest.network ?? '').trim().toLowerCase().replace(/_/g, '-')
+  const chainId = Number(manifest.chainId)
+
+  if (network === 'sepolia' || chainId === 11155111) {
+    return 'sepolia'
+  }
+
+  return 'local-dev'
+}
+
 function manifestFileName(manifest) {
-  return 'local-dev.json'
+  return `${manifestEnvironment(manifest)}.json`
 }
 
 function manifestConstName(fileName) {
@@ -84,7 +95,7 @@ function readExistingManifests(projectRoot) {
   return Object.fromEntries(
     fs
       .readdirSync(addressDir)
-      .filter((fileName) => fileName === 'local-dev.json')
+      .filter((fileName) => fileName.endsWith('.json'))
       .map((fileName) => [fileName, readManifest(path.join(addressDir, fileName))])
       .filter((entry) => entry[1] !== null),
   )

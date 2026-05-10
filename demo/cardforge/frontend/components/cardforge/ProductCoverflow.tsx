@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { BoxIcon, Gamepad2Icon, GemIcon, KeyboardIcon, SparklesIcon, SwordsIcon } from 'lucide-react'
+import { BoxIcon, Gamepad2Icon, GemIcon, KeyboardIcon, Loader2Icon, SparklesIcon, SwordsIcon } from 'lucide-react'
 import { getAddress } from 'viem'
 import { EffectCoverflow, Keyboard, Pagination } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
@@ -82,6 +82,7 @@ type ProductCoverflowProps = {
 
 export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflowProps) {
   const [busyProductId, setBusyProductId] = useState<string | null>(null)
+  const busyProduct = products.find((product) => product.id === busyProductId) ?? null
 
   async function handleBuy(product: CardForgeProduct) {
     if (busyProductId) {
@@ -105,7 +106,7 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
   }
 
   return (
-    <section className="flex min-h-[calc(100vh-8.5rem)] w-full min-w-0 items-center overflow-hidden py-8">
+    <section className="relative flex min-h-[calc(100vh-8.5rem)] w-full min-w-0 items-center overflow-hidden py-8">
       <Swiper
         centeredSlides
         className="cardforge-coverflow !overflow-visible w-full min-w-0 pb-10"
@@ -164,14 +165,21 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
                     <button
                       aria-label={`Buy ${product.title}`}
                       aria-busy={busyProductId === product.id}
-                      className="rounded-full bg-[#f4ff00] px-5 py-2 text-sm font-semibold text-black shadow-lg shadow-black/25 transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f4ff00]"
+                      className="inline-flex min-w-20 items-center justify-center gap-2 rounded-full bg-[#f4ff00] px-5 py-2 text-sm font-semibold text-black shadow-lg shadow-black/25 transition hover:bg-white disabled:cursor-wait disabled:bg-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#f4ff00]"
                       disabled={busyProductId !== null}
                       onClick={() => {
                         void handleBuy(product)
                       }}
                       type="button"
                     >
-                      Buy
+                      {busyProductId === product.id ? (
+                        <>
+                          <Loader2Icon className="size-4 animate-spin" />
+                          Preparing
+                        </>
+                      ) : (
+                        'Buy'
+                      )}
                     </button>
                   </div>
                 </div>
@@ -180,6 +188,27 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
           )
         })}
       </Swiper>
+      {busyProduct ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 px-6 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-[#f4ff00]/30 bg-zinc-950/95 p-5 text-white shadow-2xl shadow-black/50">
+            <div className="flex items-center gap-4">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-[#f4ff00] text-black">
+                <Loader2Icon className="size-6 animate-spin" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Preparing checkout</p>
+                <p className="mt-1 truncate text-xs text-white/55">{busyProduct.title}</p>
+              </div>
+            </div>
+            <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-white/10">
+              <div className="h-full w-full animate-pulse rounded-full bg-[#f4ff00]" />
+            </div>
+            <p className="mt-4 text-sm leading-5 text-white/70">
+              Anchoring the private invoice on Sepolia. This can take around one minute.
+            </p>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

@@ -9,6 +9,7 @@ use shared::{
 use uuid::Uuid;
 
 use super::PortalStore;
+use crate::pg_store::{save_billing_projection_to, save_billing_subscription_to};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BillingSubscriptionError {
@@ -151,17 +152,24 @@ impl PortalStore {
             .write()
             .await
             .insert(owner_key(owner_wallet), subscription.clone());
-        self.record_billing_payment(
-            owner_wallet,
-            projection.plan,
-            projection.billing_cycle,
-            price_minor_units,
-            entitlement_tx_hash,
-            subscription_check_handle,
-            now,
+        let payment = self
+            .record_billing_payment(
+                owner_wallet,
+                projection.plan,
+                projection.billing_cycle,
+                price_minor_units,
+                entitlement_tx_hash,
+                subscription_check_handle,
+                now,
+            )
+            .await;
+        save_billing_projection_to(
+            &self.database,
+            &self.state_key,
+            &subscription,
+            payment.as_ref(),
         )
         .await;
-        self.persist().await;
 
         Ok(self.billing_response(subscription, &protocol).await)
     }
@@ -171,9 +179,20 @@ impl PortalStore {
         owner_wallet: &str,
         now: DateTime<Utc>,
     ) -> BillingPlan {
-        self.ensure_billing_subscription(owner_wallet, now)
+        self.subscriptions
+            .read()
             .await
-            .effective_plan()
+            .get(&owner_key(owner_wallet))
+            .cloned()
+            .map(|subscription| {
+                normalize_backend_subscription(
+                    subscription,
+                    now,
+                    self.default_monthly_period_days(),
+                )
+                .effective_plan()
+            })
+            .unwrap_or(BillingPlan::Free)
     }
 
     pub(crate) async fn effective_billing_plan_for_project(
@@ -222,7 +241,7 @@ impl PortalStore {
                     .write()
                     .await
                     .insert(owner_key(owner_wallet), normalized.clone());
-                self.persist().await;
+                save_billing_subscription_to(&self.database, &self.state_key, &normalized).await;
             }
             return normalized;
         }
@@ -233,7 +252,7 @@ impl PortalStore {
             .write()
             .await
             .insert(owner_key(owner_wallet), subscription.clone());
-        self.persist().await;
+        save_billing_subscription_to(&self.database, &self.state_key, &subscription).await;
         subscription
     }
 
@@ -272,17 +291,17 @@ impl PortalStore {
         chain_tx_hash: String,
         subscription_check_handle: String,
         now: DateTime<Utc>,
-    ) {
+    ) -> Option<BillingPaymentRecord> {
         let mut histories = self.billing_payments.write().await;
         let payments = histories.entry(owner_key(owner_wallet)).or_default();
         if payments
             .iter()
             .any(|payment| payment.chain_tx_hash.as_deref() == Some(chain_tx_hash.as_str()))
         {
-            return;
+            return None;
         }
 
-        payments.push(BillingPaymentRecord {
+        let payment = BillingPaymentRecord {
             payment_id: format!("pay_{}", Uuid::new_v4().simple()),
             owner_wallet: owner_wallet.to_string(),
             plan,
@@ -293,7 +312,9 @@ impl PortalStore {
             chain_tx_hash: Some(chain_tx_hash),
             subscription_check_handle: Some(subscription_check_handle),
             created_at: now,
-        });
+        };
+        payments.push(payment.clone());
+        Some(payment)
     }
 
     fn billing_protocol<'a>(

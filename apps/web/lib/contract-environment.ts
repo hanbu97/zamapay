@@ -1,9 +1,9 @@
 import type { Chain } from 'viem'
-import { localDevAddresses, localHardhat, type AddressManifest } from './contracts.ts'
-import { localHardhatWalletChain, type WalletChain } from './wallet.ts'
+import { localDevAddresses, localHardhat, sepolia, sepoliaAddresses, type AddressManifest } from './contracts.ts'
+import { localHardhatWalletChain, sepoliaWalletChain, type WalletChain } from './wallet.ts'
 
-export type ContractEnvironment = 'local-dev'
-export type ProjectEnvironmentValue = 'local_dev'
+export type ContractEnvironment = 'local-dev' | 'sepolia'
+export type ProjectEnvironmentValue = 'local_dev' | 'sepolia'
 
 export type ContractEnvironmentConfig = {
   key: ContractEnvironment
@@ -27,13 +27,22 @@ export const contractEnvironmentConfigs: Record<ContractEnvironment, ContractEnv
     walletChain: localHardhatWalletChain,
     manifest: localDevAddresses,
   },
+  sepolia: {
+    key: 'sepolia',
+    label: 'Sepolia',
+    projectEnvironment: 'sepolia',
+    manifestRoute: 'sepolia',
+    chain: sepolia,
+    walletChain: sepoliaWalletChain,
+    manifest: sepoliaAddresses,
+  },
 }
 
 export const projectEnvironmentOptions = [
-  {
-    label: contractEnvironmentConfigs['local-dev'].label,
-    value: contractEnvironmentConfigs['local-dev'].projectEnvironment,
-  },
+  ...Object.values(contractEnvironmentConfigs).map((config) => ({
+    label: config.label,
+    value: config.projectEnvironment,
+  })),
 ] as const
 
 export function normalizeContractEnvironment(value: string | null | undefined): ContractEnvironment {
@@ -50,8 +59,13 @@ export function normalizeContractEnvironment(value: string | null | undefined): 
     case 'localhost':
     case 'local-dev':
       return 'local-dev'
+    case 'public-testnet':
+    case 'sepolia':
+    case 'test':
+    case 'testnet':
+      return 'sepolia'
     default:
-      throw new Error(`Unsupported contract environment "${value}". Use "local-dev".`)
+      throw new Error(`Unsupported contract environment "${value}". Use "local-dev" or "sepolia".`)
   }
 }
 
@@ -68,9 +82,13 @@ export function contractEnvironmentConfig(environment: string | null | undefined
 }
 
 export function contractEnvironmentForChainId(chainId: number | null | undefined): ContractEnvironment | null {
-  return chainId === contractEnvironmentConfigs['local-dev'].chain.id ? 'local-dev' : null
+  return Object.values(contractEnvironmentConfigs).find((config) => config.chain.id === chainId)?.key ?? null
 }
 
 export function labelForProjectEnvironment(value: ProjectEnvironmentValue | null | undefined): string {
-  return value ? contractEnvironmentConfigs['local-dev'].label : 'No environment'
+  if (!value) {
+    return 'No environment'
+  }
+
+  return contractEnvironmentConfigs[normalizeContractEnvironment(value)].label
 }

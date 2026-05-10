@@ -13,6 +13,7 @@ import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib
 import { privateCheckoutSettlementAbi } from '@/lib/contracts'
 import { encryptLocalEuint64 } from '@/lib/local-fhevm-browser'
 import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
+import { encryptSepoliaEuint64, publicDecryptSepoliaBool } from '@/lib/zama-relayer-browser'
 
 type HexAddress = `0x${string}`
 type HexValue = `0x${string}`
@@ -86,11 +87,11 @@ function parseProjectionError(text: string): string {
   }
 }
 
-async function finalizeAndProjectLocalPayment(chainInvoiceId: number) {
+async function projectFinalizedPayment(input: { chainInvoiceId: number; paymentTxHash?: HexValue }) {
   const response = await fetch('/api/checkout/project-finalized-payment', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ chainInvoiceId }),
+    body: JSON.stringify(input),
   })
   const text = await response.text()
 
@@ -121,12 +122,12 @@ export function CheckoutPaymentCard({
   const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus))
 
   const manifestEnvironment = contractEnvironmentForChainId(manifestChainId)
-  const isLocalDevManifest = manifestEnvironment === 'local-dev'
+  const paymentEnvironment = manifestEnvironment ? contractEnvironmentConfigs[manifestEnvironment] : null
+  const supportsBrowserPayment = manifestEnvironment === 'local-dev' || manifestEnvironment === 'sepolia'
   const isPaid = optimisticPaid || isPaymentComplete(paymentTruth, finalityStatus)
   const isPayable = paymentTruth === 'pending_payment' && chainInvoiceId !== null
-  const canPayOnLocalDev = isPayable && isLocalDevManifest && Boolean(settlementAddress) && Boolean(tokenAddress)
-  const canPay = canPayOnLocalDev
-  const paymentBadgeLabel = isPaid ? 'Success' : canPay ? 'Local-dev ready' : 'Awaiting local-dev invoice'
+  const canPay = isPayable && supportsBrowserPayment && Boolean(settlementAddress) && Boolean(tokenAddress)
+  const paymentBadgeLabel = isPaid ? 'Success' : canPay ? `${paymentEnvironment?.label ?? 'Chain'} ready` : 'Awaiting private invoice'
 
   useEffect(() => {
     if (!isPaymentComplete(paymentTruth, finalityStatus)) {
@@ -168,16 +169,15 @@ export function CheckoutPaymentCard({
 
       const provider = ensureEthereumProvider()
 
-      if (canPayOnLocalDev) {
-        const paymentEnvironment = contractEnvironmentConfigs['local-dev']
+      if (paymentEnvironment && supportsBrowserPayment) {
         const settlement = ensureHexAddress(settlementAddress, 'PrivateCheckoutSettlement')
         ensureHexAddress(tokenAddress, 'ConfidentialUSDMock')
         const rpcUrl = paymentEnvironment.walletChain.rpcUrls[0]
         if (!rpcUrl) {
-          throw new Error('Hardhat RPC URL is missing from the local-dev wallet chain.')
+          throw new Error(`${paymentEnvironment.label} RPC URL is missing from the wallet chain.`)
         }
 
-        setStatus('Switching wallet to Hardhat Local...')
+        setStatus(`Switching wallet to ${paymentEnvironment.walletChain.name}...`)
         await ensureWalletChain(provider, paymentEnvironment.walletChain)
 
         const walletClient = createWalletClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
@@ -217,13 +217,21 @@ export function CheckoutPaymentCard({
 
         if (currentCheckoutStatus === checkoutStatus.created) {
           setStatus('Preparing private payment...')
-          const encryptedPayment = await encryptLocalEuint64({
-            amountMinorUnits: BigInt(amountMinorUnits),
-            chainId: manifestChainId ?? paymentEnvironment.chain.id,
-            contractAddress: settlement,
-            rpcUrl,
-            userAddress: payerAddress,
-          })
+          const encryptedPayment =
+            manifestEnvironment === 'local-dev'
+              ? await encryptLocalEuint64({
+                  amountMinorUnits: BigInt(amountMinorUnits),
+                  chainId: manifestChainId ?? paymentEnvironment.chain.id,
+                  contractAddress: settlement,
+                  rpcUrl,
+                  userAddress: payerAddress,
+                })
+              : await encryptSepoliaEuint64({
+                  amountMinorUnits: BigInt(amountMinorUnits),
+                  contractAddress: settlement,
+                  provider,
+                  userAddress: payerAddress,
+                })
 
           setStatus(`Confirm ${amountLabel} in your wallet.`)
           const paymentNonce = randomNonce()
@@ -242,13 +250,37 @@ export function CheckoutPaymentCard({
         }
 
         setStatus('Finalizing private payment...')
-        await finalizeAndProjectLocalPayment(chainInvoiceId)
+        if (manifestEnvironment === 'local-dev') {
+          await projectFinalizedPayment({ chainInvoiceId })
+        } else {
+          const paymentCheckHandle = (await publicClient.readContract({
+            address: settlement,
+            abi: privateCheckoutSettlementAbi,
+            functionName: 'paymentCheckHandleOf',
+            args: [orderCommitment],
+          })) as HexValue
+          const proof = await publicDecryptSepoliaBool({ handle: paymentCheckHandle, provider })
+          if (!proof.accepted) {
+            throw new Error('PrivatePaymentFinalized was rejected.')
+          }
+
+          setStatus('Confirm finalization in your wallet.')
+          const finalizationTxHash = await walletClient.writeContract({
+            account: payerAddress,
+            address: settlement,
+            abi: privateCheckoutSettlementAbi,
+            functionName: 'finalizePrivatePayment',
+            args: [orderCommitment, proof.abiEncodedClearValues, proof.decryptionProof],
+          })
+          await publicClient.waitForTransactionReceipt({ hash: finalizationTxHash })
+          await projectFinalizedPayment({ chainInvoiceId, paymentTxHash: finalizationTxHash })
+        }
 
         completePayment()
         return
       }
 
-      throw new Error('This build only supports local-dev private checkout.')
+      throw new Error('This checkout has no supported private payment environment.')
     } catch (caught) {
       setError(readableError(caught))
       setStatus('Encrypted payment did not complete.')
@@ -350,11 +382,11 @@ export function CheckoutPaymentCard({
           </Alert>
         ) : null}
 
-        {!isLocalDevManifest ? (
+        {!supportsBrowserPayment ? (
           <Alert>
             <AlertTitle>Payment unavailable</AlertTitle>
             <AlertDescription>
-              Browser payment is limited to the local-dev private checkout rail in this MVP.
+              No deployed private checkout manifest is available for this chain.
             </AlertDescription>
           </Alert>
         ) : null}

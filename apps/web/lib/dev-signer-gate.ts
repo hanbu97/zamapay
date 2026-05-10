@@ -1,4 +1,4 @@
-import { normalizeContractEnvironment } from './contract-environment.ts'
+import { normalizeContractEnvironment, type ContractEnvironment } from './contract-environment.ts'
 
 export type DevSignerGateInput = {
   contractEnv?: string
@@ -35,7 +35,7 @@ export function canUseLocalDevServerBridge(input: LocalDevServerBridgeInput): bo
   return input.nodeEnv !== 'production' && contractEnvironment === 'local-dev' && isLocalRequestUrl(input.requestUrl)
 }
 
-function safeContractEnvironment(value: string | undefined): 'local-dev' | 'invalid' {
+function safeContractEnvironment(value: string | undefined): ContractEnvironment | 'invalid' {
   try {
     return normalizeContractEnvironment(value)
   } catch {

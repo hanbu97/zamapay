@@ -33,10 +33,9 @@ use process::{is_cardforge_backend_command, parse_lsof_pids};
 use store::CardForgeStore;
 use types::{
     CheckoutQuoteRequest, CheckoutQuoteResponse, CheckoutResponse, CreateCheckoutRequest,
-    CreateCheckoutSessionRequest, FulfillmentSnapshot, LocalChainInvoiceResponse,
-    ZamaPayCheckoutSessionResponse, PendingOrder, ReleasedOrder, StorefrontResponse,
-    WalletActivityResponse, WebhookAck, WebhookLog, WebhookReceipt,
-    epoch_millis,
+    CreateCheckoutSessionRequest, FulfillmentSnapshot, LocalChainInvoiceResponse, PendingOrder,
+    ReleasedOrder, StorefrontResponse, WalletActivityResponse, WebhookAck, WebhookLog,
+    WebhookReceipt, ZamaPayCheckoutSessionResponse, epoch_millis,
 };
 
 #[derive(Clone)]
@@ -258,7 +257,8 @@ async fn create_zamapay_checkout_quote(
         return Err(ApiError::upstream_rejected(status.as_u16(), response).await);
     }
 
-    let quote: CheckoutQuoteResponse = response.json().await.map_err(ApiError::bad_upstream_json)?;
+    let quote: CheckoutQuoteResponse =
+        response.json().await.map_err(ApiError::bad_upstream_json)?;
     if !quote.billing.is_valid() {
         return Err(ApiError::bad_upstream_shape(
             "ZamaPay returned an invalid checkout quote.",
