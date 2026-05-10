@@ -61,6 +61,9 @@ export type WalletNetwork = {
 }
 
 type ContractEnvironment = 'local-dev' | 'sepolia'
+type DecryptReadOptions = {
+  onBeforeWalletSignature?: () => void
+}
 type RelayerSdk = typeof import('@zama-fhe/relayer-sdk/web')
 
 const hardhatRpcUrl = process.env.NEXT_PUBLIC_LOCAL_RPC_URL || 'http://127.0.0.1:8545'
@@ -168,6 +171,7 @@ export const walletNetwork: WalletNetwork = {
 export async function readConfidentialWallet(
   address: string,
   provider: WalletRpcProvider,
+  options: DecryptReadOptions = {},
 ): Promise<ConfidentialWalletSnapshot> {
   const account = getAddress(address) as Hex
   const tokenAddress = activeConfig.manifest.contracts.ConfidentialUSDMock as Hex | null
@@ -183,7 +187,7 @@ export async function readConfidentialWallet(
       functionName: 'balanceOf',
       args: [account],
     })
-    const balance = await decryptEuint64(balanceHandle, tokenAddress, account, provider)
+    const balance = await decryptEuint64(balanceHandle, tokenAddress, account, provider, options)
 
     return {
       address: account,
@@ -223,6 +227,12 @@ export async function claimTestCusd(provider: WalletRpcProvider, address: string
     receiptStatus: receipt.status,
     tokenAddress,
     txHash,
+  }
+}
+
+export async function prepareConfidentialWalletDecrypt(provider: WalletRpcProvider) {
+  if (activeConfig.environment === 'sepolia') {
+    await sepoliaInstance(provider)
   }
 }
 
@@ -288,13 +298,14 @@ async function decryptEuint64(
   contractAddress: Hex,
   userAddress: Hex,
   provider: WalletRpcProvider,
+  options: DecryptReadOptions,
 ): Promise<bigint> {
   if (handle === zeroHandle) {
     return 0n
   }
 
   if (activeConfig.environment === 'sepolia') {
-    return decryptSepoliaEuint64(handle, contractAddress, userAddress, provider)
+    return decryptSepoliaEuint64(handle, contractAddress, userAddress, provider, options)
   }
 
   const values = await hardhatRpc<Hex[]>('fhevm_getClearText', [[handle]])
@@ -307,6 +318,7 @@ async function decryptSepoliaEuint64(
   contractAddress: Hex,
   userAddress: Hex,
   provider: WalletRpcProvider,
+  options: DecryptReadOptions,
 ): Promise<bigint> {
   const instance = await sepoliaInstance(provider)
   const keypair = instance.generateKeypair()
@@ -314,6 +326,7 @@ async function decryptSepoliaEuint64(
   const durationDays = 1
   const contractAddresses = [getAddress(contractAddress)]
   const eip712 = instance.createEIP712(keypair.publicKey, contractAddresses, startTimestamp, durationDays)
+  options.onBeforeWalletSignature?.()
   const signature = await provider.request({
     method: 'eth_signTypedData_v4',
     params: [getAddress(userAddress), stringifyTypedData(eip712)],
@@ -344,13 +357,18 @@ async function decryptSepoliaEuint64(
 }
 
 function sepoliaInstance(provider: WalletRpcProvider): Promise<FhevmInstance> {
-  sepoliaInstancePromise ??= relayerSdk().then(async ({ SepoliaConfig, createInstance, initSDK }) => {
-    await initSDK()
-    return createInstance({
-      ...SepoliaConfig,
-      network: provider as EIP1193Provider,
+  sepoliaInstancePromise ??= relayerSdk()
+    .then(async ({ SepoliaConfig, createInstance, initSDK }) => {
+      await initSDK()
+      return createInstance({
+        ...SepoliaConfig,
+        network: provider as EIP1193Provider,
+      })
     })
-  })
+    .catch((caught) => {
+      sepoliaInstancePromise = null
+      throw caught
+    })
 
   return sepoliaInstancePromise
 }

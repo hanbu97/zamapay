@@ -23,6 +23,7 @@ import { getAddress } from 'viem'
 import {
   claimTestCusd,
   ensureWalletNetwork,
+  prepareConfidentialWalletDecrypt,
   readConfidentialWallet,
   readChainTransactionReceipt,
   transactionExplorerHref,
@@ -92,6 +93,16 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
   const [wallet, setWallet] = useState<ConfidentialWalletSnapshot | null>(null)
   const didHydrateWallet = useRef(false)
 
+  function setConnectedWallet(selected: string, nextStatus = 'Private balance locked. Reveal it when you are ready.') {
+    setAddress(selected)
+    setWallet(null)
+    setActivity([])
+    setOwnedCards([])
+    setPaymentActivity([])
+    setError(null)
+    setStatus(nextStatus)
+  }
+
   async function connectWallet() {
     setIsBusy(true)
     setError(null)
@@ -105,8 +116,8 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
         throw new Error('MetaMask returned no selected account.')
       }
 
-      setAddress(selected)
-      await refreshWallet(selected)
+      setConnectedWallet(selected)
+      await refreshWalletRecords(selected).catch(() => undefined)
     } catch (caught) {
       setError(readableError(caught))
       setStatus('Wallet connection did not complete.')
@@ -129,8 +140,8 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
         throw new Error('MetaMask returned no selected account.')
       }
 
-      setAddress(selected)
-      await refreshWallet(selected)
+      setConnectedWallet(selected)
+      await refreshWalletRecords(selected).catch(() => undefined)
     } catch (caught) {
       setError(readableError(caught))
       setStatus('Wallet switch did not complete.')
@@ -152,16 +163,19 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
         throw new Error('Connect a wallet before claiming test cUSDT.')
       }
 
-      setAddress(selected)
+      if (selected !== address) {
+        setConnectedWallet(selected)
+      }
       const claim = await claimTestCusd(provider, selected)
       const record = createMintActivity(selected, claim)
       appendActivity(record)
+      setWallet(null)
       setStatus(
         claim.receiptStatus === 'success'
-          ? `Claimed ${formatMinorUnits(claim.amountMinorUnits)}. Refreshing private balance...`
+          ? `Claimed ${formatMinorUnits(claim.amountMinorUnits)}. Reveal balance when ready.`
           : `cUSDT claim transaction reverted. Hash ${shortHex(claim.txHash)} is recorded.`,
       )
-      await refreshWallet(selected)
+      await refreshWalletRecords(selected).catch(() => undefined)
     } catch (caught) {
       setError(readableError(caught))
       setStatus('Test cUSDT claim did not complete.')
@@ -170,18 +184,23 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
     }
   }
 
-  async function refreshWallet(selectedAddress = address) {
+  async function revealWalletBalance(selectedAddress = address) {
     if (!selectedAddress) {
-      throw new Error('Connect a wallet before refreshing the confidential balance.')
+      throw new Error('Connect a wallet before revealing the confidential balance.')
     }
 
     setIsBusy(true)
     setError(null)
-    setStatus(`Reading ${walletNetwork.label} confidential cUSDT balance...`)
+    setStatus(`Preparing ${walletNetwork.label} private balance...`)
 
     try {
       const provider = ensureProvider()
-      const snapshot = await readConfidentialWallet(selectedAddress, provider)
+      await ensureWalletNetwork(provider)
+      const snapshot = await readConfidentialWallet(selectedAddress, provider, {
+        onBeforeWalletSignature: () => {
+          setStatus('Confirm the wallet signature to reveal balance.')
+        },
+      })
       setWallet(snapshot)
       setActivity(await restoreWalletActivity(snapshot.address, snapshot.tokenAddress))
       await refreshWalletRecords(snapshot.address).catch(() => undefined)
@@ -239,10 +258,23 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
         return
       }
 
-      setAddress(selected)
-      await refreshWallet(selected)
+      setConnectedWallet(selected)
+      await refreshWalletRecords(selected).catch(() => undefined)
     })()
   }, [])
+
+  useEffect(() => {
+    if (!address) {
+      return
+    }
+
+    const provider = window.ethereum
+    if (!provider) {
+      return
+    }
+
+    void prepareConfidentialWalletDecrypt(provider).catch(() => undefined)
+  }, [address])
 
   useEffect(() => {
     let isActive = true
@@ -288,13 +320,16 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
 
     const setSelectedAccount = (accounts: unknown[]) => {
       const selected = firstWalletAccount(accounts)
-      setAddress(selected)
-      setWallet(null)
-      setActivity([])
-      setOwnedCards([])
-      setPaymentActivity([])
       if (selected) {
-        void refreshWallet(selected)
+        setConnectedWallet(selected)
+        void refreshWalletRecords(selected).catch(() => undefined)
+      } else {
+        setAddress(null)
+        setWallet(null)
+        setActivity([])
+        setOwnedCards([])
+        setPaymentActivity([])
+        setStatus('Connect wallet to reveal balance')
       }
     }
 
@@ -304,7 +339,9 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
 
     const handleChainChanged = () => {
       if (address) {
-        void refreshWallet(address)
+        setWallet(null)
+        setActivity([])
+        setStatus(`Network changed. Reveal ${walletNetwork.label} balance again.`)
       }
     }
 
@@ -328,8 +365,9 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
   const balanceLabel = wallet ? formatMinorUnits(wallet.balanceMinorUnits) : '-- cUSDT'
   const hasWallet = Boolean(address)
   const canConnectWallet = !isBusy
-  const canRefreshWallet = hasWallet && !isBusy
+  const canRevealWallet = hasWallet && !isBusy
   const canClaimTokens = !isBusy
+  const balanceActionLabel = wallet ? 'Refresh' : 'Reveal'
   const walletHandle = address ? shortHex(address) : 'Not connected'
   const walletActionLabel = hasWallet ? walletHandle : 'Connect wallet'
   const visibleActivity = mergeActivityRecords(activity, paymentActivity)
@@ -364,14 +402,21 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
           <div className="mt-5 flex min-w-0 items-center gap-2 text-sm font-medium text-black/70">
             <span>Total balance</span>
             <button
-              aria-label="Refresh confidential balance"
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-black/5 transition-colors hover:bg-black/10 disabled:opacity-50"
-              disabled={!canRefreshWallet}
-              onClick={() => void refreshWallet()}
+              aria-label={`${balanceActionLabel} confidential balance`}
+              className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-black/5 px-2.5 text-xs font-semibold text-black/75 transition-colors hover:bg-black/10 disabled:opacity-50"
+              disabled={!canRevealWallet}
+              onClick={() => void revealWalletBalance()}
               suppressHydrationWarning
               type="button"
             >
-              <RefreshCwIcon className="size-4" />
+              {isBusy && hasWallet ? (
+                <RefreshCwIcon className="size-3.5 animate-spin" />
+              ) : wallet ? (
+                <RefreshCwIcon className="size-3.5" />
+              ) : (
+                <EyeIcon className="size-3.5" />
+              )}
+              <span>{balanceActionLabel}</span>
             </button>
           </div>
 
@@ -381,7 +426,11 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
                 <span className="min-w-0 truncate text-[1.75rem] font-semibold leading-none tracking-normal 2xl:text-[2.1rem]">
                   {balanceLabel}
                 </span>
-                <EyeIcon className="size-5 shrink-0 text-black/75 2xl:size-6" />
+                {wallet ? (
+                  <EyeIcon className="size-5 shrink-0 text-black/75 2xl:size-6" />
+                ) : (
+                  <EyeOffIcon className="size-5 shrink-0 text-black/65 2xl:size-6" />
+                )}
               </div>
             </div>
 
@@ -397,7 +446,10 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
             </button>
           </div>
 
-          <div className="mt-3 flex max-w-full items-center gap-2 rounded-full bg-black/5 px-2.5 py-1.5 text-xs text-black/70 2xl:px-3 2xl:text-sm">
+          <div
+            aria-live="polite"
+            className="mt-3 flex max-w-full items-center gap-2 rounded-full bg-black/5 px-2.5 py-1.5 text-xs text-black/70 2xl:px-3 2xl:text-sm"
+          >
             <ShieldCheckIcon className="size-4 shrink-0 text-black/60" />
             <span className="min-w-0 truncate">{error ?? status}</span>
           </div>
