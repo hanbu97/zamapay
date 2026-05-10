@@ -5,19 +5,25 @@
 ```text
 apps/web/app/api
 |-- auth/logout/route.ts
+|-- auth/nonce/route.ts
+|-- auth/verify/route.ts
+|-- billing/[...path]/route.ts
 |-- billing/project-growth/route.ts
 |-- checkout/project-finalized-payment/route.ts
-`-- dev/
-    |-- sign-message/route.ts
-    |-- project-local-growth/route.ts
-    |-- local-private-withdraw/route.ts
-    `-- local-chain-invoice/route.ts
+|-- dev/
+|   |-- sign-message/route.ts
+|   |-- project-local-growth/route.ts
+|   |-- local-private-withdraw/route.ts
+|   `-- local-chain-invoice/route.ts
+`-- projects/[[...path]]/route.ts
 ```
 
 ## Decisions
 
 - API routes are server-only operator bridges. They may hold `ZAMAPAY_OPERATOR_KEY`; browser components must not.
 - `auth/logout` only expires the browser session cookie; Rust `DELETE /api/session` remains the authoritative server-session deletion path when the API process is current.
+- `auth/nonce` and `auth/verify` keep wallet login same-origin so the browser session cookie belongs to the web host.
+- `billing/[...path]` and `projects/[[...path]]` proxy browser dashboard traffic to Rust with the same-origin cookie, while server components may still call Rust directly.
 - `billing/project-growth` verifies a `SubscriptionChangeFinalized` transaction from the configured manifest, then projects Growth entitlement into Rust without browser access to the operator key.
 - `project-finalized-payment` verifies a supplied `PrivatePaymentFinalized` transaction on the configured manifest or, for local-dev hosted checkout, finalizes a submitted private payment server-side; it returns after paid projection and lets finality/webhook projection continue in the background.
 - `dev/sign-message` delegates its environment decision to `lib/dev-signer-gate.ts`; it requires `ZAMAPAY_ENABLE_DEV_SIGNER=1`, is disabled outside local non-production mode, and exists only to verify the browser login path without a wallet extension.

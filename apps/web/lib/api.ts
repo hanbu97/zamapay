@@ -423,6 +423,10 @@ export class ApiRequestError extends Error {
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
 
+function rustApiUrl(path: string) {
+  return typeof window === 'undefined' ? `${apiBaseUrl}${path}` : path
+}
+
 export function isUnauthorizedApiError(error: unknown): boolean {
   return error instanceof ApiRequestError && (error.status === 401 || error.status === 403)
 }
@@ -570,7 +574,7 @@ export async function getFulfillment(invoiceId: string): Promise<FulfillmentResp
 }
 
 export async function getPaymentProjects(cookieHeader: string): Promise<PaymentProject[]> {
-  const response = await fetch(`${apiBaseUrl}/api/projects`, {
+  const response = await fetch(rustApiUrl('/api/projects'), {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     credentials: 'include',
     cache: 'no-store',
@@ -584,7 +588,7 @@ export async function getPaymentProjects(cookieHeader: string): Promise<PaymentP
 }
 
 export async function getBillingSubscription(cookieHeader: string): Promise<BillingSubscriptionResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/billing/subscription`, {
+  const response = await fetch(rustApiUrl('/api/billing/subscription'), {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     credentials: 'include',
     cache: 'no-store',
@@ -600,7 +604,7 @@ export async function getBillingSubscription(cookieHeader: string): Promise<Bill
 export async function createBillingUpgradeIntent(
   payload: BillingUpgradeIntentPayload,
 ): Promise<BillingUpgradeIntentResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/billing/subscription/upgrade-intent`, {
+  const response = await fetch(rustApiUrl('/api/billing/subscription/upgrade-intent'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
@@ -617,7 +621,7 @@ export async function createBillingUpgradeIntent(
 export async function upgradeBillingSubscription(
   payload: UpgradeBillingSubscriptionPayload,
 ): Promise<BillingSubscriptionResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/billing/subscription/upgrade`, {
+  const response = await fetch(rustApiUrl('/api/billing/subscription/upgrade'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
@@ -632,7 +636,7 @@ export async function upgradeBillingSubscription(
 }
 
 export async function getProjectOverview(projectId: string, cookieHeader: string): Promise<ProjectDashboardOverview> {
-  const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}`, {
+  const response = await fetch(rustApiUrl(`/api/projects/${projectId}`), {
     headers: cookieHeader ? { cookie: cookieHeader } : {},
     credentials: 'include',
     cache: 'no-store',
@@ -646,7 +650,7 @@ export async function getProjectOverview(projectId: string, cookieHeader: string
 }
 
 export async function createPaymentProject(payload: CreatePaymentProjectPayload): Promise<CreatePaymentProjectResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/projects`, {
+  const response = await fetch(rustApiUrl('/api/projects'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
@@ -665,7 +669,7 @@ export async function createProjectApiKey(
   projectId: string,
   payload: CreateProjectApiKeyPayload,
 ): Promise<CreateProjectApiKeyResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/api-keys`, {
+  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/api-keys`), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
@@ -684,7 +688,7 @@ export async function configureProjectWebhook(
   projectId: string,
   payload: ConfigureWebhookEndpointPayload,
 ): Promise<ConfigureWebhookEndpointResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/webhook-endpoints`, {
+  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/webhook-endpoints`), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
@@ -703,7 +707,7 @@ export async function createProjectWithdrawal(
   projectId: string,
   payload: CreateProjectWithdrawalPayload,
 ): Promise<ProjectDashboardOverview> {
-  const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/withdrawals`, {
+  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/withdrawals`), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
@@ -719,7 +723,7 @@ export async function createProjectWithdrawal(
 }
 
 export async function testProjectWebhook(projectId: string, endpointId: string): Promise<WebhookDeliveryRecord[]> {
-  const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/webhook-endpoints/${endpointId}/test`, {
+  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/webhook-endpoints/${endpointId}/test`), {
     method: 'POST',
     credentials: 'include',
   })
@@ -733,7 +737,7 @@ export async function testProjectWebhook(projectId: string, endpointId: string):
 }
 
 export async function resendProjectWebhookDelivery(projectId: string, deliveryId: string): Promise<WebhookDeliveryRecord[]> {
-  const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/deliveries/${deliveryId}/resend`, {
+  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/deliveries/${deliveryId}/resend`), {
     method: 'POST',
     credentials: 'include',
   })
