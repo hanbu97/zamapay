@@ -1,15 +1,16 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ArrowDownToLineIcon, ArrowUpRightIcon, CopyIcon, LandmarkIcon } from 'lucide-react'
+import { ArrowDownToLineIcon, ArrowUpRightIcon, CopyIcon, ExternalLinkIcon, LandmarkIcon } from 'lucide-react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { StatusBadge } from '@/components/commerce/StatusBadge'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import type { ProjectDashboardOverview } from '@/lib/api'
+import type { ProjectDashboardOverview, ProjectEnvironmentKind } from '@/lib/api'
+import { contractEnvironmentConfig } from '@/lib/contract-environment'
 import { compact, formatMinorUnits, formatTime } from './PaymentProjectConsoleParts'
 
 export type BalanceRangeKey = '24h' | '7d' | '30d' | 'all'
@@ -20,6 +21,7 @@ type BalanceActivity = {
   id: string
   minorUnits: number
   occurredAt: string
+  referenceHref: string | null
   referenceLabel: string
   referenceValue: string | null
   status: string
@@ -54,6 +56,7 @@ const BALANCE_RANGE_OPTIONS: Array<{ label: string; value: BalanceRangeKey }> = 
 
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
+const TRANSACTION_HASH_PATTERN = /^0x[0-9a-fA-F]{64}$/
 
 export function BalanceTrendCard({
   activities,
@@ -208,7 +211,7 @@ export function BalanceActivityCard({
           <Badge variant="secondary">{activities.length}</Badge>
         </CardAction>
         <CardTitle>Balance activity</CardTitle>
-        <CardDescription>Merchant net inflows from paid checkouts and local-dev withdraw outflows.</CardDescription>
+        <CardDescription>Merchant net inflows from paid checkouts and chain withdraw outflows.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -287,11 +290,35 @@ function BalanceActivityRow({
       <TableCell className="hidden md:table-cell">
         <div className="flex max-w-[300px] items-center gap-2">
           <span className="min-w-20 text-xs text-muted-foreground">{activity.referenceLabel}</span>
-          <span className="truncate font-mono text-xs">{compact(referenceValue)}</span>
+          {activity.referenceHref && referenceValue ? (
+            <a
+              className="min-w-0 truncate font-mono text-xs underline-offset-2 hover:underline"
+              href={activity.referenceHref}
+              rel="noopener noreferrer"
+              target="_blank"
+              title={referenceValue}
+            >
+              {compact(referenceValue)}
+            </a>
+          ) : (
+            <span className="min-w-0 truncate font-mono text-xs">{compact(referenceValue)}</span>
+          )}
           {referenceValue ? (
             <Button aria-label={`Copy ${activity.referenceLabel}`} onClick={() => onCopyReference(referenceValue)} size="icon" type="button" variant="ghost">
               <CopyIcon className="size-3.5" />
             </Button>
+          ) : null}
+          {activity.referenceHref ? (
+            <a
+              aria-label={`Open ${activity.referenceLabel} in Etherscan`}
+              className={buttonVariants({ size: 'icon', variant: 'ghost' })}
+              href={activity.referenceHref}
+              rel="noopener noreferrer"
+              target="_blank"
+              title={`Open ${activity.referenceLabel} in Etherscan`}
+            >
+              <ExternalLinkIcon className="size-3.5" />
+            </a>
           ) : null}
         </div>
       </TableCell>
@@ -330,6 +357,7 @@ export function projectBalanceActivities(overview: ProjectDashboardOverview): Ba
         id: `checkout-${session.checkoutSessionId}`,
         minorUnits: session.billing.merchantNetMinorUnits,
         occurredAt: session.updatedAt,
+        referenceHref: transactionExplorerHref(session.environment, paymentTxHash ?? null),
         referenceLabel: 'Payment tx',
         referenceValue: paymentTxHash ?? null,
         status: session.status,
@@ -344,6 +372,7 @@ export function projectBalanceActivities(overview: ProjectDashboardOverview): Ba
       id: `withdrawal-${withdrawal.withdrawalId}`,
       minorUnits: withdrawal.amountMinorUnits,
       occurredAt: withdrawal.completedAt,
+      referenceHref: transactionExplorerHref(overview.project.defaultEnvironment, withdrawal.receipt),
       referenceLabel: 'Receipt',
       referenceValue: withdrawal.receipt,
       status: withdrawal.status,
@@ -353,6 +382,17 @@ export function projectBalanceActivities(overview: ProjectDashboardOverview): Ba
   )
 
   return [...inflows, ...outflows].sort((left, right) => activityTimestamp(right) - activityTimestamp(left))
+}
+
+function transactionExplorerHref(environment: ProjectEnvironmentKind, txHash: string | null): string | null {
+  if (!txHash || !TRANSACTION_HASH_PATTERN.test(txHash)) {
+    return null
+  }
+
+  const config = contractEnvironmentConfig(environment)
+  const explorerUrl = config.walletChain.blockExplorerUrls?.[0] ?? config.chain.blockExplorers?.default.url
+
+  return explorerUrl ? `${explorerUrl.replace(/\/$/, '')}/tx/${txHash}` : null
 }
 
 function buildBalanceTrend(activities: BalanceActivity[], range: BalanceRangeKey): BalanceTrend {
