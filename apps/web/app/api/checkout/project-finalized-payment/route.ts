@@ -165,12 +165,20 @@ async function projectPayment(paymentTxHash: Hex, chainInvoiceId: number, payerA
     paymentTxHash,
     payerAddress,
   })
-  const finality = await rustJson(`/api/operator/chain-invoices/${chainInvoiceId}/confirmations`, {
-    confirmations,
-    finalityThreshold,
-  })
+  projectFinalityInBackground(chainInvoiceId)
 
-  return { projected, finality }
+  return { projected }
+}
+
+function projectFinalityInBackground(chainInvoiceId: number) {
+  queueMicrotask(() => {
+    void rustJson(`/api/operator/chain-invoices/${chainInvoiceId}/confirmations`, {
+      confirmations,
+      finalityThreshold,
+    }).catch((error) => {
+      console.error(`Failed to project finality for chain invoice ${chainInvoiceId}:`, error)
+    })
+  })
 }
 
 export async function POST(request: Request) {
@@ -201,7 +209,7 @@ export async function POST(request: Request) {
           requestedChainInvoiceId,
         })
       : await finalizeSubmittedPayment(requestedChainInvoiceId!)
-    const { projected, finality } = await projectPayment(paid.paymentTxHash, paid.chainInvoiceId, paid.payerAddress)
+    const { projected } = await projectPayment(paid.paymentTxHash, paid.chainInvoiceId, paid.payerAddress)
 
     return NextResponse.json({
       chainId: active.config.manifest?.chainId ?? active.config.chain.id,
@@ -209,7 +217,7 @@ export async function POST(request: Request) {
       paymentTxHash: paid.paymentTxHash,
       payerAddress: paid.payerAddress,
       projected,
-      finality,
+      finality: null,
     })
   } catch (caught) {
     return routeFailure(caught)

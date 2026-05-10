@@ -24,10 +24,19 @@ export type ProjectWithdrawResult = {
   withdrawCheckHandle: Hex
 }
 
+export type PendingProjectWithdraw = ProjectWithdrawResult & {
+  amountMinorUnits: number
+  environment: ProjectEnvironmentKind
+  projectId: string
+  savedAt: number
+}
+
 type SubmittedWithdraw = {
   chainTxHash: Hex
   withdrawCheckHandle: Hex
 }
+
+const pendingWithdrawStorageKey = 'zamapay.pendingProjectWithdraws.v1'
 
 export async function runProjectWithdraw(input: {
   amountMinorUnits: number
@@ -102,27 +111,144 @@ export async function runProjectWithdraw(input: {
           withdrawalNonce,
         })
 
-  const withdrawCheck =
-    config.key === 'local-dev'
-      ? await publicDecryptLocalBool(rpcUrl, submitted.withdrawCheckHandle)
-      : await publicDecryptSepoliaBool({
-          handle: submitted.withdrawCheckHandle,
-          onRetry: ({ maxAttempts, nextAttempt }) => {
-            input.setStatus(`Waiting for Sepolia public decrypt permission (${nextAttempt}/${maxAttempts})...`)
-          },
-          provider,
-          retries: 10,
-        })
+  const evidence = {
+    amountMinorUnits: input.amountMinorUnits,
+    chainTxHash: submitted.chainTxHash,
+    environment: input.environment,
+    projectId: input.projectId,
+    recipientAddress: signerAddress,
+    savedAt: Date.now(),
+    settlementBucketCommitment: bucketCommitment,
+    withdrawalNonce,
+    withdrawCheckHandle: submitted.withdrawCheckHandle,
+  } satisfies PendingProjectWithdraw
+  if (config.key === 'sepolia') {
+    savePendingProjectWithdraw(evidence)
+  }
+
+  if (config.key === 'sepolia') {
+    input.setStatus('Sepolia withdraw transaction confirmed. Syncing project balance...')
+    return evidence
+  }
+
+  const withdrawCheck = await publicDecryptLocalBool(rpcUrl, submitted.withdrawCheckHandle)
   if (!withdrawCheck.accepted) {
     throw new Error('The encrypted withdraw check was rejected on chain.')
   }
 
+  return evidence
+}
+
+export function clearPendingProjectWithdraw(projectId: string, chainTxHash: Hex) {
+  const remaining = pendingProjectWithdraws().filter(
+    (withdraw) => withdraw.projectId !== projectId || withdraw.chainTxHash !== chainTxHash,
+  )
+  writePendingProjectWithdraws(remaining)
+}
+
+export function pendingProjectWithdraws(projectId?: string): PendingProjectWithdraw[] {
+  const storage = browserStorage()
+  if (!storage) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(storage.getItem(pendingWithdrawStorageKey) ?? '[]') as unknown
+    const withdraws = Array.isArray(parsed) ? parsed.filter(isPendingProjectWithdraw) : []
+    return projectId ? withdraws.filter((withdraw) => withdraw.projectId === projectId) : withdraws
+  } catch {
+    return []
+  }
+}
+
+export async function verifiedPendingProjectWithdraws(input: {
+  environment: ProjectEnvironmentKind
+  projectId: string
+  setStatus: WithdrawStatusSetter
+}): Promise<PendingProjectWithdraw[]> {
+  const pending = pendingProjectWithdraws(input.projectId).filter(
+    (withdraw) => withdraw.environment === input.environment,
+  )
+  if (pending.length === 0) {
+    return []
+  }
+
+  const config = contractEnvironmentConfig(input.environment)
+  if (config.key !== 'sepolia') {
+    return []
+  }
+
+  const provider = ensureEthereumProvider()
+  input.setStatus('Checking pending Sepolia withdraw projection...')
+  await ensureWalletChain(provider, config.walletChain)
+
+  const accepted: PendingProjectWithdraw[] = []
+  for (const withdraw of pending) {
+    const proof = await publicDecryptSepoliaBool({
+      handle: withdraw.withdrawCheckHandle,
+      onRetry: ({ maxAttempts, nextAttempt }) => {
+        input.setStatus(`Waiting for Sepolia pending withdraw proof (${nextAttempt}/${maxAttempts})...`)
+      },
+      provider,
+      retries: 10,
+    })
+    if (proof.accepted) {
+      accepted.push(withdraw)
+    } else {
+      clearPendingProjectWithdraw(withdraw.projectId, withdraw.chainTxHash)
+    }
+  }
+
+  return accepted
+}
+
+function savePendingProjectWithdraw(withdraw: PendingProjectWithdraw) {
+  const remaining = pendingProjectWithdraws().filter(
+    (item) => item.projectId !== withdraw.projectId || item.chainTxHash !== withdraw.chainTxHash,
+  )
+  writePendingProjectWithdraws([...remaining, withdraw])
+}
+
+function writePendingProjectWithdraws(withdraws: PendingProjectWithdraw[]) {
+  const storage = browserStorage()
+  if (!storage) {
+    return
+  }
+
+  storage.setItem(pendingWithdrawStorageKey, JSON.stringify(withdraws))
+}
+
+function browserStorage(): Storage | null {
+  return typeof window === 'undefined' ? null : window.localStorage
+}
+
+function isPendingProjectWithdraw(value: unknown): value is PendingProjectWithdraw {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Partial<PendingProjectWithdraw>
+  return (
+    typeof candidate.amountMinorUnits === 'number' &&
+    typeof candidate.chainTxHash === 'string' &&
+    typeof candidate.environment === 'string' &&
+    typeof candidate.projectId === 'string' &&
+    typeof candidate.recipientAddress === 'string' &&
+    typeof candidate.savedAt === 'number' &&
+    typeof candidate.settlementBucketCommitment === 'string' &&
+    typeof candidate.withdrawalNonce === 'string' &&
+    typeof candidate.withdrawCheckHandle === 'string'
+  )
+}
+
+export function projectWithdrawPayload(withdraw: PendingProjectWithdraw) {
   return {
-    chainTxHash: submitted.chainTxHash,
-    recipientAddress: signerAddress,
-    settlementBucketCommitment: bucketCommitment,
-    withdrawalNonce,
-    withdrawCheckHandle: submitted.withdrawCheckHandle,
+    amountMinorUnits: withdraw.amountMinorUnits,
+    chainTxHash: withdraw.chainTxHash,
+    recipientAddress: withdraw.recipientAddress,
+    settlementBucketCommitment: withdraw.settlementBucketCommitment,
+    withdrawalNonce: withdraw.withdrawalNonce,
+    withdrawCheckHandle: withdraw.withdrawCheckHandle,
   }
 }
 

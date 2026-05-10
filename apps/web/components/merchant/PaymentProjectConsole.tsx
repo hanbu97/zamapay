@@ -57,7 +57,12 @@ import {
   projectBalanceActivities,
   type BalanceRangeKey,
 } from './PaymentProjectBalance'
-import { runProjectWithdraw } from './PaymentProjectWithdraw'
+import {
+  clearPendingProjectWithdraw,
+  projectWithdrawPayload,
+  runProjectWithdraw,
+  verifiedPendingProjectWithdraws,
+} from './PaymentProjectWithdraw'
 
 export type ProjectConsoleTab = 'overview' | 'integration' | 'webhooks' | 'payments'
 
@@ -77,6 +82,10 @@ function normalizeTab(value: string | undefined): ProjectConsoleTab {
   }
 
   return 'overview'
+}
+
+function isAlreadyProjectedError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('withdraw transaction is already projected')
 }
 
 export function PaymentProjectConsole({
@@ -203,9 +212,17 @@ export function PaymentProjectConsole({
 
   async function handleWithdraw() {
     await runAction('withdraw', async () => {
-      const amountMinorUnits = overview.summary.withdrawableMinorUnits
+      const latestOverview = await getProjectOverview(project.projectId, '')
+      setOverview(latestOverview)
+      const amountMinorUnits = latestOverview.summary.withdrawableMinorUnits
       if (amountMinorUnits <= 0) {
-        throw new Error('No project balance is available to withdraw.')
+        setStatus('Project balance is already fully withdrawn.')
+        router.refresh()
+        return
+      }
+
+      if (await recoverPendingWithdrawProjection()) {
+        return
       }
 
       const submitted = await runProjectWithdraw({
@@ -223,10 +240,39 @@ export function PaymentProjectConsole({
         withdrawalNonce: submitted.withdrawalNonce,
         withdrawCheckHandle: submitted.withdrawCheckHandle,
       })
+      clearPendingProjectWithdraw(project.projectId, submitted.chainTxHash)
       setOverview(projected)
       setStatus('Encrypted withdraw completed and projected into the project balance.')
       router.refresh()
     })
+  }
+
+  async function recoverPendingWithdrawProjection(): Promise<boolean> {
+    const pending = await verifiedPendingProjectWithdraws({
+      environment: project.defaultEnvironment,
+      projectId: project.projectId,
+      setStatus,
+    })
+    if (pending.length === 0) {
+      return false
+    }
+
+    let projected: ProjectDashboardOverview | null = null
+    for (const withdraw of pending) {
+      try {
+        projected = await createProjectWithdrawal(project.projectId, projectWithdrawPayload(withdraw))
+      } catch (caught) {
+        if (!isAlreadyProjectedError(caught)) {
+          throw caught
+        }
+      }
+      clearPendingProjectWithdraw(project.projectId, withdraw.chainTxHash)
+    }
+
+    setOverview(projected ?? await getProjectOverview(project.projectId, ''))
+    setStatus('Recovered a mined Sepolia withdraw and updated the project balance.')
+    router.refresh()
+    return true
   }
 
   return (
