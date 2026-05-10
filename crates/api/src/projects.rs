@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, header};
 use axum::routing::{get, patch, post};
@@ -15,8 +17,9 @@ use storage::CheckoutSessionError;
 use super::{ApiError, AppState, keyed_digest, session_from_cookie};
 
 const DEFAULT_CHECKOUT_BASE_URL: &str = "http://127.0.0.1:3001";
-const PUBLIC_DEMO_PROJECT_ID: &str = "proj_5f227192e2514a94a3bbbfa63e04e12a";
+const DEFAULT_PUBLIC_DEMO_PROJECT_ID: &str = "proj_62dc3460ccb749a388c40356c101a01f";
 const IDEMPOTENCY_KEY_HEADER: &str = "idempotency-key";
+static PUBLIC_DEMO_PROJECT_ID: OnceLock<String> = OnceLock::new();
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -541,7 +544,18 @@ fn require_project_owner(project: &PaymentProject, owner_wallet: &str) -> Result
 }
 
 fn is_public_demo_project(project_id: &str) -> bool {
-    project_id == PUBLIC_DEMO_PROJECT_ID
+    project_id == public_demo_project_id()
+}
+
+fn public_demo_project_id() -> &'static str {
+    PUBLIC_DEMO_PROJECT_ID
+        .get_or_init(|| {
+            std::env::var("ZAMAPAY_PUBLIC_DEMO_PROJECT_ID")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_PUBLIC_DEMO_PROJECT_ID.to_string())
+        })
+        .as_str()
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {

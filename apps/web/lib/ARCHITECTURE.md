@@ -24,7 +24,7 @@ apps/web/lib
 
 - API helpers are transport-only; they do not invent payment truth, project authority, delivery state, fulfillment release truth, subscription entitlement, or billing math.
 - Contract ABIs and billing/address manifests flow from `generated/clients/ts` so UI writes and public pricing follow compiled Solidity/deploy output.
-- `demo-dashboard.ts` is the only browser-safe source for the public demo project id; the public nav and merchant shell consume it without widening normal account auth.
+- `demo-dashboard.ts` is the only browser-safe source for the public demo project id; `NEXT_PUBLIC_DEMO_DASHBOARD_PROJECT_ID` may override the default without widening normal account auth.
 - `contract-environment.ts` owns the allowed environment vocabulary. `local-dev` and `sepolia` resolve to generated manifests, wallet chain metadata, and project environment values.
 - `local-fhevm-dev.ts` is server-only and gated by API routes; it creates `PrivateCheckoutSettlement` checkouts with encrypted gross/net/fee inputs plus bucket-owner commitments, finalizes submitted checkout payments, submits merchant-signed local withdraw packages with the Hardhat submitter signer, and finalizes Growth subscription booleans.
 - `local-fhevm-browser.ts` is local-dev only; it uses Hardhat/FHEVM mock RPC to create encrypted payment/subscription inputs and decrypt buyer-owned confidential balances.
