@@ -433,7 +433,7 @@ async function apiRequestError(response: Response, fallback: string): Promise<Ap
 }
 
 export async function requestNonce(address: string): Promise<NonceResponse> {
-  const response = await fetch(`${apiBaseUrl}/api/auth/nonce`, {
+  const response = await fetch('/api/auth/nonce', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
@@ -448,7 +448,7 @@ export async function requestNonce(address: string): Promise<NonceResponse> {
 }
 
 export async function verifySignature(payload: VerifyPayload): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/api/auth/verify`, {
+  const response = await fetch('/api/auth/verify', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     credentials: 'include',
