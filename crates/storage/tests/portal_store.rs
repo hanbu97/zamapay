@@ -8,6 +8,7 @@ use storage::PortalStore;
 use uuid::Uuid;
 
 fn checkout_payload(order_id: &str, amount_minor_units: u64) -> CreateCheckoutSessionRequest {
+    let chain_invoice_id = chain_invoice_id_for(order_id);
     CreateCheckoutSessionRequest {
         merchant_order_id: order_id.to_string(),
         title: "CardForge starter bundle".to_string(),
@@ -16,10 +17,18 @@ fn checkout_payload(order_id: &str, amount_minor_units: u64) -> CreateCheckoutSe
         note: "Standalone merchant checkout".to_string(),
         success_url: Some("http://127.0.0.1:4101/success".to_string()),
         cancel_url: Some("http://127.0.0.1:4101/cancel".to_string()),
-        chain_invoice_id: None,
-        chain_tx_hash: None,
+        chain_invoice_id: Some(chain_invoice_id),
+        chain_tx_hash: Some(format!("0x{chain_invoice_id:064x}")),
         metadata: std::collections::BTreeMap::new(),
     }
+}
+
+fn chain_invoice_id_for(order_id: &str) -> u64 {
+    let mut id = 1_u64;
+    for byte in order_id.bytes() {
+        id = id.wrapping_mul(131).wrapping_add(u64::from(byte));
+    }
+    (id % 1_000_000_000).max(1)
 }
 
 async fn finalize_checkout(store: &PortalStore, chain_invoice_id: u64, payment_tx_hash: &str) {
@@ -433,6 +442,85 @@ async fn project_api_key_checkout_and_outbox_are_project_scoped() {
 }
 
 #[tokio::test]
+async fn local_chain_invoice_ids_can_be_reused_after_chain_reset() {
+    let database_url = test_database_url();
+    let state_key = test_state_key("reused-chain-invoice");
+    let store = PortalStore::connect_with_state_key(database_url.clone(), state_key.clone()).await;
+    let now = Utc::now();
+    let created = store
+        .create_project(
+            "0x00000000000000000000000000000000000000aa",
+            "Reset tolerant merchant",
+            ProjectEnvironmentKind::LocalDev,
+            Some("http://127.0.0.1:8092/api/mermer-pay/webhook"),
+            now,
+        )
+        .await;
+    let project_id = created.project.project_id;
+    let api_key = store
+        .create_project_api_key(
+            &project_id,
+            ProjectEnvironmentKind::LocalDev,
+            "CardForge",
+            now,
+        )
+        .await
+        .expect("project key should be issued")
+        .api_key;
+
+    let mut old_payload = checkout_payload("order-before-reset", 120_000_000);
+    old_payload.chain_invoice_id = Some(7);
+    old_payload.chain_tx_hash = Some("0xbefore-reset".to_string());
+    let old_checkout = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "order-before-reset",
+            old_payload,
+            "http://127.0.0.1:3001",
+            now,
+        )
+        .await
+        .expect("first local chain invoice should persist");
+
+    let mut new_payload = checkout_payload("order-after-reset", 40_000_000);
+    new_payload.chain_invoice_id = Some(7);
+    new_payload.chain_tx_hash = Some("0xafter-reset".to_string());
+    let new_checkout = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "order-after-reset",
+            new_payload,
+            "http://127.0.0.1:3001",
+            now + TimeDelta::seconds(1),
+        )
+        .await
+        .expect("reused local chain invoice id should persist");
+
+    let reloaded = PortalStore::connect_with_state_key(database_url, state_key).await;
+    let latest = reloaded
+        .invoice_by_chain_invoice_id(7)
+        .await
+        .expect("reused chain invoice id should resolve to latest checkout");
+    assert_eq!(latest.invoice_id, new_checkout.checkout_session_id);
+
+    let paid = reloaded
+        .project_chain_invoice_paid(7, "0xpayment-after-reset", "0xpayer")
+        .await
+        .expect("payment projection should target latest checkout");
+    assert_eq!(paid.invoice_id, new_checkout.checkout_session_id);
+    assert_eq!(
+        reloaded
+            .invoice_by_id(&old_checkout.checkout_session_id)
+            .await
+            .expect("old checkout remains stored")
+            .payment_tx_hash,
+        None
+    );
+}
+
+#[tokio::test]
 async fn project_overview_sorts_checkout_sessions_by_latest_activity() {
     let store = test_store().await;
     let now = Utc::now();
@@ -717,7 +805,12 @@ async fn project_withdrawal_reduces_withdrawable_balance() {
     assert_eq!(before.summary.withdrawn_minor_units, 0);
 
     let withdrawal = store
-        .create_project_withdrawal(&project_id, 119_400_000, now)
+        .create_project_withdrawal(
+            &project_id,
+            119_400_000,
+            "0x1111111111111111111111111111111111111111111111111111111111111111",
+            now,
+        )
         .await
         .expect("withdraw should record");
     assert_eq!(withdrawal.amount_minor_units, 119_400_000);

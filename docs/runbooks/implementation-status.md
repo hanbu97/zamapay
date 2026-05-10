@@ -2,7 +2,7 @@
 
 ## Objective
 
-Finish the Mermer Pay hackathon demo around one clean local-dev rail: project creation, CardForge checkout, local private payment proof, Growth subscription fee change, dashboard stats, and withdraw read model.
+Finish the Mermer Pay hackathon demo around one clean local-dev rail: project creation, CardForge checkout, local private payment proof, Growth subscription fee change, dashboard stats, and merchant-signed private withdraw projection.
 
 Public testnets are intentionally out of scope for the current build. Sepolia should be added later through Zama official relayer/gateway surfaces for FHE operations, not through a Mermer Pay platform relayer.
 
@@ -23,7 +23,7 @@ Public testnets are intentionally out of scope for the current build. Sepolia sh
 | --- | --- |
 | Transparent invoice settlement fallback | It exposed merchant, payout, payer, and amount fields publicly, which conflicts with the private checkout claim. |
 | Public-testnet manifests, scripts, and web branches | Public network runs require protocol-fee and relayer funding design; keeping them active made local testing ambiguous. |
-| Mermer Pay platform relayer | MVP uses direct buyer wallet submission on local-dev; future Sepolia should use Zama official relayer/gateway surfaces for FHE operations. |
+| Mermer Pay platform relayer | MVP uses direct buyer wallet submission for checkout and a merchant-signed local chain submitter for withdraw; future Sepolia should use Zama official relayer/gateway surfaces for FHE operations. |
 | Old local invoice smoke/projection scripts | They exercised the removed transparent invoice rail rather than the private checkout rail. |
 
 ## Required Evidence Before Claiming Complete
@@ -39,5 +39,5 @@ Public testnets are intentionally out of scope for the current build. Sepolia sh
 ## Current Risks
 
 - Local-dev browser E2E still depends on running Hardhat, Rust API, Next web, CardForge, and Firefox wallet state.
-- Withdraw is currently a portal read-model operation, not a private on-chain settlement close.
+- Withdraw is a merchant-signed local-dev on-chain operation, but payout-recipient privacy is still out of scope.
 - The mock confidential rail proves encrypted amount validation and demo debit. Direct-wallet MVP does not hide the buyer transaction sender.

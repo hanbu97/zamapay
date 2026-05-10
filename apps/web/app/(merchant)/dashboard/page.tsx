@@ -11,6 +11,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { getSession, type PaymentProject, type ProjectDashboardOverview } from '@/lib/api'
 import { loadMerchantProjectOverview, loadMerchantProjects } from '@/lib/merchant-portal'
+import { formatMerchantTimestamp } from '@/lib/time-format'
 
 type AccountSnapshot = {
   overview: ProjectDashboardOverview | null
@@ -136,7 +137,7 @@ function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
                             {session.title}
                           </Link>
                           <span className="truncate font-mono text-xs text-muted-foreground">{session.merchantOrderId}</span>
-                          <span className="text-xs text-muted-foreground">Updated {formatActivityTime(session.updatedAt)}</span>
+                          <span className="text-xs text-muted-foreground">Updated {formatMerchantTimestamp(session.updatedAt)}</span>
                         </div>
                       </TableCell>
                       <TableCell className="hidden md:table-cell">
@@ -284,20 +285,6 @@ function activityTime(session: ProjectDashboardOverview['checkoutSessions'][numb
 
   const createdAt = Date.parse(session.createdAt)
   return Number.isNaN(createdAt) ? 0 : createdAt
-}
-
-function formatActivityTime(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return 'unknown'
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date)
 }
 
 function formatMinorUnits(value: number) {

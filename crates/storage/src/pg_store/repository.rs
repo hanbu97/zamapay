@@ -77,7 +77,7 @@ async fn read_portal_rows(
 ) -> Result<PortalRecordSet, DbErr> {
     let counters = CounterRow::find_by_statement(stmt(
         r#"
-        select next_invoice_number, next_chain_invoice_id
+        select next_invoice_number
         from mermer_portal_counters
         where state_key = $1
         "#,
@@ -90,8 +90,6 @@ async fn read_portal_rows(
     let mut records = PortalRecordSet {
         next_invoice_number: u64::try_from(counters.next_invoice_number)
             .expect("next invoice number should be positive"),
-        next_chain_invoice_id: u64::try_from(counters.next_chain_invoice_id)
-            .expect("next chain invoice id should be positive"),
         ..PortalRecordSet::default()
     };
 
@@ -312,17 +310,12 @@ async fn insert_counters(
         tx,
         r#"
         insert into mermer_portal_counters
-            (state_key, next_invoice_number, next_chain_invoice_id, updated_at)
-        values ($1, $2, $3, now())
+            (state_key, next_invoice_number, updated_at)
+        values ($1, $2, now())
         "#,
         vec![
             state_key.into(),
             i64_from_u64(records.next_invoice_number, "counter.next_invoice_number").into(),
-            i64_from_u64(
-                records.next_chain_invoice_id,
-                "counter.next_chain_invoice_id",
-            )
-            .into(),
         ],
     )
     .await

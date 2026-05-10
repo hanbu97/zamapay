@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use domain::{FinalityStatus, FulfillmentStatus, PaymentTruth, WebhookDeliveryStatus};
 use serde_json::json;
 use shared::{
-    CheckoutBillingSnapshot, CheckoutSession, CheckoutSessionStatus,
+    CheckoutBillingSnapshot, CheckoutQuoteResponse, CheckoutSession, CheckoutSessionStatus,
     ConfigureWebhookEndpointResponse, CreateCheckoutSessionRequest, CreatePaymentProjectResponse,
     CreateProjectApiKeyResponse, PaymentProject, PaymentProjectEnvironment, ProjectApiKey,
     ProjectDashboardOverview, ProjectEnvironmentKind, ProjectInvoiceAuthority, ProjectStatus,
@@ -13,8 +13,8 @@ use uuid::Uuid;
 
 use crate::project_support::{
     CheckoutSessionError, DEFAULT_DELIVERY_MAX_ATTEMPTS, StoredProjectApiKey, clean_base_url,
-    hash_secret, local_chain_tx_hash, merchant_registered, parse_environment, project_environment,
-    project_summary, secret_preview, signer_address, signer_key_ref, webhook_secret,
+    hash_secret, merchant_registered, parse_environment, project_environment, project_summary,
+    secret_preview, signer_address, signer_key_ref, webhook_secret,
 };
 
 use super::PortalStore;
@@ -198,10 +198,11 @@ impl PortalStore {
         &self,
         project_id: &str,
         amount_minor_units: u64,
+        receipt: &str,
         now: DateTime<Utc>,
     ) -> Option<ProjectWithdrawalRecord> {
         self.project_by_id(project_id).await?;
-        if amount_minor_units == 0 {
+        if amount_minor_units == 0 || receipt.trim().is_empty() {
             return None;
         }
 
@@ -211,7 +212,7 @@ impl PortalStore {
             project_id: project_id.to_string(),
             amount_minor_units,
             status: ProjectWithdrawalStatus::Completed,
-            receipt: format!("local-settlement-{withdrawal_id}"),
+            receipt: receipt.trim().to_string(),
             created_at: now,
             completed_at: now,
         };
@@ -336,10 +337,6 @@ impl PortalStore {
                 (Some(invoice_id), Some(tx_hash)) if tx_hash.starts_with("0x") => {
                     (invoice_id, tx_hash)
                 }
-                (None, None) => {
-                    let invoice_id = self.next_chain_invoice_id().await;
-                    (invoice_id, local_chain_tx_hash(invoice_id))
-                }
                 _ => return Err(CheckoutSessionError::InvalidRequest),
             };
         let checkout_base_url = clean_base_url(checkout_base_url);
@@ -404,6 +401,55 @@ impl PortalStore {
         self.persist().await;
 
         Ok(session)
+    }
+
+    pub async fn checkout_quote(
+        &self,
+        project_id: &str,
+        api_key: &str,
+        amount_minor_units: u64,
+        now: DateTime<Utc>,
+    ) -> Result<CheckoutQuoteResponse, CheckoutSessionError> {
+        if amount_minor_units == 0 {
+            return Err(CheckoutSessionError::InvalidRequest);
+        }
+
+        let api_key = self
+            .verify_project_api_key(project_id, api_key, now)
+            .await
+            .ok_or(CheckoutSessionError::Unauthorized)?;
+        let environment = api_key.environment;
+        let project = self
+            .project_by_id(project_id)
+            .await
+            .ok_or(CheckoutSessionError::NotFound)?;
+        let (plan, fee_bps) = self
+            .checkout_fee_bps_for_project(&project, environment, now)
+            .await
+            .ok_or(CheckoutSessionError::Locked)?;
+        let billing = CheckoutBillingSnapshot::from_gross_amount(plan, fee_bps, amount_minor_units)
+            .filter(|snapshot| snapshot.merchant_net_minor_units > 0)
+            .ok_or(CheckoutSessionError::InvalidRequest)?;
+
+        let environment_record = self
+            .environment_for_project(project_id, &environment)
+            .await
+            .ok_or(CheckoutSessionError::Locked)?;
+        let authority = self
+            .invoice_authorities
+            .read()
+            .await
+            .get(&environment_record.invoice_authority_id)
+            .cloned()
+            .ok_or(CheckoutSessionError::Locked)?;
+        if !authority.merchant_registered {
+            return Err(CheckoutSessionError::Locked);
+        }
+
+        Ok(CheckoutQuoteResponse {
+            billing,
+            merchant_owner_wallet: project.owner_wallet,
+        })
     }
 
     pub async fn checkout_session_by_id(
@@ -803,13 +849,6 @@ impl PortalStore {
             .await
             .into_iter()
             .find(|environment| environment.environment.as_str() == kind.as_str())
-    }
-
-    async fn next_chain_invoice_id(&self) -> u64 {
-        let mut next = self.next_chain_invoice_id.write().await;
-        let value = *next;
-        *next += 1;
-        value
     }
 }
 

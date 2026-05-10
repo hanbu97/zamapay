@@ -29,7 +29,6 @@ type BreadcrumbCrumb = {
 type SearchParamsSnapshot = Pick<URLSearchParams, 'get' | 'toString'>
 
 const projectTabLabels: Record<string, string> = {
-  diagnostics: 'Diagnostics',
   integration: 'Integration',
   payments: 'Payments',
   webhooks: 'Webhooks',
@@ -182,23 +181,34 @@ function AccountProfile({
   }
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        aria-label="Open account menu"
-        className={cn(buttonVariants({ size: 'lg', variant: 'ghost' }), 'ml-auto rounded-full px-1.5')}
-      >
-        {planDisplay ? <Badge variant={planDisplay.variant}>{planDisplay.label}</Badge> : null}
-        <Avatar>
-          <AvatarFallback>{walletInitials(userAddress)}</AvatarFallback>
-        </Avatar>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-36">
-        <DropdownMenuItem disabled={isLoggingOut} onClick={() => void handleLogout()} variant="destructive">
-          <LogOutIcon />
-          {isLoggingOut ? 'Logging out...' : 'Log out'}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="ml-auto flex items-center gap-1.5">
+      {planDisplay ? (
+        <Badge
+          aria-label={`${planDisplay.label} billing upgrade`}
+          render={<Link href="/billing/upgrade" />}
+          variant={planDisplay.variant}
+        >
+          {planDisplay.label}
+        </Badge>
+      ) : null}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          aria-label="Open account menu"
+          className={cn(buttonVariants({ size: 'icon-lg', variant: 'ghost' }), 'rounded-full p-0')}
+        >
+          <Avatar>
+            <AvatarFallback>{walletInitials(userAddress)}</AvatarFallback>
+          </Avatar>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuItem disabled={isLoggingOut} onClick={() => void handleLogout()} variant="destructive">
+            <LogOutIcon />
+            {isLoggingOut ? 'Logging out...' : 'Log out'}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 

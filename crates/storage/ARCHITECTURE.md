@@ -4,7 +4,7 @@
 
 - `src/lib.rs` owns async process-local auth/session stores, session deletion, portal read-model projections, operator/indexer projection methods, diagnostics counters, and the `PortalStore` cache surface.
 - `src/billing.rs` owns the merchant billing read model, subscription payment history, self-serve upgrade intent projection, operator-projected chain entitlement, and contract-manifest fee-term lookup; dashboard/API-key callers still cannot write paid entitlement.
-- `src/projects.rs` owns payment-project state transitions: project creation, project API keys, hosted checkout sessions, project-scoped invoice projection, webhook outbox records, delivery attempts, retries, local withdraw records, and dashboard overview reads.
+- `src/projects.rs` owns payment-project state transitions: project creation, project API keys, hosted checkout quote snapshots, hosted checkout sessions, project-scoped invoice projection, webhook outbox records, delivery attempts, retries, local withdraw records, and dashboard overview reads.
 - `src/projections.rs` owns pure invoice projection and diagnostics helpers shared by the store surface.
 - `src/project_support.rs` owns project-only support types and pure helpers: stored API-key hash records, checkout-session errors, environment manifests, signer metadata, secret hashing, webhook secrets, billing/withdraw totals, and dashboard counters.
 - `src/pg_store/` owns async SeaORM-backed normalized tables, DTO row mapping, schema creation, and full-record replacement transactions.
@@ -32,10 +32,11 @@ src/
 - Fulfillment release is idempotent: the first finality-safe release writes one job id and later reads reuse that audit instead of creating duplicate artifacts.
 - Diagnostics are computed from invoice snapshots plus the API-owned operator auth rejection count; indexer cursor state is derived from projected chain invoice ids and payment tx hashes, so operator pages do not become a parallel incident database.
 - Amount truth is stored with the invoice record; checkout and chain calls consume it instead of accepting buyer-supplied payment amounts.
-- Project checkout sessions use caller-supplied chain invoice id/hash when a local or merchant backend already created the private checkout or legacy contract invoice; otherwise storage falls back to a local read-model id for dev-only contractless paths.
+- Project checkout quotes expose the active fee split and merchant owner wallet before local chain invoice creation, so merchant backends cannot invent net/fee math.
+- Project checkout sessions require caller-supplied chain invoice id/hash from an already-created private checkout; missing chain evidence is an invalid request.
 - The contract manifest is the catalog source; storage applies the free `contract_default` plan until an operator-projected anchored entitlement supplies non-empty pass, tx, handle, and version evidence.
 - Subscription payments are stored as an owner-scoped ledger for historical read-model display and are appended idempotently from operator entitlement projection.
-- Project withdrawals are local payout records against already paid merchant net; they reduce withdrawable read-model balance without pretending to be the later private chain withdraw path.
+- Project withdrawals are read-model records for contract-proven payouts; storage can project them, but API/UI code must not create them without a wallet-signed settlement transaction.
 - Upgrade intents read charge amount and term length from the generated contract manifest; local-dev projects Growth by executing the private subscription registry proof before the operator projection writes the read model.
 - Private entitlement metadata is accepted only from the operator projection boundary after chain verification; the chain registry remains the authority for encrypted fee terms.
 - `DATABASE_URL` is required for portal invoices, projects, checkout sessions, webhook state, subscriptions, and withdrawal read models; this is the shared local Docker and hosted Postgres/Supabase contract.

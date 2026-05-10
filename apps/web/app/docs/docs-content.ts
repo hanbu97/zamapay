@@ -222,6 +222,8 @@ export function verifyMermerWebhook(headers, body, secret) {
             ["MERMER_PAY_API_KEY", "yes", "One-time revealed project API key."],
             ["MERMER_PAY_WEBHOOK_SECRET", "yes", "Secret used to verify Mermer webhook signatures."],
             ["MERMER_PAY_API_URL", "yes", "Rust API base URL, for example http://127.0.0.1:8080."],
+            ["CARDFORGE_DATABASE_URL", "yes", "Independent CardForge Postgres database URL."],
+            ["CARDFORGE_STORE_KEY", "optional", "Local namespace inside the CardForge database; defaults to local-dev."],
             ["CARDFORGE_WEBHOOK_ENDPOINT", "optional", "Defaults to http://127.0.0.1:8092/api/mermer-pay/webhook."],
           ],
         },
@@ -326,18 +328,18 @@ export function verifyMermerWebhook(headers, body, secret) {
               "Only this boolean is publicly decrypted as accepted.",
             ],
             [
-              "On-chain encrypted, future settlement hook",
+              "On-chain encrypted, v1 settlement",
               "encryptedMerchantPending[settlementBucketCommitment]",
               "euint64",
               "Merchant aggregate settlement balance.",
-              "Keep outside the per-checkout struct; decrypt only during batch settlement or withdraw.",
+              "Accrued only by accepted checkouts; moved by merchant-authorized encrypted withdraw.",
             ],
             [
-              "On-chain encrypted, future settlement hook",
+              "On-chain encrypted, v1 settlement",
               "encryptedPlatformPending",
               "euint64",
               "Platform aggregate fee balance.",
-              "Fee balance stays encrypted until batch settlement or withdraw.",
+              "Fee balance stays encrypted until platform settlement is explicitly added.",
             ],
             [
               "On-chain public",
@@ -389,11 +391,11 @@ export function verifyMermerWebhook(headers, body, secret) {
               "Keep in Mermer Pay and merchant backend only.",
             ],
             [
-              "Never public on-chain",
+              "Withdraw calldata",
               "payout wallet",
               "address",
               "Settlement destination.",
-              "Keep off-chain until a later private withdraw design exists.",
+              "Bound by merchant EIP-712 authorization; local-dev does not claim payout-recipient privacy.",
             ],
             [
               "Never public on-chain",
@@ -407,14 +409,14 @@ export function verifyMermerWebhook(headers, body, secret) {
               "merchantNet plaintext",
               "uint64 / token minor units",
               "Plain merchant net split.",
-              "Use future encrypted settlement accumulators and batch or merchant-only decrypt later.",
+              "Use encrypted settlement accumulators and merchant-only dashboard projection.",
             ],
             [
               "Never public on-chain",
               "platformFee plaintext",
               "uint64 / token minor units",
               "Plain platform fee split.",
-              "Use future encrypted settlement accumulators and batch decrypt later.",
+              "Use encrypted settlement accumulators and platform-only projection.",
             ],
             [
               "Never public on-chain",
@@ -498,7 +500,7 @@ export function verifyMermerWebhook(headers, body, secret) {
       },
       {
         body: [
-          "The checkout record should stay small. Settlement accounting belongs outside the per-checkout struct, and only after the proof path works.",
+          "The checkout record stays small. It keeps encrypted gross/net/fee handles for validation, while aggregate pending balances live in bucket mappings outside each checkout.",
         ],
         code: `enum PaymentStatus {
     None,
@@ -513,6 +515,9 @@ struct PrivateCheckout {
     bytes32 orderCommitment;
     bytes32 settlementBucketCommitment;
     euint64 expectedAmount;
+    euint64 merchantNetAmount;
+    euint64 platformFeeAmount;
+    ebool splitCheck;
     ebool paymentCheck;
     PaymentStatus status;
     uint64 expiresAt;
@@ -531,8 +536,13 @@ struct PrivateCheckout {
           rows: [
             [
               "Payment intent binding",
-              "Bind orderCommitment, encrypted amount handle, asset, chainId, settlement contract, nonce, and expiresAt when a future relayed mode is added.",
+              "Bind orderCommitment, encrypted amount handle, asset, chainId, settlement contract, nonce, and expiresAt before adding any future sponsored submitter mode.",
               "Replaying one valid encrypted amount against another checkout.",
+            ],
+            [
+              "Withdraw authorization",
+              "Merchant signs settlementBucketCommitment, withdrawalNonce, bucketOwner, recipient, encryptedAmount handle, inputProofHash, deadline, chainId, and settlement contract.",
+              "A chain submitter moving an unauthorized bucket or swapping the encrypted withdraw input.",
             ],
             ["Expiry", "Reject payment submission after expiresAt.", "Late payment after merchant order is stale."],
             ["Nonce reuse", "Reject reused payment nonce or already-submitted intent.", "Duplicate payment attempts and replay."],
@@ -554,7 +564,7 @@ struct PrivateCheckout {
             title: "Create private checkout",
           },
           {
-            detail: "Submit encrypted payment directly from the buyer wallet in local-dev. This keeps the platform relayer out of the MVP.",
+            detail: "Submit encrypted payment directly from the buyer wallet in local-dev. This keeps any Mermer-owned platform relayer out of the MVP.",
             title: "Submit buyer payment",
           },
           {
@@ -566,7 +576,11 @@ struct PrivateCheckout {
             title: "Finalize fulfillment",
           },
           {
-            detail: "Prove replay, expired payment, resubmit-after-final, and double-finalize paths are rejected.",
+            detail: "Merchant signs an EIP-712 withdraw authorization; the local chain submitter sends the encrypted withdraw transaction and the read model records the chain hash.",
+            title: "Withdraw aggregate balance",
+          },
+          {
+            detail: "Prove replay, expired payment, resubmit-after-final, double-finalize, and unauthorized withdraw paths are rejected.",
             title: "Block payment abuse",
           },
         ],

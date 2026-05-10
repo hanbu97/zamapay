@@ -62,7 +62,7 @@ export default async function ProjectPage({ params, searchParams }: ProjectPageP
     <div className="mermer-flow-stack flex flex-col">
       <PageHeader
         badge={overview.project.defaultEnvironment.replace('_', ' ')}
-        description="Project-level API keys, webhook endpoints, checkout sessions, and diagnostics."
+        description="Project-level API keys, webhook endpoints, checkout sessions, and settlement activity."
         title={overview.project.name}
       />
 

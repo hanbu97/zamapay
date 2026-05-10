@@ -4,7 +4,7 @@ Confidential merchant checkout for wallet-authenticated merchants, Zama FHEVM se
 
 ## What Is Implemented
 
-- Rust API: nonce login, cookie sessions, dashboard read model, invoice APIs, operator projection, finality, and fulfillment release.
+- Rust API: nonce login, cookie sessions, dashboard read model, invoice APIs, chain projection, finality, and fulfillment release.
 - Next.js web app: shadcn merchant homepage, wallet login, dashboard, hosted checkout, and operator diagnostics.
 - Contracts: merchant registry, official-style confidential token mock, private checkout settlement, local deploy, tests, and smoke scripts.
 - Generated clients: ABI and address manifests flow from Hardhat into `generated/*` for Rust and web.
@@ -29,6 +29,11 @@ npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 ```
 
 Set `DATABASE_URL=postgres://mermer:mermer@127.0.0.1:5432/mermer` before starting the API. Projects, API keys, checkout sessions, payment projections, subscriptions, webhook state, and withdrawal read models use normalized Postgres tables as the single portal source of truth.
+
+CardForge is a separate merchant demo and uses its own database URL:
+`CARDFORGE_DATABASE_URL=postgres://mermer:mermer@127.0.0.1:5432/cardforge`.
+Fresh Docker volumes create both `mermer` and `cardforge`; for an existing volume, run
+`docker exec mermer-postgres createdb -U mermer cardforge` once if the CardForge database is missing.
 
 Open:
 
@@ -58,7 +63,7 @@ For manual browser-only `LoginCard` verification without a wallet extension, tem
 
 ## Public Testnet
 
-Public-testnet support is paused in this workspace. The active MVP is local-dev only: Hardhat/FHEVM mock RPC, `ConfidentialUSDMock.claimTestTokens()` from the browser wallet, direct wallet payment, and local operator projection after finalization.
+Public-testnet support is paused in this workspace. The active MVP is local-dev only: Hardhat/FHEVM mock RPC, `ConfidentialUSDMock.claimTestTokens()` from the browser wallet, direct buyer-wallet payment, encrypted pending buckets, merchant-signed withdraw, and local chain evidence projection after finalization.
 
 Future Sepolia work should be reintroduced as one clean branch through Zama official relayer/gateway surfaces and an explicit protocol-fee funding policy. Do not revive the old Sepolia scripts, transparent settlement fallback, or owner-mint helper as active paths.
 

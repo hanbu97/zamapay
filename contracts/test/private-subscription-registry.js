@@ -29,12 +29,6 @@ describe("PrivateSubscriptionRegistry", function () {
     return { deployer, merchant, treasury, token, pass, registry };
   }
 
-  async function encrypt64(contractAddress, signer, amount) {
-    const input = fhevm.createEncryptedInput(contractAddress, signer.address);
-    input.add64(amount);
-    return input.encrypt();
-  }
-
   async function encryptSubscriptionChange(contractAddress, signer, planCode, paidAmount) {
     const input = fhevm.createEncryptedInput(contractAddress, signer.address);
     input.add16(planCode);
@@ -64,23 +58,19 @@ describe("PrivateSubscriptionRegistry", function () {
 
   it("upgrades Growth by charging the official local confidential USD token", async function () {
     const { merchant, treasury, token, registry } = await deployFixture();
-    const tokenAddress = await token.getAddress();
     const registryAddress = await registry.getAddress();
     const price = 99_000000n;
 
+    await token.setPrivateDebitOperator(registryAddress, true);
     await token.mint(merchant.address, price);
-    await registry.connect(merchant).ensureMerchantPass(merchant.address);
-    const passId = await registry.passOfMerchant(merchant.address);
-
-    const approval = await encrypt64(tokenAddress, merchant, price);
-    await token.connect(merchant).approve(registryAddress, approval.handles[0], approval.inputProof);
 
     const upgrade = await encryptSubscriptionChange(registryAddress, merchant, 2n, price);
     await expect(
       registry
         .connect(merchant)
-        .requestSubscriptionChange(passId, upgrade.handles[0], upgrade.handles[1], upgrade.inputProof),
+        .requestMerchantSubscriptionChange(merchant.address, upgrade.handles[0], upgrade.handles[1], upgrade.inputProof),
     ).to.emit(registry, "SubscriptionChangeRequested");
+    const passId = await registry.passOfMerchant(merchant.address);
 
     const proof = await decryptBool(await registry.subscriptionCheckHandleOf(passId));
     expect(proof.accepted).to.equal(true);
@@ -96,22 +86,18 @@ describe("PrivateSubscriptionRegistry", function () {
 
   it("rejects a Growth request when the encrypted paid amount does not match the required price", async function () {
     const { merchant, treasury, token, registry } = await deployFixture();
-    const tokenAddress = await token.getAddress();
     const registryAddress = await registry.getAddress();
     const price = 99_000000n;
     const wrongPrice = 98_000000n;
 
+    await token.setPrivateDebitOperator(registryAddress, true);
     await token.mint(merchant.address, price);
-    await registry.connect(merchant).ensureMerchantPass(merchant.address);
-    const passId = await registry.passOfMerchant(merchant.address);
-
-    const approval = await encrypt64(tokenAddress, merchant, price);
-    await token.connect(merchant).approve(registryAddress, approval.handles[0], approval.inputProof);
 
     const upgrade = await encryptSubscriptionChange(registryAddress, merchant, 2n, wrongPrice);
     await registry
       .connect(merchant)
-      .requestSubscriptionChange(passId, upgrade.handles[0], upgrade.handles[1], upgrade.inputProof);
+      .requestMerchantSubscriptionChange(merchant.address, upgrade.handles[0], upgrade.handles[1], upgrade.inputProof);
+    const passId = await registry.passOfMerchant(merchant.address);
 
     const proof = await decryptBool(await registry.subscriptionCheckHandleOf(passId));
     expect(proof.accepted).to.equal(false);

@@ -141,7 +141,6 @@ pub struct PortalStore {
     webhook_deliveries: Arc<RwLock<HashMap<String, WebhookDeliveryRecord>>>,
     project_withdrawals: Arc<RwLock<HashMap<String, ProjectWithdrawalRecord>>>,
     next_invoice_number: Arc<RwLock<u64>>,
-    next_chain_invoice_id: Arc<RwLock<u64>>,
     database_url: Arc<String>,
     state_key: Arc<String>,
 }
@@ -200,7 +199,6 @@ impl PortalStore {
             webhook_deliveries: Arc::new(RwLock::new(records.webhook_deliveries)),
             project_withdrawals: Arc::new(RwLock::new(records.project_withdrawals)),
             next_invoice_number: Arc::new(RwLock::new(records.next_invoice_number)),
-            next_chain_invoice_id: Arc::new(RwLock::new(records.next_chain_invoice_id)),
             database_url: Arc::new(database_url),
             state_key: Arc::new(state_key),
         }
@@ -244,11 +242,12 @@ impl PortalStore {
         &self,
         chain_invoice_id: u64,
     ) -> Option<InvoiceRecord> {
-        self.invoices
-            .read()
-            .await
+        let invoices = self.invoices.read().await;
+        let sessions = self.checkout_sessions.read().await;
+        invoices
             .values()
-            .find(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))
+            .filter(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))
+            .max_by_key(|invoice| chain_invoice_rank(invoice, &sessions))
             .cloned()
     }
 
@@ -319,10 +318,11 @@ impl PortalStore {
         payment_tx_hash: &str,
         payer_address: &str,
     ) -> Option<InvoiceRecord> {
+        let invoice_id = self
+            .latest_invoice_id_for_chain_invoice(chain_invoice_id)
+            .await?;
         let mut invoices = self.invoices.write().await;
-        let invoice = invoices
-            .values_mut()
-            .find(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))?;
+        let invoice = invoices.get_mut(&invoice_id)?;
 
         project_paid(
             invoice,
@@ -370,10 +370,11 @@ impl PortalStore {
         mut snapshot: SettlementSnapshot,
         progress: Option<FinalityProgress>,
     ) -> Option<InvoiceRecord> {
+        let invoice_id = self
+            .latest_invoice_id_for_chain_invoice(chain_invoice_id)
+            .await?;
         let mut invoices = self.invoices.write().await;
-        let invoice = invoices
-            .values_mut()
-            .find(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))?;
+        let invoice = invoices.get_mut(&invoice_id)?;
 
         preserve_release_status(invoice, &mut snapshot);
         apply_finality_progress(invoice, &snapshot, progress);
@@ -393,10 +394,11 @@ impl PortalStore {
         outcome: WebhookDeliveryOutcome,
         max_attempts: u32,
     ) -> Option<InvoiceRecord> {
+        let invoice_id = self
+            .latest_invoice_id_for_chain_invoice(chain_invoice_id)
+            .await?;
         let mut invoices = self.invoices.write().await;
-        let invoice = invoices
-            .values_mut()
-            .find(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))?;
+        let invoice = invoices.get_mut(&invoice_id)?;
 
         invoice.webhook.apply_delivery(outcome, max_attempts);
         let invoice = invoice.clone();
@@ -616,7 +618,6 @@ impl PortalStore {
     async fn persist(&self) {
         let invoices = self.invoices.read().await.clone();
         let next_invoice_number = *self.next_invoice_number.read().await;
-        let next_chain_invoice_id = *self.next_chain_invoice_id.read().await;
         let records = PortalRecordSet {
             invoices,
             projects: self.projects.read().await.clone(),
@@ -632,11 +633,36 @@ impl PortalStore {
             webhook_deliveries: self.webhook_deliveries.read().await.clone(),
             project_withdrawals: self.project_withdrawals.read().await.clone(),
             next_invoice_number,
-            next_chain_invoice_id,
         };
 
         save_portal_records(&self.database_url, &self.state_key, &records).await;
     }
+
+    async fn latest_invoice_id_for_chain_invoice(&self, chain_invoice_id: u64) -> Option<String> {
+        let invoices = self.invoices.read().await;
+        let sessions = self.checkout_sessions.read().await;
+        invoices
+            .values()
+            .filter(|invoice| invoice.chain_invoice_id == Some(chain_invoice_id))
+            .max_by_key(|invoice| chain_invoice_rank(invoice, &sessions))
+            .map(|invoice| invoice.invoice_id.clone())
+    }
+}
+
+fn chain_invoice_rank(
+    invoice: &InvoiceRecord,
+    sessions: &HashMap<String, CheckoutSession>,
+) -> (Option<DateTime<Utc>>, u64, String) {
+    let created_at = invoice
+        .checkout_session_id
+        .as_ref()
+        .and_then(|session_id| sessions.get(session_id))
+        .map(|session| session.created_at);
+    (
+        created_at,
+        invoice.snapshot.invoice_id,
+        invoice.invoice_id.clone(),
+    )
 }
 
 fn contract_billing_protocol() -> BillingProtocolManifest {

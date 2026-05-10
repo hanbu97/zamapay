@@ -33,6 +33,7 @@ async function main() {
   )
   await subscriptionRegistry.waitForDeployment()
   await (await pass.setMinter(await subscriptionRegistry.getAddress())).wait()
+  await (await token.setPrivateDebitOperator(await subscriptionRegistry.getAddress(), true)).wait()
 
   const privateCheckoutFactory = await ethers.getContractFactory('PrivateCheckoutSettlement')
   const privateCheckout = await privateCheckoutFactory.deploy(await token.getAddress())

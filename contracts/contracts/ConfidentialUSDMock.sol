@@ -16,11 +16,13 @@ contract ConfidentialUSDMock is ZamaEthereumConfig {
 
     mapping(address => euint64) private _balances;
     mapping(address => mapping(address => euint64)) private _allowances;
+    mapping(address => bool) public privateDebitOperators;
 
     event Mint(address indexed to, uint64 amount);
     event Transfer(address indexed from, address indexed to);
     event Approval(address indexed owner, address indexed spender);
     event PrivateExactTransfer(address indexed from, address indexed to, address indexed spender);
+    event PrivateDebitOperatorUpdated(address indexed operator, bool enabled);
     event SettlementUpdated(address indexed settlement);
     event TestTokensClaimed(address indexed account, uint64 amount);
     event PrivateDebit(address indexed account);
@@ -31,7 +33,7 @@ contract ConfidentialUSDMock is ZamaEthereumConfig {
     }
 
     modifier onlySettlement() {
-        require(msg.sender == settlement, "settlement only");
+        require(msg.sender == settlement || privateDebitOperators[msg.sender], "debit operator only");
         _;
     }
 
@@ -42,7 +44,15 @@ contract ConfidentialUSDMock is ZamaEthereumConfig {
     function setSettlement(address settlementAddress) external onlyOwner {
         require(settlementAddress != address(0), "settlement required");
         settlement = settlementAddress;
+        privateDebitOperators[settlementAddress] = true;
         emit SettlementUpdated(settlementAddress);
+        emit PrivateDebitOperatorUpdated(settlementAddress, true);
+    }
+
+    function setPrivateDebitOperator(address operator, bool enabled) external onlyOwner {
+        require(operator != address(0), "operator required");
+        privateDebitOperators[operator] = enabled;
+        emit PrivateDebitOperatorUpdated(operator, enabled);
     }
 
     function mint(address to, uint64 amount) external onlyOwner {
@@ -216,6 +226,49 @@ contract ConfidentialUSDMock is ZamaEthereumConfig {
 
         emit PrivateExactTransfer(from, to, msg.sender);
         return canTransfer;
+    }
+
+    function debitPrivateExact(
+        address from,
+        address to,
+        euint64 amount,
+        euint64 expectedAmount
+    ) external onlySettlement returns (ebool) {
+        require(from != address(0), "account required");
+        require(to != address(0), "recipient required");
+
+        FHE.allowThis(amount);
+        FHE.allow(amount, from);
+        FHE.allow(amount, to);
+        FHE.allowThis(expectedAmount);
+
+        euint64 fromBalance = _balances[from];
+        ebool exactAmount = FHE.eq(amount, expectedAmount);
+        ebool enoughBalance = FHE.ge(fromBalance, amount);
+        ebool canDebit = FHE.and(exactAmount, enoughBalance);
+        euint64 moved = FHE.select(canDebit, amount, FHE.asEuint64(0));
+
+        euint64 nextSenderBalance = FHE.select(canDebit, FHE.sub(fromBalance, amount), fromBalance);
+        euint64 nextRecipientBalance = FHE.add(_balances[to], moved);
+
+        FHE.allowThis(canDebit);
+        FHE.allow(canDebit, msg.sender);
+
+        FHE.allowThis(moved);
+        FHE.allow(moved, from);
+        FHE.allow(moved, to);
+
+        FHE.allowThis(nextSenderBalance);
+        FHE.allow(nextSenderBalance, from);
+
+        FHE.allowThis(nextRecipientBalance);
+        FHE.allow(nextRecipientBalance, to);
+
+        _balances[from] = nextSenderBalance;
+        _balances[to] = nextRecipientBalance;
+
+        emit PrivateExactTransfer(from, to, msg.sender);
+        return canDebit;
     }
 
     function balanceOf(address user) external view returns (euint64) {

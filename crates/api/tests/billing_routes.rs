@@ -264,7 +264,9 @@ async fn subscription_upgrade_is_chain_sourced_not_backend_mutated() {
                         "title": "Free checkout",
                         "amountLabel": "120 cUSDT",
                         "amountMinorUnits": 120000000,
-                        "note": "Contract default fee"
+                        "note": "Contract default fee",
+                        "chainInvoiceId": 21,
+                        "chainTxHash": "0xfreecheckout"
                     })
                     .to_string(),
                 ))
@@ -328,7 +330,9 @@ async fn subscription_upgrade_is_chain_sourced_not_backend_mutated() {
                         "title": "Growth checkout",
                         "amountLabel": "120 cUSDT",
                         "amountMinorUnits": 120000000,
-                        "note": "Subscription controlled fee"
+                        "note": "Subscription controlled fee",
+                        "chainInvoiceId": 22,
+                        "chainTxHash": "0xgrowthcheckout"
                     })
                     .to_string(),
                 ))

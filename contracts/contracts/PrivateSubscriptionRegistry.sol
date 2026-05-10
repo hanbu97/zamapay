@@ -6,7 +6,7 @@ import { ZamaEthereumConfig } from "@fhevm/solidity/config/ZamaConfig.sol";
 import { SubscriptionPass } from "./SubscriptionPass.sol";
 
 interface IConfidentialSubscriptionChargeToken {
-    function transferFromPrivateExact(address from, address to, euint64 amount, euint64 expectedAmount)
+    function debitPrivateExact(address from, address to, euint64 amount, euint64 expectedAmount)
         external
         returns (ebool);
 }
@@ -97,6 +97,28 @@ contract PrivateSubscriptionRegistry is ZamaEthereumConfig {
         externalEuint64 encryptedPaidAmount,
         bytes calldata inputProof
     ) external onlyPassOwner(passId) returns (bytes32) {
+        return _requestSubscriptionChange(passId, encryptedPlanCode, encryptedPaidAmount, inputProof);
+    }
+
+    function requestMerchantSubscriptionChange(
+        address merchant,
+        externalEuint16 encryptedPlanCode,
+        externalEuint64 encryptedPaidAmount,
+        bytes calldata inputProof
+    ) external returns (uint256 passId, bytes32 acceptanceHandle) {
+        require(merchant != address(0), "merchant required");
+        require(msg.sender == merchant, "merchant only");
+        passId = ensureMerchantPass(merchant);
+        acceptanceHandle = _requestSubscriptionChange(passId, encryptedPlanCode, encryptedPaidAmount, inputProof);
+    }
+
+    function _requestSubscriptionChange(
+        uint256 passId,
+        externalEuint16 encryptedPlanCode,
+        externalEuint64 encryptedPaidAmount,
+        bytes calldata inputProof
+    ) private returns (bytes32) {
+        address merchant = pass.ownerOf(passId);
         EncryptedTerms storage terms = _termsByPass[passId];
         require(terms.version != 0, "terms not initialized");
 
@@ -123,7 +145,7 @@ contract PrivateSubscriptionRegistry is ZamaEthereumConfig {
 
         FHE.allowTransient(paidAmount, address(chargeToken));
         FHE.allowTransient(requiredPayment, address(chargeToken));
-        ebool paid = chargeToken.transferFromPrivateExact(msg.sender, treasury, paidAmount, requiredPayment);
+        ebool paid = chargeToken.debitPrivateExact(merchant, treasury, paidAmount, requiredPayment);
         ebool accepted = FHE.and(planAllowed, paid);
 
         terms.feeBps = FHE.select(accepted, requestedFeeBps, terms.feeBps);
@@ -134,12 +156,12 @@ contract PrivateSubscriptionRegistry is ZamaEthereumConfig {
         );
         terms.version += 1;
 
-        _allowTerms(passId, msg.sender);
+        _allowTerms(passId, merchant);
         FHE.allowThis(accepted);
         FHE.makePubliclyDecryptable(accepted);
         _subscriptionChecks[passId] = accepted;
 
-        emit SubscriptionChangeRequested(passId, msg.sender, FHE.toBytes32(accepted), terms.version);
+        emit SubscriptionChangeRequested(passId, merchant, FHE.toBytes32(accepted), terms.version);
         return FHE.toBytes32(accepted);
     }
 

@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { TableCell, TableRow } from '@/components/ui/table'
 import type { BillingPlan, BillingSubscriptionResponse, PaymentProject, ProjectDashboardOverview, ProjectEnvironmentKind } from '@/lib/api'
 import { labelForProjectEnvironment } from '@/lib/contract-environment'
+import { formatMerchantTimestamp } from '@/lib/time-format'
 
 export type OneTimeSecret = {
   copied: boolean
@@ -180,10 +181,10 @@ export function FactRow({ label, value }: { label: string; value: number | strin
 
 export function MetricCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle>{value}</CardTitle>
-        <CardDescription>{label}</CardDescription>
+    <Card className="min-h-28 justify-center" size="sm">
+      <CardHeader className="gap-2">
+        <div className="text-2xl leading-none font-semibold whitespace-nowrap md:text-3xl">{value}</div>
+        <CardDescription className="text-sm">{label}</CardDescription>
       </CardHeader>
     </Card>
   )
@@ -267,6 +268,8 @@ export function buildIntegrationBundle({
     buildEnvExport('MERMER_PAY_API_URL', apiBaseUrl),
     buildEnvExport('MERMER_PAY_CHAIN_INVOICE_API_URL', 'http://127.0.0.1:3001'),
     buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', webhookSecret ?? '<create a webhook endpoint first>'),
+    buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://mermer:mermer@127.0.0.1:5432/cardforge'),
+    buildEnvExport('CARDFORGE_STORE_KEY', 'local-dev'),
   ].join('\n')
 }
 
@@ -291,12 +294,7 @@ export function compact(value: string | null | undefined) {
 }
 
 export function formatTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    month: 'short',
-    day: '2-digit',
-  }).format(new Date(value))
+  return formatMerchantTimestamp(value)
 }
 
 export function copyText(value: string, setStatus: (value: string) => void) {

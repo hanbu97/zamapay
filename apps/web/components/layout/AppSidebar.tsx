@@ -7,7 +7,6 @@ import {
   ArrowLeftIcon,
   Building2Icon,
   BellRingIcon,
-  GaugeIcon,
   KeyRoundIcon,
   LayoutDashboardIcon,
   LogInIcon,
@@ -178,12 +177,6 @@ function projectNavSections(projectId: string): NavSection[] {
           icon: ReceiptTextIcon,
           title: 'Payments',
         },
-        {
-          activeTab: 'diagnostics',
-          href: `${baseHref}?tab=diagnostics`,
-          icon: GaugeIcon,
-          title: 'Diagnostics',
-        },
       ],
     },
   ]
@@ -214,5 +207,10 @@ function isActivePath(pathname: string, item: NavItem, searchParams: URLSearchPa
     return pathname.startsWith(`${hrefPath}/`) && hrefPath !== '/merchant'
   }
 
-  return !searchParams.get('tab') || item.href.includes('#')
+  const tab = searchParams.get('tab')
+  return !tab || isDeprecatedProjectTab(tab) || item.href.includes('#')
+}
+
+function isDeprecatedProjectTab(tab: string) {
+  return tab === 'diagnostics' || tab === 'withdraw'
 }

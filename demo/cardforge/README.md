@@ -14,6 +14,7 @@ Copy the shell exports shown by the Mermer Pay project dialog into the CardForge
 
 ```bash
 cd demo/cardforge/backend
+export CARDFORGE_DATABASE_URL='postgres://mermer:mermer@127.0.0.1:5432/cardforge'
 cargo run
 ```
 
@@ -34,7 +35,7 @@ When no local explorer is running, CardForge still records and displays the conf
 ## Boundary
 
 - `frontend/` owns catalog UI and buyer intent; Buy sends only the selected product id.
-- `backend/` owns server-side product amounts, Mermer Pay checkout creation, local-dev private invoice creation, webhook receipt, and release policy.
+- `backend/` owns server-side product amounts, Mermer Pay checkout creation, local-dev private invoice creation, webhook receipt, release policy, and CardForge-owned Postgres state.
 - Mermer Pay owns login, project configuration, hosted checkout, invoice truth, finality, and settlement.
 - The root Mermer Pay workspace does not start, build, lint, or import this template.
 - CardForge uses `MERMER_PAY_PROJECT_ID` and `MERMER_PAY_API_KEY` only; it does not forward `mermer_session` cookies to Mermer Pay.

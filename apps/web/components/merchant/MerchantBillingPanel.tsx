@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Tilt from 'react-parallax-tilt'
 import {
   ArrowRightIcon,
   BadgeCheckIcon,
@@ -39,9 +40,7 @@ import {
 } from '@/lib/contract-environment'
 import {
   decryptLocalEuint64Handle,
-  encryptLocalEuint64,
   encryptLocalSubscriptionChange,
-  publicDecryptLocalBool,
 } from '@/lib/local-fhevm-browser'
 import { cn } from '@/lib/utils'
 import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
@@ -89,11 +88,8 @@ type BillingChainConfig = {
 
 type SubscriptionProjectionPayload = {
   billingCycle: BillingCycle
-  entitlementTxHash: Hex
-  entitlementVersion: number
-  passId: string
   plan: 'growth'
-  subscriptionCheckHandle: Hex
+  subscriptionRequestTxHash: Hex
 }
 
 async function projectLocalGrowthEntitlement(ownerAddress: string, payload: SubscriptionProjectionPayload) {
@@ -138,8 +134,8 @@ const planViews: PlanView[] = [
   {
     plan: 'enterprise',
     title: 'Enterprise',
-    summary: 'Custom rates and settlement operations for larger merchants.',
-    features: ['Dedicated settlement policy', 'Custom limits', 'Operational review', 'Priority integration support'],
+    summary: 'Talk to sales for negotiated rates and custom settlement policy.',
+    features: ['Negotiated checkout fee', 'Custom limits', 'Operational review', 'Dedicated settlement policy'],
   },
 ]
 
@@ -312,24 +308,20 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
 
   const currentPlan = chainSubscription.plan
   const currentCycle = chainSubscription.billingCycle
-  const selectedCycle = billingCycleFor(selectedPlan, billingCycle)
-  const selectedCatalog = plansByKey.get(selectedPlan)
-  const selectedPriceUsd =
-    selectedCycle === 'annual' ? selectedCatalog?.annualPriceUsd : selectedCatalog?.monthlyPriceUsd
-  const selectedPriceMinorUnits =
-    selectedCycle === 'annual' ? selectedCatalog?.annualPriceMinorUnits : selectedCatalog?.monthlyPriceMinorUnits
-  const selectedPrice = selectedCatalog?.selfServe ? formatMoney(selectedPriceUsd, selectedCycle) : formatMoney(null, selectedCycle)
-  const selectedIntentAmount = selectedPriceMinorUnits ?? null
-  const isCurrentSelection = currentPlan === selectedPlan && currentCycle === selectedCycle
-  const selectedBusy = busyKey === `${selectedPlan}:${selectedCycle}`
-  const periodLabel = selectedCycle === 'annual' ? '365 days' : '30 days'
-  const canUseLocalProjection = selectedPlan === 'growth'
-  const upgradeDisabled = selectedBusy || selectedPlan === 'enterprise' || !canUseLocalProjection
+  const growthCycle = billingCycleFor('growth', billingCycle)
+  const growthCatalog = plansByKey.get('growth')
+  const growthPriceUsd = growthCycle === 'annual' ? growthCatalog?.annualPriceUsd : growthCatalog?.monthlyPriceUsd
+  const growthPriceMinorUnits =
+    growthCycle === 'annual' ? growthCatalog?.annualPriceMinorUnits : growthCatalog?.monthlyPriceMinorUnits
+  const growthIntentAmount = growthPriceMinorUnits ?? null
+  const growthPeriodLabel = growthCycle === 'annual' ? '365 days' : '30 days'
+  const isGrowthCurrent = currentPlan === 'growth' && currentCycle === growthCycle
+  const growthBusy = busyKey === `growth:${growthCycle}`
+  const upgradeDisabled = growthBusy || isGrowthCurrent || !growthCatalog?.selfServe
   const upgradeLabels: Array<[boolean, string]> = [
-    [isCurrentSelection, 'Current entitlement'],
-    [selectedBusy, 'Processing...'],
-    [canUseLocalProjection, 'Project local-dev Growth'],
-    [selectedPlan === 'enterprise', 'Review required'],
+    [isGrowthCurrent, 'Current entitlement'],
+    [growthBusy, 'Processing...'],
+    [true, 'Project local-dev Growth'],
   ]
   const upgradeLabel = upgradeLabels.find(([matches]) => matches)?.[1] ?? 'Project local-dev Growth'
 
@@ -410,25 +402,34 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
     void refreshChainSubscription()
   }, [refreshChainSubscription])
 
-  async function handlePurchase() {
-    const catalog = plansByKey.get(selectedPlan)
+  async function handlePurchase(plan: BillingPlan = selectedPlan) {
+    const cycle = billingCycleFor(plan, billingCycle)
+    const catalog = plansByKey.get(plan)
+    const priceMinorUnitsValue =
+      cycle === 'annual' ? catalog?.annualPriceMinorUnits : catalog?.monthlyPriceMinorUnits
+    const intentAmount = priceMinorUnitsValue ?? null
+    const isCurrentSelection = currentPlan === plan && currentCycle === cycle
+    const canUseLocalProjection = plan === 'growth'
+
+    setSelectedPlan(plan)
+
     if (!catalog?.selfServe) {
       setError('Enterprise pricing requires a review before the private entitlement can be changed.')
       return
     }
 
     if (isCurrentSelection) {
-      setStatus(`Already on ${formatPlan(selectedPlan)} ${selectedCycle}.`)
+      setStatus(`Already on ${formatPlan(plan)} ${cycle}.`)
       setError(null)
       return
     }
 
-    setBusyKey(`${selectedPlan}:${selectedCycle}`)
+    setBusyKey(`${plan}:${cycle}`)
     setError(null)
 
     try {
       if (canUseLocalProjection) {
-        if (selectedIntentAmount === null || selectedIntentAmount <= 0 || !Number.isSafeInteger(selectedIntentAmount)) {
+        if (intentAmount === null || intentAmount <= 0 || !Number.isSafeInteger(intentAmount)) {
           throw new Error('Growth subscription price is not available in the contract manifest.')
         }
 
@@ -440,7 +441,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
 
         const provider = ensureEthereumProvider()
         const merchantAddress = getAddress(ownerAddress)
-        const priceMinorUnits = BigInt(selectedIntentAmount)
+        const priceMinorUnits = BigInt(intentAmount)
 
         setStatus('Switching wallet to Hardhat Local...')
         await ensureWalletChain(provider, config.walletChain)
@@ -468,77 +469,19 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
           throw new Error(`ConfidentialUSDMock is not deployed at ${config.token} on ${config.chain.name}.`)
         }
 
-        setStatus('Ensuring the merchant subscription pass on chain...')
-        let passId = (await publicClient.readContract({
-          address: config.registry,
-          abi: privateSubscriptionRegistryAbi,
-          functionName: 'passOfMerchant',
-          args: [merchantAddress],
-        })) as bigint
-        if (passId === 0n) {
-          const passTxHash = await walletClient.writeContract({
-            account: signerAddress,
-            address: config.registry,
-            abi: privateSubscriptionRegistryAbi,
-            functionName: 'ensureMerchantPass',
-            args: [merchantAddress],
-          })
-          await publicClient.waitForTransactionReceipt({ hash: passTxHash })
-          passId = (await publicClient.readContract({
-            address: config.registry,
-            abi: privateSubscriptionRegistryAbi,
-            functionName: 'passOfMerchant',
-            args: [merchantAddress],
-          })) as bigint
-        }
-
         setStatus(`Reading encrypted cUSDT balance for ${signerAddress.slice(0, 6)}...${signerAddress.slice(-4)}...`)
-        let balanceHandle = (await publicClient.readContract({
+        const balanceHandle = (await publicClient.readContract({
           address: config.token,
           abi: confidentialUsdMockAbi,
           functionName: 'balanceOf',
           args: [signerAddress],
         })) as Hex
-        let balance = await decryptLocalEuint64Handle(rpcUrl, balanceHandle)
+        const balance = await decryptLocalEuint64Handle(rpcUrl, balanceHandle)
         if (balance < priceMinorUnits) {
-          setStatus(`Claiming local cUSDT faucet balance for ${formatMinorUnitsBigInt(priceMinorUnits)} subscription charge...`)
-          const claimTxHash = await walletClient.writeContract({
-            account: signerAddress,
-            address: config.token,
-            abi: confidentialUsdMockAbi,
-            functionName: 'claimTestTokens',
-          })
-          await publicClient.waitForTransactionReceipt({ hash: claimTxHash })
-          balanceHandle = (await publicClient.readContract({
-            address: config.token,
-            abi: confidentialUsdMockAbi,
-            functionName: 'balanceOf',
-            args: [signerAddress],
-          })) as Hex
-          balance = await decryptLocalEuint64Handle(rpcUrl, balanceHandle)
-        }
-        if (balance < priceMinorUnits) {
-          throw new Error(`Encrypted cUSDT balance is ${formatMinorUnitsBigInt(balance)}; ${formatMinorUnitsBigInt(priceMinorUnits)} is required.`)
+          throw new Error(`Encrypted cUSDT balance is ${formatMinorUnitsBigInt(balance)}; ${formatMinorUnitsBigInt(priceMinorUnits)} is required. Claim local cUSDT before upgrading.`)
         }
 
-        setStatus(`Encrypting and approving ${formatMinorUnitsBigInt(priceMinorUnits)} cUSDT for the subscription registry...`)
-        const approval = await encryptLocalEuint64({
-          amountMinorUnits: priceMinorUnits,
-          chainId: config.chain.id,
-          contractAddress: config.token,
-          rpcUrl,
-          userAddress: signerAddress,
-        })
-        const approvalTxHash = await walletClient.writeContract({
-          account: signerAddress,
-          address: config.token,
-          abi: confidentialUsdMockAbi,
-          functionName: 'approve',
-          args: [config.registry, approval.handle, approval.inputProof],
-        })
-        await publicClient.waitForTransactionReceipt({ hash: approvalTxHash })
-
-        setStatus('Submitting encrypted Growth plan code and cUSDT charge...')
+        setStatus('Submitting encrypted Growth plan and cUSDT charge...')
         const encryptedUpgrade = await encryptLocalSubscriptionChange({
           chainId: config.chain.id,
           contractAddress: config.registry,
@@ -551,58 +494,23 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
           account: signerAddress,
           address: config.registry,
           abi: privateSubscriptionRegistryAbi,
-          functionName: 'requestSubscriptionChange',
-          args: [passId, encryptedUpgrade.planCodeHandle, encryptedUpgrade.paidAmountHandle, encryptedUpgrade.inputProof],
+          functionName: 'requestMerchantSubscriptionChange',
+          args: [merchantAddress, encryptedUpgrade.planCodeHandle, encryptedUpgrade.paidAmountHandle, encryptedUpgrade.inputProof],
         })
         await publicClient.waitForTransactionReceipt({ hash: requestTxHash })
 
-        setStatus('Decrypting only the accepted/rejected subscription boolean...')
-        const subscriptionCheckHandle = (await publicClient.readContract({
-          address: config.registry,
-          abi: privateSubscriptionRegistryAbi,
-          functionName: 'subscriptionCheckHandleOf',
-          args: [passId],
-        })) as Hex
-        const proof = await publicDecryptLocalBool(rpcUrl, subscriptionCheckHandle)
-        if (!proof.accepted) {
-          throw new Error('Encrypted Growth subscription charge was rejected by the contract.')
-        }
-
-        const finalizeTxHash = await walletClient.writeContract({
-          account: signerAddress,
-          address: config.registry,
-          abi: privateSubscriptionRegistryAbi,
-          functionName: 'finalizeSubscriptionChange',
-          args: [passId, proof.abiEncodedClearValues, proof.decryptionProof],
-        })
-        await publicClient.waitForTransactionReceipt({ hash: finalizeTxHash })
-        const entitlementVersion = Number(
-          await publicClient.readContract({
-            address: config.registry,
-            abi: privateSubscriptionRegistryAbi,
-            functionName: 'termsVersionOf',
-            args: [passId],
-          }),
-        )
-        if (!Number.isSafeInteger(entitlementVersion) || entitlementVersion <= 0) {
-          throw new Error('Subscription terms version is invalid after finalization.')
-        }
-
-        setStatus('Projecting finalized chain entitlement into the merchant read model...')
+        setStatus('Finalizing the encrypted boolean and projecting Growth entitlement...')
         const projected = await projectLocalGrowthEntitlement(merchantAddress, {
-          billingCycle: selectedCycle,
-          entitlementTxHash: finalizeTxHash,
-          entitlementVersion,
-          passId: passId.toString(),
+          billingCycle: cycle,
           plan: 'growth',
-          subscriptionCheckHandle,
+          subscriptionRequestTxHash: requestTxHash,
         })
         const projectedPlan = projected.plans.find((plan) => plan.plan === 'growth')
         setChainSubscription({
           status: 'anchored',
           plan: 'growth',
           billingCycle: projected.subscription.billingCycle,
-          passId: projected.subscription.passId ?? passId.toString(),
+          passId: projected.subscription.passId ?? null,
           feeBps: projectedPlan?.checkoutFeeBps ?? null,
           message: `Local-dev Growth entitlement projected from ${projected.subscription.entitlementTxHash?.slice(0, 10) ?? 'operator'}...`,
         })
@@ -662,7 +570,7 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-3">
           {planViews.map((plan) => {
             const catalog = plansByKey.get(plan.plan)
             const cycle = billingCycleFor(plan.plan, billingCycle)
@@ -670,82 +578,128 @@ export function MerchantBillingPanel({ initialBilling, ownerAddress }: MerchantB
             const price = catalog?.selfServe ? formatMoney(priceUsd, cycle) : formatMoney(null, cycle)
             const isSelected = selectedPlan === plan.plan
             const isCurrent = currentPlan === plan.plan && currentCycle === cycle
+            const isGrowth = plan.plan === 'growth'
+            const isEnterprise = plan.plan === 'enterprise'
+            const accent = isGrowth
+              ? 'from-lime-300 via-emerald-400 to-cyan-400'
+              : isEnterprise
+                ? 'from-slate-300 via-sky-400 to-zinc-500'
+                : 'from-zinc-200 via-zinc-300 to-zinc-500'
 
             return (
-              <Card
+              <Tilt
                 key={plan.plan}
-                className={cn(
-                  'cursor-pointer transition-colors hover:bg-muted/40',
-                  isSelected && 'ring-2 ring-foreground',
-                )}
-                onClick={() => {
-                  setSelectedPlan(plan.plan)
-                  setError(null)
-                }}
-                size="sm"
+                className="group h-full"
+                glareBorderRadius="1rem"
+                glareColor="#ffffff"
+                glareEnable
+                glareMaxOpacity={0.16}
+                glarePosition="all"
+                perspective={900}
+                scale={1.025}
+                tiltMaxAngleX={7}
+                tiltMaxAngleY={9}
+                transitionSpeed={900}
               >
-                <CardHeader>
-                  <CardTitle>{plan.title}</CardTitle>
-                  <CardDescription>{plan.summary}</CardDescription>
-                  <CardAction>
-                    {isSelected ? (
-                      <Badge variant="default">
-                        <CheckIcon />
-                        Selected
-                      </Badge>
-                    ) : isCurrent ? (
-                      <Badge variant="secondary">Current</Badge>
-                    ) : (
-                      <CircleIcon className="size-4 text-muted-foreground" />
-                    )}
-                  </CardAction>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                  <div className="flex items-end gap-2">
-                    <span className="text-3xl font-semibold">{price.amount}</span>
-                    {price.unit ? <span className="pb-1 text-sm text-muted-foreground">{price.unit}</span> : null}
-                  </div>
-                  <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm">
-                    <span className="text-muted-foreground">Checkout fee</span>
-                    <span className="font-medium">{catalog ? formatBps(catalog.checkoutFeeBps) : 'Custom'}</span>
-                  </div>
-                  <Separator />
-                  <ul className="flex flex-col gap-2">
-                    {plan.features.map((feature) => (
-                      <li className="flex items-center gap-2 text-sm" key={feature}>
-                        <CheckIcon className="size-4 text-muted-foreground" />
-                        <span>{feature}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
+                <Card
+                  className={cn(
+                    'relative flex h-full flex-col overflow-hidden transition-[border-color,box-shadow] duration-300 group-hover:shadow-2xl',
+                    isEnterprise ? 'cursor-default' : 'cursor-pointer',
+                    isGrowth && 'bg-[radial-gradient(circle_at_top_right,rgba(190,242,100,0.28),transparent_36%),linear-gradient(180deg,rgba(255,255,255,1),rgba(250,250,250,1))]',
+                    isSelected && !isEnterprise && 'border-foreground shadow-xl ring-2 ring-foreground',
+                  )}
+                  onClick={() => {
+                    if (isEnterprise) {
+                      return
+                    }
+                    setSelectedPlan(plan.plan)
+                    setError(null)
+                  }}
+                  size="sm"
+                >
+                  <div aria-hidden className={cn('absolute inset-x-0 top-0 h-1 bg-gradient-to-r', accent)} />
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute -right-12 -top-12 size-28 rounded-full bg-lime-300/30 opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+                  />
+                  <CardHeader>
+                    <CardTitle>{plan.title}</CardTitle>
+                    <CardDescription>{plan.summary}</CardDescription>
+                    <CardAction>
+                      {isEnterprise ? (
+                        <Badge variant="secondary">Sales</Badge>
+                      ) : isCurrent ? (
+                        <Badge variant="secondary">Current</Badge>
+                      ) : isSelected ? (
+                        <Badge variant="default">
+                          <CheckIcon />
+                          Selected
+                        </Badge>
+                      ) : (
+                        <CircleIcon className="size-4 text-muted-foreground" />
+                      )}
+                    </CardAction>
+                  </CardHeader>
+                  <CardContent className="flex flex-1 flex-col gap-4">
+                    <div className="flex items-end gap-2">
+                      <span className="text-3xl font-semibold">{price.amount}</span>
+                      {price.unit ? <span className="pb-1 text-sm text-muted-foreground">{price.unit}</span> : null}
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm">
+                      <span className="text-muted-foreground">Checkout fee</span>
+                      <span className="font-medium">{catalog ? formatBps(catalog.checkoutFeeBps) : 'Custom'}</span>
+                    </div>
+                    <Separator />
+                    <ul className="flex flex-col gap-2">
+                      {plan.features.map((feature) => (
+                        <li className="flex items-center gap-2 text-sm" key={feature}>
+                          <CheckIcon className="size-4 text-muted-foreground" />
+                          <span>{feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {isGrowth ? (
+                      <div className="mt-auto flex flex-col gap-3 rounded-xl border bg-background/80 p-3 shadow-sm">
+                        <div className="text-sm">
+                          <span className="font-medium">Growth charges</span>
+                          <span className="text-muted-foreground">
+                            {' '}
+                            {growthIntentAmount === null ? formatMoney(growthPriceUsd, growthCycle).amount : formatMinorUnits(growthIntentAmount)} for {growthPeriodLabel}.
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+                          <Badge className="w-fit" variant={chainSubscription.status === 'anchored' ? 'default' : 'secondary'}>
+                            {chainSubscription.status === 'anchored' ? 'Chain tier' : 'Chain source'}
+                          </Badge>
+                          <span>{chainSubscription.message}</span>
+                        </div>
+                        <Button
+                          className="w-full"
+                          disabled={upgradeDisabled}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            void handlePurchase('growth')
+                          }}
+                        >
+                          <BadgeCheckIcon data-icon="inline-start" />
+                          {upgradeLabel}
+                          <ArrowRightIcon data-icon="inline-end" />
+                        </Button>
+                      </div>
+                    ) : null}
+                    {isEnterprise ? (
+                      <div className="mt-auto rounded-xl border border-dashed bg-muted/30 p-3">
+                        <div className="text-sm font-medium">Contact sales</div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Rate, limits, and settlement policy are negotiated outside the self-serve checkout.
+                        </p>
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              </Tilt>
             )
           })}
-        </div>
-
-        <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex flex-col gap-1.5">
-            <div className="text-sm">
-              <span className="font-medium">{formatPlan(selectedPlan)}</span>
-              <span className="text-muted-foreground">
-                {' '}
-                charges {selectedIntentAmount === null ? selectedPrice.amount : formatMinorUnits(selectedIntentAmount)} for {periodLabel}.
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <Badge variant={chainSubscription.status === 'anchored' ? 'default' : 'secondary'}>
-                {chainSubscription.status === 'anchored' ? 'Chain tier' : 'Chain source'}
-              </Badge>
-              <span>{chainSubscription.message}</span>
-            </div>
-          </div>
-
-          <Button disabled={upgradeDisabled} onClick={handlePurchase}>
-            <BadgeCheckIcon data-icon="inline-start" />
-            {upgradeLabel}
-            <ArrowRightIcon data-icon="inline-end" />
-          </Button>
         </div>
       </section>
 

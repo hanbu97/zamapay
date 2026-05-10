@@ -13,7 +13,6 @@ export type ContractEnvironmentConfig = {
   chain: Chain
   walletChain: WalletChain
   manifest: AddressManifest | null
-  browserRelayer: boolean
 }
 
 export const defaultContractEnvironment: ContractEnvironment = 'local-dev'
@@ -27,7 +26,6 @@ export const contractEnvironmentConfigs: Record<ContractEnvironment, ContractEnv
     chain: localHardhat,
     walletChain: localHardhatWalletChain,
     manifest: localDevAddresses,
-    browserRelayer: false,
   },
 }
 

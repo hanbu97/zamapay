@@ -34,7 +34,6 @@ pub(crate) struct PortalRecordSet {
     pub(crate) webhook_deliveries: HashMap<String, WebhookDeliveryRecord>,
     pub(crate) project_withdrawals: HashMap<String, ProjectWithdrawalRecord>,
     pub(crate) next_invoice_number: u64,
-    pub(crate) next_chain_invoice_id: u64,
 }
 
 impl Default for PortalRecordSet {
@@ -54,7 +53,6 @@ impl Default for PortalRecordSet {
             webhook_deliveries: HashMap::new(),
             project_withdrawals: HashMap::new(),
             next_invoice_number: 1,
-            next_chain_invoice_id: 1,
         }
     }
 }
@@ -62,7 +60,6 @@ impl Default for PortalRecordSet {
 #[derive(Debug, FromQueryResult)]
 pub(crate) struct CounterRow {
     pub(crate) next_invoice_number: i64,
-    pub(crate) next_chain_invoice_id: i64,
 }
 
 #[derive(Debug, FromQueryResult)]

@@ -19,9 +19,9 @@ apps/web/components
 
 - Client components are reserved for browser-owned actions: wallet connection, local encrypted payment submission, local confidential wallet panel, and authenticated form submission.
 - `LoginCard` uses one wallet-returned active account and disconnects by revoking this site's wallet permission so the user can switch accounts in the wallet before reconnecting.
-- `checkout/CheckoutPaymentCard.tsx` is local-dev only: the buyer wallet submits encrypted payment directly, and only the paid/rejected boolean becomes public.
-- `merchant/MerchantBillingPanel.tsx` owns the local-dev Growth wallet flow: read pass state, faucet cUSDT if needed, approve the registry, submit encrypted plan/amount, finalize the boolean, then project chain evidence.
+- `checkout/CheckoutPaymentCard.tsx` is local-dev only: the buyer wallet submits encrypted payment directly, settlement credits encrypted pending buckets, and only the paid/rejected boolean becomes public.
+- `merchant/MerchantBillingPanel.tsx` owns the local-dev Growth wallet flow: read pass state, verify cUSDT balance, submit one encrypted plan/amount charge request, then let the local server finalize/project chain evidence.
 - `ui/` and `reui/` are generated registry infrastructure. They own appearance and accessibility defaults, never merchant payment state.
 - `commerce/StatusBadge.tsx` and `commerce/StatusStepper.tsx` are the shared status and step-progress policies.
 - `layout/TopBar.tsx` owns the compact account menu; it shows the current plan/avatar and sends logout through the Rust session boundary.
-- `merchant/PaymentProjectConsole.tsx` is the project control plane: API keys, webhook endpoints, delivery retries, checkout read model, withdraw records, and diagnostics live there without CardForge-specific state.
+- `merchant/PaymentProjectConsole.tsx` is the project control plane: API keys, webhook endpoints, delivery retries, checkout read model, merchant-signed withdraw action, and overview-owned settlement activity live there without CardForge-specific state.

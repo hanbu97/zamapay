@@ -124,6 +124,69 @@ async fn unknown_contract_manifest_route_returns_not_found() {
 }
 
 #[tokio::test]
+async fn project_withdraw_route_rejects_unavailable_balance() {
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
+    let cookie = format!("mermer_session={}", seeded_session.session_id);
+    let app = app(state);
+
+    let project = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/projects")
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(Body::from(
+                    json!({
+                        "name": "Withdraw boundary",
+                        "environment": "local_dev",
+                        "billingPlan": "free",
+                        "webhookUrl": "http://127.0.0.1:9/webhooks/mermer"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(project.status(), StatusCode::OK);
+    let project = response_json(project).await;
+    let project_id = project["project"]["projectId"].as_str().unwrap();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/projects/{project_id}/withdrawals"))
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(Body::from(
+                    json!({
+                        "amountMinorUnits": 1,
+                        "chainTxHash": "0x1111111111111111111111111111111111111111111111111111111111111111"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(body.to_vec()).unwrap(),
+        "withdraw amount exceeds available project balance"
+    );
+}
+
+#[tokio::test]
 async fn operator_diagnostics_requires_separate_key() {
     let app = app(test_state().await);
 
@@ -831,6 +894,8 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
                         "amountLabel": "120 cUSDT",
                         "amountMinorUnits": 120000000,
                         "note": "Standalone project checkout",
+                        "chainInvoiceId": 11,
+                        "chainTxHash": "0xcheckout",
                         "successUrl": "http://127.0.0.1:4101/success",
                         "cancelUrl": "http://127.0.0.1:4101/cancel"
                     })
@@ -946,7 +1011,9 @@ async fn project_operator_projection_creates_project_outbox_records() {
                         "title": "CardForge prepaid card bundle",
                         "amountLabel": "120 cUSDT",
                         "amountMinorUnits": 120000000,
-                        "note": "Standalone project checkout"
+                        "note": "Standalone project checkout",
+                        "chainInvoiceId": 12,
+                        "chainTxHash": "0xoutbox"
                     })
                     .to_string(),
                 ))

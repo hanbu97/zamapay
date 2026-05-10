@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { bytesToHex, createPublicClient, createWalletClient, custom, getAddress, http, keccak256, type Hex } from 'viem'
 import {
   ArrowDownToLineIcon,
   BellRingIcon,
@@ -26,8 +27,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import {
   configureProjectWebhook,
-  createProjectWithdrawal,
   createProjectApiKey,
+  createProjectWithdrawal,
   getProjectOverview,
   resendProjectWebhookDelivery,
   testProjectWebhook,
@@ -35,6 +36,11 @@ import {
   type ProjectDashboardOverview,
   type WebhookDeliveryRecord,
 } from '@/lib/api'
+import { contractEnvironmentConfig } from '@/lib/contract-environment'
+import { privateCheckoutSettlementAbi } from '@/lib/contracts'
+import { decryptLocalEuint64Handle, encryptLocalEuint64, publicDecryptLocalBool } from '@/lib/local-fhevm-browser'
+import { settlementBucketCommitment } from '@/lib/settlement-bucket'
+import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 import {
   CodeBlock,
   FactRow,
@@ -45,16 +51,20 @@ import {
   buildIntegrationBundle,
   compact,
   copyText,
-  formatBillingPlan,
   formatBps,
   formatCheckoutFee,
-  formatEnvironment,
   formatMinorUnits,
   formatTime,
   type OneTimeSecret,
 } from './PaymentProjectConsoleParts'
+import {
+  BalanceActivityCard,
+  BalanceTrendCard,
+  projectBalanceActivities,
+  type BalanceRangeKey,
+} from './PaymentProjectBalance'
 
-export type ProjectConsoleTab = 'overview' | 'integration' | 'webhooks' | 'payments' | 'diagnostics'
+export type ProjectConsoleTab = 'overview' | 'integration' | 'webhooks' | 'payments'
 
 type PaymentProjectConsoleProps = {
   initialBilling: BillingSubscriptionResponse
@@ -64,7 +74,10 @@ type PaymentProjectConsoleProps = {
 }
 
 function normalizeTab(value: string | undefined): ProjectConsoleTab {
-  if (value === 'integration' || value === 'webhooks' || value === 'payments' || value === 'diagnostics') {
+  if (value === 'diagnostics' || value === 'withdraw') {
+    return 'overview'
+  }
+  if (value === 'integration' || value === 'webhooks' || value === 'payments') {
     return value
   }
 
@@ -85,9 +98,10 @@ export function PaymentProjectConsole({
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
+  const [balanceRange, setBalanceRange] = useState<BalanceRangeKey>('7d')
   const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
   const project = overview.project
-  const environment = overview.environments[0] ?? null
+  const balanceActivities = useMemo(() => projectBalanceActivities(overview), [overview])
   const activeTab = normalizeTab(initialTab)
   const currentPlanCatalog = initialBilling.plans.find((plan) => plan.plan === initialBilling.subscription.plan)
   const integrationSnippet = [
@@ -95,6 +109,8 @@ export function PaymentProjectConsole({
     buildEnvExport('MERMER_PAY_API_KEY', '<generated once>'),
     buildEnvExport('MERMER_PAY_API_URL', apiBaseUrl),
     buildEnvExport('MERMER_PAY_WEBHOOK_SECRET', '<shown once when webhook is created>'),
+    buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://mermer:mermer@127.0.0.1:5432/cardforge'),
+    buildEnvExport('CARDFORGE_STORE_KEY', 'local-dev'),
   ].join('\n')
 
   function revealOneTimeSecret(secret: Omit<OneTimeSecret, 'copied'>) {
@@ -192,9 +208,126 @@ export function PaymentProjectConsole({
 
   async function handleWithdraw() {
     await runAction('withdraw', async () => {
-      const nextOverview = await createProjectWithdrawal(project.projectId)
-      setOverview(nextOverview)
-      setStatus('Withdraw recorded against the local settlement balance.')
+      const amountMinorUnits = overview.summary.withdrawableMinorUnits
+      if (amountMinorUnits <= 0) {
+        throw new Error('No project balance is available to withdraw.')
+      }
+
+      const config = contractEnvironmentConfig('local-dev')
+      const settlement = ensureHexAddress(
+        config.manifest?.contracts.PrivateCheckoutSettlement ?? null,
+        'PrivateCheckoutSettlement',
+      )
+      const chainSubmitter = ensureHexAddress(config.manifest?.deployer ?? null, 'local-dev chain submitter')
+      const rpcUrl = config.walletChain.rpcUrls[0]
+      if (!rpcUrl) {
+        throw new Error('Hardhat RPC URL is missing from the local-dev wallet chain.')
+      }
+
+      const provider = ensureEthereumProvider()
+      setStatus('Switching wallet to Hardhat Local...')
+      await ensureWalletChain(provider, config.walletChain)
+
+      const walletClient = createWalletClient({ chain: config.chain, transport: custom(provider) })
+      const publicClient = createPublicClient({ chain: config.chain, transport: http(rpcUrl) })
+      const [selectedAddress] = await walletClient.requestAddresses()
+      if (!selectedAddress) {
+        throw new Error('No wallet account selected.')
+      }
+
+      const signerAddress = getAddress(selectedAddress) as Hex
+      const merchantAddress = getAddress(ownerAddress)
+      if (signerAddress !== merchantAddress) {
+        throw new Error(`Switch MetaMask to the merchant wallet ${merchantAddress.slice(0, 6)}...${merchantAddress.slice(-4)} before withdrawing.`)
+      }
+
+      const settlementCode = await publicClient.getBytecode({ address: settlement })
+      if (!settlementCode || settlementCode === '0x') {
+        throw new Error(`PrivateCheckoutSettlement is not deployed at ${settlement}.`)
+      }
+
+      const bucketCommitment = settlementBucketCommitment(project.projectId)
+      setStatus('Reading encrypted merchant pending balance...')
+      const pendingHandle = (await publicClient.readContract({
+        address: settlement,
+        abi: privateCheckoutSettlementAbi,
+        functionName: 'merchantPendingHandleOf',
+        args: [bucketCommitment],
+      })) as Hex
+      const pending = await decryptLocalEuint64Handle(rpcUrl, pendingHandle)
+      const requestedAmount = BigInt(amountMinorUnits)
+      if (pending < requestedAmount) {
+        throw new Error('On-chain encrypted merchant pending balance is lower than the dashboard projection. Refresh and try again.')
+      }
+
+      setStatus('Encrypting withdraw amount for the local chain submitter...')
+      const encryptedAmount = await encryptLocalEuint64({
+        amountMinorUnits: requestedAmount,
+        chainId: config.chain.id,
+        contractAddress: settlement,
+        rpcUrl,
+        userAddress: chainSubmitter,
+      })
+      const withdrawalNonce = randomNonce()
+      const deadline = Math.floor(Date.now() / 1000) + 600
+      const inputProofHash = keccak256(encryptedAmount.inputProof)
+
+      setStatus('Sign withdraw authorization...')
+      const authorization = await walletClient.signTypedData({
+        account: signerAddress,
+        domain: {
+          name: 'MermerPayPrivateCheckoutSettlement',
+          version: '1',
+          chainId: config.chain.id,
+          verifyingContract: settlement,
+        },
+        primaryType: 'PrivateWithdraw',
+        types: privateWithdrawAuthorizationTypes,
+        message: {
+          settlementBucketCommitment: bucketCommitment,
+          withdrawalNonce,
+          bucketOwner: signerAddress,
+          recipient: signerAddress,
+          encryptedAmount: encryptedAmount.handle,
+          inputProofHash,
+          deadline: BigInt(deadline),
+        },
+      })
+
+      setStatus('Submitting signed withdraw through the local chain submitter...')
+      const submitted = await submitLocalPrivateWithdraw({
+        authorization,
+        bucketOwner: signerAddress,
+        deadline,
+        encryptedAmount: encryptedAmount.handle,
+        inputProof: encryptedAmount.inputProof,
+        recipient: signerAddress,
+        settlementBucketCommitment: bucketCommitment,
+        withdrawalNonce,
+      })
+      await publicClient.waitForTransactionReceipt({ hash: submitted.chainTxHash })
+
+      const withdrawCheckHandle = (await publicClient.readContract({
+        address: settlement,
+        abi: privateCheckoutSettlementAbi,
+        functionName: 'withdrawalCheckHandleOf',
+        args: [withdrawalNonce],
+      })) as Hex
+      const withdrawCheck = await publicDecryptLocalBool(rpcUrl, withdrawCheckHandle)
+      if (!withdrawCheck.accepted) {
+        throw new Error('The encrypted withdraw check was rejected on chain.')
+      }
+
+      const projected = await createProjectWithdrawal(project.projectId, {
+        amountMinorUnits,
+        chainTxHash: submitted.chainTxHash,
+        recipientAddress: signerAddress,
+        settlementBucketCommitment: bucketCommitment,
+        withdrawalNonce,
+        withdrawCheckHandle,
+      })
+      setOverview(projected)
+      setStatus('Encrypted withdraw completed and projected into the project balance.')
       router.refresh()
     })
   }
@@ -228,43 +361,35 @@ export function PaymentProjectConsole({
       <Tabs value={activeTab}>
         <TabsContent value="overview">
           <div className="flex flex-col gap-4">
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <MetricCard label="Total checkouts" value={overview.summary.totalCheckouts} />
               <MetricCard label="Paid gross" value={formatMinorUnits(overview.summary.grossVolumeMinorUnits)} />
               <MetricCard label="Pending deliveries" value={overview.summary.pendingDeliveries} />
               <MetricCard label="Checkout fee" value={formatBps(currentPlanCatalog?.checkoutFeeBps)} />
+              <WithdrawMetricCard busyAction={busyAction} onWithdraw={handleWithdraw} overview={overview} />
             </div>
 
             <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
               <Card size="sm">
                 <CardHeader>
-                  <CardAction>
-                    <Badge variant={environment?.status === 'active' ? 'secondary' : 'outline'}>
-                      {formatEnvironment(project.defaultEnvironment)}
-                    </Badge>
-                  </CardAction>
-                  <CardTitle>{project.name}</CardTitle>
-                  <CardDescription>
-                    Owner {compact(ownerAddress)}. Project ID {project.projectId}.
-                  </CardDescription>
+                  <CardTitle>Project basics</CardTitle>
+                  <CardDescription>Only the identity fields needed to recognize this project.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <Table>
                     <TableBody>
-                      <FactRow label="Signer" value={environment ? 'platform hosted' : 'none'} />
-                      <FactRow label="Chain ID" value={environment?.chainId?.toString() ?? 'local'} />
-                      <FactRow label="Settlement" value={compact(environment?.settlementContract ?? null)} />
-                      <FactRow label="Subscription plan" value={formatBillingPlan(initialBilling.subscription.plan)} />
-                      <FactRow label="New checkout fee" value={formatBps(currentPlanCatalog?.checkoutFeeBps)} />
-                      <FactRow label="Checkout sessions" value={overview.summary.totalCheckouts} />
-                      <FactRow label="Pending deliveries" value={overview.summary.pendingDeliveries} />
+                      <FactRow label="Owner" value={compact(ownerAddress)} />
+                      <FactRow label="Project ID" value={compact(project.projectId)} />
+                      <FactRow label="Created" value={formatTime(project.createdAt)} />
                     </TableBody>
                   </Table>
                 </CardContent>
               </Card>
 
-              <MerchantSetupFlow overview={overview} selectedProject={project} />
+              <BalanceTrendCard activities={balanceActivities} onRangeChange={setBalanceRange} range={balanceRange} />
             </div>
+
+            <BalanceActivityCard activities={balanceActivities} onCopyReference={(value) => copyText(value, setStatus)} />
           </div>
         </TabsContent>
 
@@ -497,78 +622,107 @@ export function PaymentProjectConsole({
           </Card>
         </TabsContent>
 
-        <TabsContent value="diagnostics">
-          <div className="grid gap-4 md:grid-cols-3">
-            <MetricCard label="Paid gross" value={formatMinorUnits(overview.summary.grossVolumeMinorUnits)} />
-            <MetricCard label="Platform fees" value={formatMinorUnits(overview.summary.platformFeeMinorUnits)} />
-            <MetricCard label="Merchant net" value={formatMinorUnits(overview.summary.merchantNetMinorUnits)} />
-          </div>
-          <Card className="mt-4" size="sm">
-            <CardHeader>
-              <CardAction>
-                <Badge variant={overview.summary.withdrawableMinorUnits > 0 ? 'default' : 'secondary'}>
-                  <LandmarkIcon data-icon="inline-start" />
-                  {formatMinorUnits(overview.summary.withdrawableMinorUnits)}
-                </Badge>
-              </CardAction>
-              <CardTitle>Withdraw</CardTitle>
-              <CardDescription>
-                Local-dev records payout settlement from paid merchant net; private public-network withdraw remains a later contract path.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="grid gap-2 text-sm md:min-w-96">
-                <WithdrawFact label="Available" value={formatMinorUnits(overview.summary.withdrawableMinorUnits)} />
-                <WithdrawFact label="Withdrawn" value={formatMinorUnits(overview.summary.withdrawnMinorUnits)} />
-                <WithdrawFact label="Records" value={overview.withdrawals.length} />
-              </div>
-              <Button
-                disabled={busyAction === 'withdraw' || overview.summary.withdrawableMinorUnits <= 0}
-                onClick={handleWithdraw}
-                type="button"
-              >
-                {busyAction === 'withdraw' ? <Spinner data-icon="inline-start" /> : <ArrowDownToLineIcon data-icon="inline-start" />}
-                Withdraw available
-              </Button>
-            </CardContent>
-          </Card>
-          <Card className="mt-4" size="sm">
-            <CardHeader>
-              <CardTitle>Events</CardTitle>
-              <CardDescription>Immutable project events emitted from settlement projection.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Event</TableHead>
-                    <TableHead>Subject</TableHead>
-                    <TableHead className="text-right">Created</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {overview.webhookEvents.map((event) => (
-                    <TableRow key={event.eventId}>
-                      <TableCell>{event.eventType}</TableCell>
-                      <TableCell className="max-w-[360px] truncate font-mono text-xs">{event.subjectId}</TableCell>
-                      <TableCell className="text-right">{formatTime(event.createdAt)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   )
 }
 
-function WithdrawFact({ label, value }: { label: string; value: number | string }) {
+function WithdrawMetricCard({
+  busyAction,
+  onWithdraw,
+  overview,
+}: {
+  busyAction: string | null
+  onWithdraw: () => void
+  overview: ProjectDashboardOverview
+}) {
   return (
-    <div className="flex items-center justify-between gap-6 rounded-md border bg-muted/30 px-3 py-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
-    </div>
+    <Card className="min-h-28 justify-center" size="sm">
+      <CardHeader className="gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <LandmarkIcon className="size-3.5" />
+            <span>Available</span>
+          </div>
+          <Button
+            className="shrink-0"
+            disabled={busyAction === 'withdraw' || overview.summary.withdrawableMinorUnits <= 0}
+            onClick={onWithdraw}
+            size="sm"
+            title="Sign a withdraw authorization for the local chain submitter."
+            type="button"
+          >
+            {busyAction === 'withdraw' ? <Spinner data-icon="inline-start" /> : <ArrowDownToLineIcon data-icon="inline-start" />}
+            Withdraw
+          </Button>
+        </div>
+        <div className="text-2xl leading-none font-semibold whitespace-nowrap md:text-3xl">{formatMinorUnits(overview.summary.withdrawableMinorUnits)}</div>
+        <CardDescription className="text-xs">Wallet-signed chain withdraw</CardDescription>
+      </CardHeader>
+    </Card>
   )
+}
+
+function ensureHexAddress(address: string | null, label: string): Hex {
+  if (!address) {
+    throw new Error(`${label} is not deployed in the contract manifest.`)
+  }
+
+  try {
+    return getAddress(address) as Hex
+  } catch {
+    throw new Error(`${label} is not a valid EVM address.`)
+  }
+}
+
+function randomNonce(): Hex {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return bytesToHex(bytes)
+}
+
+const privateWithdrawAuthorizationTypes = {
+  PrivateWithdraw: [
+    { name: 'settlementBucketCommitment', type: 'bytes32' },
+    { name: 'withdrawalNonce', type: 'bytes32' },
+    { name: 'bucketOwner', type: 'address' },
+    { name: 'recipient', type: 'address' },
+    { name: 'encryptedAmount', type: 'bytes32' },
+    { name: 'inputProofHash', type: 'bytes32' },
+    { name: 'deadline', type: 'uint64' },
+  ],
+} as const
+
+async function submitLocalPrivateWithdraw(payload: {
+  authorization: Hex
+  bucketOwner: Hex
+  deadline: number
+  encryptedAmount: Hex
+  inputProof: Hex
+  recipient: Hex
+  settlementBucketCommitment: Hex
+  withdrawalNonce: Hex
+}): Promise<{ chainTxHash: Hex; withdrawCheckHandle: Hex }> {
+  const response = await fetch('/api/dev/local-private-withdraw', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const body = await response.json().catch(() => ({})) as {
+    chainTxHash?: Hex
+    error?: string
+    withdrawCheckHandle?: Hex
+  }
+
+  if (!response.ok) {
+    throw new Error(body.error ?? `Local private withdraw submission failed with ${response.status}.`)
+  }
+  if (!body.chainTxHash || !body.withdrawCheckHandle) {
+    throw new Error('Local private withdraw submission returned incomplete chain evidence.')
+  }
+
+  return {
+    chainTxHash: body.chainTxHash,
+    withdrawCheckHandle: body.withdrawCheckHandle,
+  }
 }

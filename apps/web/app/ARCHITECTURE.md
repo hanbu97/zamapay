@@ -33,6 +33,6 @@ apps/web/app
 - `(merchant)` owns the app shell so dashboard, account projects, and project-detail pages share one persistent top bar fed by session and billing subscription truth.
 - `/merchant` is account scope for project inventory and creation; it deliberately omits billing and aggregate analytics.
 - `/billing` is account scope for subscription entitlement and prior subscription payments; `/billing/upgrade` owns billing cycle selection, private upgrade proof, and tier comparison.
-- `/merchant/[projectId]` is project scope: project keys, webhooks, checkout sessions, and diagnostics.
+- `/merchant/[projectId]` is project scope: project keys, webhooks, checkout sessions, and settlement activity.
 - `/merchant`, `/merchant/[projectId]`, `/dashboard`, and `/billing` are merchant console surfaces and redirect anonymous visitors to `/login`.
 - API routes stay outside `(merchant)` because HTTP bridges must not depend on product layout concerns.

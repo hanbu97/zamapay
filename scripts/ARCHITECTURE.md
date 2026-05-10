@@ -4,6 +4,8 @@
 
 ```text
 scripts
+|-- postgres-init/
+|   `-- 01-cardforge.sql
 |-- local-full-verify.js
 `-- local-readiness.js
 ```
@@ -15,3 +17,4 @@ scripts
 - `local-readiness.js` is dependency-light Node and verifies the local manifest, Rust API, Next pages, wallet login, and dev-signer boundary.
 - The old merchant loop script was removed because it wrote payment projections directly; the accepted checkout path now proves payment through `PrivateCheckoutSettlement`.
 - Public-testnet handoff is removed from active scripts until protocol-fee and relayer funding policy are explicit.
+- `postgres-init/` contains Docker-only database bootstrap SQL; it creates the independent CardForge database on fresh local volumes without mixing CardForge tables into the Mermer Pay platform database.

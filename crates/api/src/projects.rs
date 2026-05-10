@@ -5,10 +5,10 @@ use axum::{Json, Router};
 use axum_extra::extract::cookie::CookieJar;
 use chrono::Utc;
 use shared::{
-    CheckoutSession, ConfigureWebhookEndpointRequest, CreateCheckoutSessionRequest,
-    CreatePaymentProjectRequest, CreateProjectApiKeyRequest, CreateProjectWithdrawalRequest,
-    PaymentProject, ProjectDashboardOverview, ProjectEnvironmentKind, WebhookDeliveryRecord,
-    WebhookEventRecord,
+    CheckoutQuoteRequest, CheckoutQuoteResponse, CheckoutSession, CheckoutSessionResponse,
+    ConfigureWebhookEndpointRequest, CreateCheckoutSessionRequest, CreatePaymentProjectRequest,
+    CreateProjectApiKeyRequest, CreateProjectWithdrawalRequest, PaymentProject,
+    ProjectDashboardOverview, ProjectEnvironmentKind, WebhookDeliveryRecord, WebhookEventRecord,
 };
 use storage::CheckoutSessionError;
 
@@ -44,6 +44,10 @@ pub(super) fn routes() -> Router<AppState> {
         .route(
             "/api/projects/{project_id}/checkout-sessions",
             get(list_checkout_sessions).post(create_checkout_session),
+        )
+        .route(
+            "/api/projects/{project_id}/checkout-quote",
+            post(create_checkout_quote),
         )
         .route(
             "/api/projects/{project_id}/checkout-sessions/{checkout_session_id}",
@@ -272,7 +276,7 @@ async fn create_checkout_session(
     Path(project_id): Path<String>,
     headers: HeaderMap,
     Json(payload): Json<CreateCheckoutSessionRequest>,
-) -> Result<Json<CheckoutSession>, ApiError> {
+) -> Result<Json<CheckoutSessionResponse>, ApiError> {
     let api_key = bearer_token(&headers)?;
     let idempotency_key = required_header(&headers, IDEMPOTENCY_KEY_HEADER)?;
     let checkout = state
@@ -287,7 +291,31 @@ async fn create_checkout_session(
         )
         .await
         .map_err(checkout_error)?;
-    Ok(Json(checkout))
+    let project = state
+        .portal
+        .project_by_id(&project_id)
+        .await
+        .ok_or(ApiError::not_found("project not found"))?;
+
+    Ok(Json(CheckoutSessionResponse {
+        session: checkout,
+        merchant_owner_wallet: project.owner_wallet,
+    }))
+}
+
+async fn create_checkout_quote(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    headers: HeaderMap,
+    Json(payload): Json<CheckoutQuoteRequest>,
+) -> Result<Json<CheckoutQuoteResponse>, ApiError> {
+    let api_key = bearer_token(&headers)?;
+    let quote = state
+        .portal
+        .checkout_quote(&project_id, api_key, payload.amount_minor_units, Utc::now())
+        .await
+        .map_err(checkout_error)?;
+    Ok(Json(quote))
 }
 
 async fn checkout_session_detail(
@@ -343,28 +371,48 @@ async fn create_withdrawal(
     Json(payload): Json<CreateProjectWithdrawalRequest>,
 ) -> Result<Json<ProjectDashboardOverview>, ApiError> {
     let overview = owned_overview(&state, &jar, &project_id).await?;
-    let amount = payload
-        .amount_minor_units
-        .unwrap_or(overview.summary.withdrawable_minor_units);
-
-    if amount == 0 {
-        return Err(ApiError::conflict(
-            "withdraw requires a positive available merchant balance",
+    if payload.amount_minor_units == 0 {
+        return Err(ApiError::bad_request(
+            "withdraw amount must be greater than zero",
         ));
     }
-    if amount > overview.summary.withdrawable_minor_units {
+    if payload.amount_minor_units > overview.summary.withdrawable_minor_units {
+        return Err(ApiError::conflict(
+            "withdraw amount exceeds available project balance",
+        ));
+    }
+    if !is_transaction_hash(&payload.chain_tx_hash) {
         return Err(ApiError::bad_request(
-            "withdraw amount exceeds available merchant balance",
+            "chainTxHash must be a transaction hash",
+        ));
+    }
+    if overview.withdrawals.iter().any(|withdrawal| {
+        withdrawal
+            .receipt
+            .eq_ignore_ascii_case(&payload.chain_tx_hash)
+    }) {
+        return Err(ApiError::conflict(
+            "withdraw transaction is already projected",
         ));
     }
 
     state
         .portal
-        .create_project_withdrawal(&project_id, amount, Utc::now())
+        .create_project_withdrawal(
+            &project_id,
+            payload.amount_minor_units,
+            &payload.chain_tx_hash,
+            Utc::now(),
+        )
         .await
         .ok_or(ApiError::not_found("project not found"))?;
 
-    owned_overview(&state, &jar, &project_id).await.map(Json)
+    state
+        .portal
+        .project_overview(&project_id)
+        .await
+        .map(Json)
+        .ok_or(ApiError::not_found("project not found"))
 }
 
 pub(super) async fn dispatch_project_deliveries(
@@ -540,4 +588,12 @@ fn truncate_body(body: String) -> String {
     }
 
     format!("{}...", &body[..LIMIT])
+}
+
+fn is_transaction_hash(value: &str) -> bool {
+    value.len() == 66
+        && value.starts_with("0x")
+        && value.as_bytes()[2..]
+            .iter()
+            .all(|byte| byte.is_ascii_hexdigit())
 }

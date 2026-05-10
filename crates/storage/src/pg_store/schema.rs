@@ -23,10 +23,10 @@ static SCHEMA_SQL: &[&str] = &[
     create table if not exists mermer_portal_counters (
         state_key text primary key,
         next_invoice_number bigint not null check (next_invoice_number > 0),
-        next_chain_invoice_id bigint not null check (next_chain_invoice_id > 0),
         updated_at timestamptz not null default now()
     )
     "#,
+    "alter table mermer_portal_counters drop column if exists next_chain_invoice_id",
     r#"
     create table if not exists mermer_payment_projects (
         state_key text not null references mermer_portal_counters(state_key) on delete cascade,
@@ -187,7 +187,8 @@ static SCHEMA_SQL: &[&str] = &[
     )
     "#,
     "create index if not exists mermer_invoices_project_idx on mermer_invoices (state_key, project_id)",
-    "create unique index if not exists mermer_invoices_chain_invoice_idx on mermer_invoices (state_key, chain_invoice_id) where chain_invoice_id is not null",
+    "drop index if exists mermer_invoices_chain_invoice_idx",
+    "create index if not exists mermer_invoices_chain_invoice_lookup_idx on mermer_invoices (state_key, chain_invoice_id, settlement_invoice_id desc) where chain_invoice_id is not null",
     r#"
     create table if not exists mermer_checkout_sessions (
         state_key text not null references mermer_portal_counters(state_key) on delete cascade,
@@ -219,7 +220,8 @@ static SCHEMA_SQL: &[&str] = &[
     )
     "#,
     "create index if not exists mermer_checkout_sessions_project_idx on mermer_checkout_sessions (state_key, project_id)",
-    "create unique index if not exists mermer_checkout_sessions_chain_invoice_idx on mermer_checkout_sessions (state_key, chain_invoice_id)",
+    "drop index if exists mermer_checkout_sessions_chain_invoice_idx",
+    "create index if not exists mermer_checkout_sessions_chain_invoice_lookup_idx on mermer_checkout_sessions (state_key, chain_invoice_id, created_at desc)",
     r#"
     create table if not exists mermer_checkout_metadata (
         state_key text not null references mermer_portal_counters(state_key) on delete cascade,

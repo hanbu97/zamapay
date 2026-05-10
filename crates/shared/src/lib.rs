@@ -433,6 +433,14 @@ pub struct CheckoutSession {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CheckoutSessionResponse {
+    #[serde(flatten)]
+    pub session: CheckoutSession,
+    pub merchant_owner_wallet: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WebhookEventRecord {
     pub event_id: String,
     pub project_id: String,
@@ -484,7 +492,16 @@ pub struct ProjectWithdrawalRecord {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateProjectWithdrawalRequest {
-    pub amount_minor_units: Option<u64>,
+    pub amount_minor_units: u64,
+    pub chain_tx_hash: String,
+    #[serde(default)]
+    pub recipient_address: Option<String>,
+    #[serde(default)]
+    pub settlement_bucket_commitment: Option<String>,
+    #[serde(default)]
+    pub withdrawal_nonce: Option<String>,
+    #[serde(default)]
+    pub withdraw_check_handle: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -549,6 +566,19 @@ pub struct CreateCheckoutSessionRequest {
     pub chain_tx_hash: Option<String>,
     #[serde(default)]
     pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutQuoteRequest {
+    pub amount_minor_units: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutQuoteResponse {
+    pub billing: CheckoutBillingSnapshot,
+    pub merchant_owner_wallet: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

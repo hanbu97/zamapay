@@ -1,17 +1,15 @@
 import { NextResponse } from 'next/server'
-import { getAddress, isHex } from 'viem'
+import { getAddress, isHex, type Hex } from 'viem'
 import { serverContractEnvironment } from '@/lib/contract-environment'
 import { isLocalRequestUrl } from '@/lib/dev-signer-gate'
+import { finalizeLocalGrowthSubscription } from '@/lib/local-fhevm-dev'
 import type { BillingCycle } from '@/lib/api'
 
 type LocalGrowthRequest = {
   billingCycle?: unknown
-  entitlementTxHash?: unknown
-  entitlementVersion?: unknown
   ownerAddress?: unknown
-  passId?: unknown
   plan?: unknown
-  subscriptionCheckHandle?: unknown
+  subscriptionRequestTxHash?: unknown
 }
 
 type SubscriptionProjectionBody = {
@@ -50,21 +48,13 @@ function requiredText(value: unknown, field: string): string {
   return value.trim()
 }
 
-function requiredPositiveInteger(value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
-    throw new Error(`${field} must be a positive safe integer.`)
-  }
-
-  return value
-}
-
-function requiredHex(value: unknown, field: string): string {
+function requiredHex(value: unknown, field: string): Hex {
   const text = requiredText(value, field)
   if (!isHex(text)) {
     throw new Error(`${field} must be a hex string.`)
   }
 
-  return text
+  return text as Hex
 }
 
 function requiredGrowthPlan(value: unknown): 'growth' {
@@ -106,13 +96,18 @@ export async function POST(request: Request) {
   try {
     const cycle = billingCycle(payload.billingCycle)
     const ownerAddress = getAddress(payload.ownerAddress)
+    const plan = requiredGrowthPlan(payload.plan)
+    const finalized = await finalizeLocalGrowthSubscription({
+      ownerAddress,
+      subscriptionRequestTxHash: requiredHex(payload.subscriptionRequestTxHash, 'subscriptionRequestTxHash'),
+    })
     const body: SubscriptionProjectionBody = {
       billingCycle: cycle,
-      entitlementTxHash: requiredHex(payload.entitlementTxHash, 'entitlementTxHash'),
-      entitlementVersion: requiredPositiveInteger(payload.entitlementVersion, 'entitlementVersion'),
-      passId: requiredText(payload.passId, 'passId'),
-      plan: requiredGrowthPlan(payload.plan),
-      subscriptionCheckHandle: requiredHex(payload.subscriptionCheckHandle, 'subscriptionCheckHandle'),
+      entitlementTxHash: finalized.finalizationTxHash,
+      entitlementVersion: finalized.termsVersion,
+      passId: finalized.passId,
+      plan,
+      subscriptionCheckHandle: finalized.subscriptionCheckHandle,
     }
     const subscription = await projectSubscription(ownerAddress, body)
 

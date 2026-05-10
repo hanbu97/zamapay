@@ -270,6 +270,25 @@ export const confidentialUsdMockAbi = [
       {
         "indexed": true,
         "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "PrivateDebitOperatorUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "from",
         "type": "address"
       },
@@ -476,6 +495,40 @@ export const confidentialUsdMockAbi = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "from",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "internalType": "euint64",
+        "name": "amount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "euint64",
+        "name": "expectedAmount",
+        "type": "bytes32"
+      }
+    ],
+    "name": "debitPrivateExact",
+    "outputs": [
+      {
+        "internalType": "ebool",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "decimals",
     "outputs": [
@@ -530,6 +583,43 @@ export const confidentialUsdMockAbi = [
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "privateDebitOperators",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "enabled",
+        "type": "bool"
+      }
+    ],
+    "name": "setPrivateDebitOperator",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1455,6 +1545,45 @@ export const privateSubscriptionRegistryAbi = [
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "merchant",
+        "type": "address"
+      },
+      {
+        "internalType": "externalEuint16",
+        "name": "encryptedPlanCode",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "externalEuint64",
+        "name": "encryptedPaidAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "inputProof",
+        "type": "bytes"
+      }
+    ],
+    "name": "requestMerchantSubscriptionChange",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "passId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "acceptanceHandle",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "passId",
         "type": "uint256"
@@ -1692,6 +1821,31 @@ export const privateCheckoutSettlementAbi = [
         "type": "bytes32"
       },
       {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "merchantPendingHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "PrivateMerchantPendingCredited",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      },
+      {
         "indexed": false,
         "internalType": "bool",
         "name": "accepted",
@@ -1730,6 +1884,31 @@ export const privateCheckoutSettlementAbi = [
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "withdrawalNonce",
+        "type": "bytes32"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "withdrawCheckHandle",
+        "type": "bytes32"
+      }
+    ],
+    "name": "PrivateWithdrawSubmitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "bytes32[]",
         "name": "handlesList",
@@ -1744,6 +1923,56 @@ export const privateCheckoutSettlementAbi = [
     ],
     "name": "PublicDecryptionVerified",
     "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "DOMAIN_TYPEHASH",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "WITHDRAW_AUTH_TYPEHASH",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "bucketOwner",
+        "type": "address"
+      }
+    ],
+    "name": "bucketOwnerCommitmentOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
   },
   {
     "inputs": [],
@@ -1816,8 +2045,23 @@ export const privateCheckoutSettlementAbi = [
         "type": "bytes32"
       },
       {
+        "internalType": "bytes32",
+        "name": "bucketOwnerCommitment",
+        "type": "bytes32"
+      },
+      {
         "internalType": "externalEuint64",
         "name": "encryptedExpectedAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "externalEuint64",
+        "name": "encryptedMerchantNetAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "externalEuint64",
+        "name": "encryptedPlatformFeeAmount",
         "type": "bytes32"
       },
       {
@@ -1919,6 +2163,25 @@ export const privateCheckoutSettlementAbi = [
   {
     "inputs": [
       {
+        "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "merchantPendingHandleOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "checkoutId",
         "type": "uint256"
@@ -2009,6 +2272,98 @@ export const privateCheckoutSettlementAbi = [
     "inputs": [
       {
         "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "platformPendingHandleOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "withdrawalNonce",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "bucketOwner",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "internalType": "externalEuint64",
+        "name": "encryptedAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes",
+        "name": "inputProof",
+        "type": "bytes"
+      },
+      {
+        "internalType": "uint64",
+        "name": "deadline",
+        "type": "uint64"
+      },
+      {
+        "internalType": "bytes",
+        "name": "authorization",
+        "type": "bytes"
+      }
+    ],
+    "name": "requestPrivateWithdraw",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "orderCommitment",
+        "type": "bytes32"
+      }
+    ],
+    "name": "settlementBucketCommitmentOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
         "name": "orderCommitment",
         "type": "bytes32"
       }
@@ -2057,6 +2412,93 @@ export const privateCheckoutSettlementAbi = [
     ],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "settlementBucketCommitment",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "withdrawalNonce",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "bucketOwner",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "encryptedAmount",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "inputProofHash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint64",
+        "name": "deadline",
+        "type": "uint64"
+      }
+    ],
+    "name": "withdrawAuthorizationDigest",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "withdrawalNonce",
+        "type": "bytes32"
+      }
+    ],
+    "name": "withdrawalCheckHandleOf",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "withdrawalNonceUsed",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   }
 ] as const
 
@@ -2073,11 +2515,11 @@ export const addressManifests = {
   "network": "localhost",
   "chainId": 31337,
   "contracts": {
-    "MerchantRegistry": "0xf5059a5D33d5853360D16C683c16e67980206f36",
-    "ConfidentialUSDMock": "0x95401dc811bb5740090279Ba06cfA8fcF6113778",
-    "SubscriptionPass": "0x998abeb3E57409262aE5b751f60747921B33613E",
-    "PrivateSubscriptionRegistry": "0x70e0bA845a1A0F2DA3359C97E0285013525FFC49",
-    "PrivateCheckoutSettlement": "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf"
+    "MerchantRegistry": "0x276C216D241856199A83bf27b2286659e5b877D3",
+    "ConfidentialUSDMock": "0x3347B4d90ebe72BeFb30444C9966B2B990aE9FcB",
+    "SubscriptionPass": "0x3155755b79aA083bd953911C92705B7aA82a18F9",
+    "PrivateSubscriptionRegistry": "0x5bf5b11053e734690269C6B9D438F8C9d48F528A",
+    "PrivateCheckoutSettlement": "0xab16A69A5a8c12C732e0DEFF4BE56A70bb64c926"
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -2112,11 +2554,11 @@ export const addressManifests = {
     ]
   },
   "testTokenFaucet": {
-    "token": "0x95401dc811bb5740090279Ba06cfA8fcF6113778",
+    "token": "0x3347B4d90ebe72BeFb30444C9966B2B990aE9FcB",
     "claimAmountMinorUnits": "1000000000",
     "functionName": "claimTestTokens"
   },
-  "generatedAt": "2026-05-09T10:26:34.049Z",
+  "generatedAt": "2026-05-10T04:57:00.609Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 },

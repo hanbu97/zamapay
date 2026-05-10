@@ -156,10 +156,6 @@ pub(crate) fn secret_preview(secret: &str) -> String {
     format!("{}...{}", &secret[..10], &secret[secret.len() - 6..])
 }
 
-pub(crate) fn local_chain_tx_hash(chain_invoice_id: u64) -> String {
-    format!("0x{:064x}", chain_invoice_id)
-}
-
 pub(crate) fn clean_base_url(value: &str) -> String {
     value.trim().trim_end_matches('/').to_string()
 }

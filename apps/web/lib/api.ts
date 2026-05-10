@@ -401,7 +401,12 @@ export type ConfigureWebhookEndpointPayload = {
 }
 
 export type CreateProjectWithdrawalPayload = {
-  amountMinorUnits?: number
+  amountMinorUnits: number
+  chainTxHash: string
+  recipientAddress?: string
+  settlementBucketCommitment?: string
+  withdrawalNonce?: string
+  withdrawCheckHandle?: string
 }
 
 export class ApiRequestError extends Error {
@@ -691,7 +696,7 @@ export async function configureProjectWebhook(
 
 export async function createProjectWithdrawal(
   projectId: string,
-  payload: CreateProjectWithdrawalPayload = {},
+  payload: CreateProjectWithdrawalPayload,
 ): Promise<ProjectDashboardOverview> {
   const response = await fetch(`${apiBaseUrl}/api/projects/${projectId}/withdrawals`, {
     method: 'POST',
