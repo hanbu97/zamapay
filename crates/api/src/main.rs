@@ -3,8 +3,7 @@ use tokio::net::TcpListener;
 
 #[tokio::main]
 async fn main() {
-    let bind_addr =
-        std::env::var("ZAMAPAY_API_BIND").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+    let bind_addr = bind_addr();
 
     eprintln!("ZamaPay API initializing state before binding {bind_addr}...");
     let state = AppState::new().await;
@@ -17,4 +16,14 @@ async fn main() {
     axum::serve(listener, app(state))
         .await
         .expect("API server failed");
+}
+
+fn bind_addr() -> String {
+    if let Ok(addr) = std::env::var("ZAMAPAY_API_BIND") {
+        return addr;
+    }
+
+    std::env::var("PORT")
+        .map(|port| format!("0.0.0.0:{port}"))
+        .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
 }

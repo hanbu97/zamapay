@@ -4,8 +4,9 @@
 
 - `src/lib.rs` owns the Axum router, nonce/signature auth, merchant session issue/delete, protected merchant write paths, public invoice reads, operator diagnostics auth boundary, indexer cursor exposure, and generated contract-manifest reads.
 - `src/billing.rs` owns session-authenticated subscription reads, cycle-aware private upgrade intents, and the operator-only entitlement projection path that turns verified registry events into the backend billing read model.
+- `src/http_policy.rs` owns deploy-time HTTP edge policy: CORS origins, operator preflight headers, and session cookie attributes.
 - `src/projects.rs` owns payment-project routes, API-key checkout quote/session creation, webhook endpoint management, outbox delivery dispatch, test webhook, manual resend, withdraw read-model protection, and the single public demo-project overview exception.
-- `src/main.rs` awaits `AppState::new`, then binds the HTTP listener, defaulting to `127.0.0.1:8080` while allowing `ZAMAPAY_API_BIND` for isolated local verification.
+- `src/main.rs` awaits `AppState::new`, then binds the HTTP listener, preferring `ZAMAPAY_API_BIND`, falling back to Railway `PORT`, then local `127.0.0.1:8080`.
 - `tests/*.rs` lock the auth boundary, subscription upgrades, merchant portal routes, and generated manifest exposure.
 - Merchant invoice creation validates a positive minor-unit amount before persisting the read model and projecting the chain invoice metadata.
 - Payment-project creation derives its billing projection from the active subscription; checkout-session responses return the immutable billing snapshot created by storage.
@@ -21,6 +22,8 @@
 ## Decisions
 
 - The API remains the only HTTP boundary for the web app.
+- Hosted origins are explicit data via `ZAMAPAY_ALLOWED_ORIGINS`; localhost remains built in so local wallet and browser flows do not need Railway-only config.
+- Cross-site Railway preview auth uses `ZAMAPAY_SESSION_COOKIE_SAMESITE=none` plus `ZAMAPAY_SESSION_COOKIE_SECURE=true`; local dev keeps the lax cookie default.
 - `AppState::new` is async, requires `DATABASE_URL`, and uses the normalized Postgres portal schema as the source of truth; auth challenges and sessions stay process-local behind Tokio locks.
 - `DELETE /api/session` clears both the process-local session and browser cookie; clients do not synthesize logout by hiding UI.
 - Project API keys authenticate only checkout quote/session creation; chain invoice authority stays in the hosted project signer read model.

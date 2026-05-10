@@ -1,11 +1,11 @@
 use std::{str::FromStr, sync::Arc};
 
 use axum::extract::{Path, State};
-use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use axum_extra::extract::cookie::CookieJar;
 use chrono::Utc;
 use domain::{WebhookDeliveryStatus, ensure_not_expired};
 use ethers_core::types::{Address, Signature};
@@ -21,11 +21,11 @@ use shared::{
 };
 use storage::{AuthStore, DecryptRequestProjection, PortalStore, StoredSession};
 use tokio::sync::RwLock;
-use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 use uuid::Uuid;
 
 mod billing;
+mod http_policy;
 mod projects;
 
 const SESSION_COOKIE_NAME: &str = "zamapay_session";
@@ -73,15 +73,6 @@ impl AppState {
 }
 
 pub fn app(state: AppState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_methods([Method::DELETE, Method::GET, Method::POST])
-        .allow_headers([header::CONTENT_TYPE])
-        .allow_credentials(true)
-        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _| {
-            origin.as_bytes().starts_with(b"http://127.0.0.1:")
-                || origin.as_bytes().starts_with(b"http://localhost:")
-        }));
-
     Router::new()
         .route("/health", get(health))
         .route("/api/auth/nonce", post(issue_nonce))
@@ -135,7 +126,7 @@ pub fn app(state: AppState) -> Router {
         )
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-        .layer(cors)
+        .layer(http_policy::cors_layer())
 }
 
 async fn health() -> &'static str {
@@ -184,11 +175,8 @@ async fn verify_signature(
 
     state.store.consume_challenge(&address).await;
     let session = state.store.create_session(&address, now).await;
-    let cookie = Cookie::build((SESSION_COOKIE_NAME, session.user.session_id.to_string()))
-        .path("/")
-        .http_only(true)
-        .same_site(SameSite::Lax)
-        .build();
+    let cookie =
+        http_policy::session_cookie(SESSION_COOKIE_NAME, session.user.session_id.to_string());
 
     Ok((
         jar.add(cookie),
@@ -224,7 +212,7 @@ async fn delete_session(
         state.store.delete_session(&session_id).await;
     }
 
-    let cookie = Cookie::build(SESSION_COOKIE_NAME).path("/").build();
+    let cookie = http_policy::expired_session_cookie(SESSION_COOKIE_NAME);
     Ok((jar.remove(cookie), StatusCode::NO_CONTENT))
 }
 
