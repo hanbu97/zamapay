@@ -67,10 +67,11 @@ import {
 export type ProjectConsoleTab = 'overview' | 'integration' | 'webhooks' | 'payments'
 
 type PaymentProjectConsoleProps = {
-  initialBilling: BillingSubscriptionResponse
+  initialBilling: BillingSubscriptionResponse | null
   initialOverview: ProjectDashboardOverview
   initialTab?: ProjectConsoleTab
   ownerAddress: string
+  readOnly?: boolean
 }
 
 function normalizeTab(value: string | undefined): ProjectConsoleTab {
@@ -93,6 +94,7 @@ export function PaymentProjectConsole({
   initialOverview,
   initialTab,
   ownerAddress,
+  readOnly = false,
 }: PaymentProjectConsoleProps) {
   const router = useRouter()
   const [overview, setOverview] = useState(initialOverview)
@@ -107,7 +109,9 @@ export function PaymentProjectConsole({
   const project = overview.project
   const balanceActivities = useMemo(() => projectBalanceActivities(overview), [overview])
   const activeTab = normalizeTab(initialTab)
-  const currentPlanCatalog = initialBilling.plans.find((plan) => plan.plan === initialBilling.subscription.plan)
+  const activeBillingPlan = initialBilling?.subscription.plan
+  const currentPlanCatalog = activeBillingPlan ? initialBilling?.plans.find((plan) => plan.plan === activeBillingPlan) : null
+  const checkoutFeeBps = currentPlanCatalog?.checkoutFeeBps ?? projectedCheckoutFeeBps(overview)
   const integrationSnippet = [
     buildEnvExport('ZAMAPAY_PROJECT_ID', project.projectId),
     buildEnvExport('ZAMAPAY_API_KEY', '<generated once>'),
@@ -144,6 +148,11 @@ export function PaymentProjectConsole({
   }
 
   async function runAction(actionId: string, action: () => Promise<void>) {
+    if (readOnly) {
+      setStatus('Demo dashboard is read-only. Log in as the project owner to manage it.')
+      return
+    }
+
     setBusyAction(actionId)
     setError(null)
 
@@ -308,8 +317,8 @@ export function PaymentProjectConsole({
               <MetricCard label="Total checkouts" value={overview.summary.totalCheckouts} />
               <MetricCard label="Paid gross" value={formatMinorUnits(overview.summary.grossVolumeMinorUnits)} />
               <MetricCard label="Pending deliveries" value={overview.summary.pendingDeliveries} />
-              <MetricCard label="Checkout fee" value={formatBps(currentPlanCatalog?.checkoutFeeBps)} />
-              <WithdrawMetricCard busyAction={busyAction} onWithdraw={handleWithdraw} overview={overview} />
+              <MetricCard label="Checkout fee" value={formatBps(checkoutFeeBps)} />
+              <WithdrawMetricCard busyAction={busyAction} onWithdraw={handleWithdraw} overview={overview} readOnly={readOnly} />
             </div>
 
             <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
@@ -350,23 +359,25 @@ export function PaymentProjectConsole({
                   <CardDescription>Merchant backends use project API keys. Buyer browsers never forward merchant cookies.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
-                  <form onSubmit={handleCreateApiKey}>
-                    <FieldGroup>
-                      <Field>
-                        <FieldLabel htmlFor="api-key-label">Key label</FieldLabel>
-                        <InputGroup>
-                          <InputGroupAddon>
-                            <KeyRoundIcon />
-                          </InputGroupAddon>
-                          <InputGroupInput id="api-key-label" onChange={(event) => setApiKeyLabel(event.target.value)} value={apiKeyLabel} />
-                        </InputGroup>
-                      </Field>
-                      <Button disabled={busyAction === 'create-key'} type="submit">
-                        {busyAction === 'create-key' ? <Spinner data-icon="inline-start" /> : <KeyRoundIcon data-icon="inline-start" />}
-                        Generate API key
-                      </Button>
-                    </FieldGroup>
-                  </form>
+                  {readOnly ? null : (
+                    <form onSubmit={handleCreateApiKey}>
+                      <FieldGroup>
+                        <Field>
+                          <FieldLabel htmlFor="api-key-label">Key label</FieldLabel>
+                          <InputGroup>
+                            <InputGroupAddon>
+                              <KeyRoundIcon />
+                            </InputGroupAddon>
+                            <InputGroupInput id="api-key-label" onChange={(event) => setApiKeyLabel(event.target.value)} value={apiKeyLabel} />
+                          </InputGroup>
+                        </Field>
+                        <Button disabled={busyAction === 'create-key'} type="submit">
+                          {busyAction === 'create-key' ? <Spinner data-icon="inline-start" /> : <KeyRoundIcon data-icon="inline-start" />}
+                          Generate API key
+                        </Button>
+                      </FieldGroup>
+                    </form>
+                  )}
 
                   <Table>
                     <TableHeader>
@@ -405,32 +416,34 @@ export function PaymentProjectConsole({
         </TabsContent>
 
         <TabsContent value="webhooks">
-          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle>Endpoint</CardTitle>
-                <CardDescription>Project outbox signs immutable events and records delivery attempts.</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <form onSubmit={handleConfigureWebhook}>
-                  <FieldGroup>
-                    <Field>
-                      <FieldLabel htmlFor="webhook-url">Webhook URL</FieldLabel>
-                      <InputGroup>
-                        <InputGroupAddon>
-                          <RadioTowerIcon />
-                        </InputGroupAddon>
-                        <InputGroupInput id="webhook-url" onChange={(event) => setWebhookUrl(event.target.value)} value={webhookUrl} />
-                      </InputGroup>
-                    </Field>
-                    <Button disabled={busyAction === 'configure-webhook'} type="submit">
-                      {busyAction === 'configure-webhook' ? <Spinner data-icon="inline-start" /> : <BellRingIcon data-icon="inline-start" />}
-                      Add endpoint
-                    </Button>
-                  </FieldGroup>
-                </form>
-              </CardContent>
-            </Card>
+          <div className={`grid items-start gap-4 ${readOnly ? 'xl:grid-cols-1' : 'xl:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]'}`}>
+            {readOnly ? null : (
+              <Card size="sm">
+                <CardHeader>
+                  <CardTitle>Endpoint</CardTitle>
+                  <CardDescription>Project outbox signs immutable events and records delivery attempts.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4">
+                  <form onSubmit={handleConfigureWebhook}>
+                    <FieldGroup>
+                      <Field>
+                        <FieldLabel htmlFor="webhook-url">Webhook URL</FieldLabel>
+                        <InputGroup>
+                          <InputGroupAddon>
+                            <RadioTowerIcon />
+                          </InputGroupAddon>
+                          <InputGroupInput id="webhook-url" onChange={(event) => setWebhookUrl(event.target.value)} value={webhookUrl} />
+                        </InputGroup>
+                      </Field>
+                      <Button disabled={busyAction === 'configure-webhook'} type="submit">
+                        {busyAction === 'configure-webhook' ? <Spinner data-icon="inline-start" /> : <BellRingIcon data-icon="inline-start" />}
+                        Add endpoint
+                      </Button>
+                    </FieldGroup>
+                  </form>
+                </CardContent>
+              </Card>
+            )}
 
             <Card size="sm">
               <CardHeader>
@@ -446,7 +459,7 @@ export function PaymentProjectConsole({
                     <TableRow>
                       <TableHead>Endpoint</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      {readOnly ? null : <TableHead className="text-right">Action</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -461,12 +474,14 @@ export function PaymentProjectConsole({
                         <TableCell>
                           <StatusBadge value={endpoint.enabled ? 'enabled' : 'disabled'} />
                         </TableCell>
-                        <TableCell className="text-right">
-                          <Button disabled={busyAction === `test-${endpoint.endpointId}`} onClick={() => handleTestWebhook(endpoint.endpointId)} size="sm" variant="outline">
-                            {busyAction === `test-${endpoint.endpointId}` ? <Spinner data-icon="inline-start" /> : <BellRingIcon data-icon="inline-start" />}
-                            Test
-                          </Button>
-                        </TableCell>
+                        {readOnly ? null : (
+                          <TableCell className="text-right">
+                            <Button disabled={busyAction === `test-${endpoint.endpointId}`} onClick={() => handleTestWebhook(endpoint.endpointId)} size="sm" variant="outline">
+                              {busyAction === `test-${endpoint.endpointId}` ? <Spinner data-icon="inline-start" /> : <BellRingIcon data-icon="inline-start" />}
+                              Test
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -478,7 +493,7 @@ export function PaymentProjectConsole({
                       <TableHead>Delivery</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="hidden md:table-cell">HTTP</TableHead>
-                      <TableHead className="text-right">Retry</TableHead>
+                      {readOnly ? null : <TableHead className="text-right">Retry</TableHead>}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -489,12 +504,14 @@ export function PaymentProjectConsole({
                           <StatusBadge value={delivery.status} />
                         </TableCell>
                         <TableCell className="hidden md:table-cell">{delivery.httpStatus ?? delivery.error ?? 'pending'}</TableCell>
-                        <TableCell className="text-right">
-                          <Button disabled={busyAction === `resend-${delivery.deliveryId}`} onClick={() => handleResend(delivery)} size="sm" variant="ghost">
-                            {busyAction === `resend-${delivery.deliveryId}` ? <Spinner data-icon="inline-start" /> : <RotateCcwIcon data-icon="inline-start" />}
-                            Resend
-                          </Button>
-                        </TableCell>
+                        {readOnly ? null : (
+                          <TableCell className="text-right">
+                            <Button disabled={busyAction === `resend-${delivery.deliveryId}`} onClick={() => handleResend(delivery)} size="sm" variant="ghost">
+                              {busyAction === `resend-${delivery.deliveryId}` ? <Spinner data-icon="inline-start" /> : <RotateCcwIcon data-icon="inline-start" />}
+                              Resend
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                   </TableBody>
@@ -574,10 +591,12 @@ function WithdrawMetricCard({
   busyAction,
   onWithdraw,
   overview,
+  readOnly,
 }: {
   busyAction: string | null
   onWithdraw: () => void
   overview: ProjectDashboardOverview
+  readOnly: boolean
 }) {
   return (
     <Card className="min-h-28 justify-center" size="sm">
@@ -587,21 +606,29 @@ function WithdrawMetricCard({
             <LandmarkIcon className="size-3.5" />
             <span>Available</span>
           </div>
-          <Button
-            className="shrink-0"
-            disabled={busyAction === 'withdraw' || overview.summary.withdrawableMinorUnits <= 0}
-            onClick={onWithdraw}
-            size="sm"
-            title="Sign a withdraw authorization and submit it on the project chain."
-            type="button"
-          >
-            {busyAction === 'withdraw' ? <Spinner data-icon="inline-start" /> : <ArrowDownToLineIcon data-icon="inline-start" />}
-            Withdraw
-          </Button>
+          {readOnly ? (
+            <Badge variant="outline">Read only</Badge>
+          ) : (
+            <Button
+              className="shrink-0"
+              disabled={busyAction === 'withdraw' || overview.summary.withdrawableMinorUnits <= 0}
+              onClick={onWithdraw}
+              size="sm"
+              title="Sign a withdraw authorization and submit it on the project chain."
+              type="button"
+            >
+              {busyAction === 'withdraw' ? <Spinner data-icon="inline-start" /> : <ArrowDownToLineIcon data-icon="inline-start" />}
+              Withdraw
+            </Button>
+          )}
         </div>
         <div className="text-2xl leading-none font-semibold whitespace-nowrap md:text-3xl">{formatMinorUnits(overview.summary.withdrawableMinorUnits)}</div>
-        <CardDescription className="text-xs">Wallet-signed chain withdraw</CardDescription>
+        <CardDescription className="text-xs">{readOnly ? 'Projected chain balance' : 'Wallet-signed chain withdraw'}</CardDescription>
       </CardHeader>
     </Card>
   )
+}
+
+function projectedCheckoutFeeBps(overview: ProjectDashboardOverview): number | null {
+  return overview.checkoutSessions.find((session) => typeof session.billing.feeBps === 'number')?.billing.feeBps ?? null
 }

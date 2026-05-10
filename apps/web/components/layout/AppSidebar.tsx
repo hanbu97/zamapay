@@ -5,8 +5,8 @@ import { usePathname, useSearchParams } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
   ArrowLeftIcon,
-  Building2Icon,
   BellRingIcon,
+  Building2Icon,
   KeyRoundIcon,
   LayoutDashboardIcon,
   LogInIcon,
@@ -26,6 +26,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from '@/components/ui/sidebar'
+import { isDemoDashboardProject } from '@/lib/demo-dashboard'
 
 type NavItem = {
   activeTab?: string
@@ -88,7 +89,9 @@ export function AppSidebar({ isAuthenticated }: AppSidebarProps) {
     ? projectId
       ? projectNavSections(projectId)
       : authenticatedNavSections
-    : anonymousNavSections
+    : projectId && isDemoDashboardProject(projectId)
+      ? demoProjectNavSections(projectId)
+      : anonymousNavSections
 
   return (
     <Sidebar collapsible="offcanvas">
@@ -153,6 +156,46 @@ function projectNavSections(projectId: string): NavSection[] {
           href: '/merchant',
           icon: ArrowLeftIcon,
           title: 'All projects',
+        },
+        {
+          href: baseHref,
+          icon: LayoutDashboardIcon,
+          title: 'Overview',
+        },
+        {
+          activeTab: 'integration',
+          href: `${baseHref}?tab=integration`,
+          icon: KeyRoundIcon,
+          title: 'Integration',
+        },
+        {
+          activeTab: 'webhooks',
+          href: `${baseHref}?tab=webhooks`,
+          icon: BellRingIcon,
+          title: 'Webhooks',
+        },
+        {
+          activeTab: 'payments',
+          href: `${baseHref}?tab=payments`,
+          icon: ReceiptTextIcon,
+          title: 'Payments',
+        },
+      ],
+    },
+  ]
+}
+
+function demoProjectNavSections(projectId: string): NavSection[] {
+  const baseHref = `/merchant/${projectId}`
+
+  return [
+    {
+      label: 'Demo dashboard',
+      items: [
+        {
+          href: '/',
+          icon: ArrowLeftIcon,
+          title: 'Home',
         },
         {
           href: baseHref,

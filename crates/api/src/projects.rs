@@ -15,6 +15,7 @@ use storage::CheckoutSessionError;
 use super::{ApiError, AppState, keyed_digest, session_from_cookie};
 
 const DEFAULT_CHECKOUT_BASE_URL: &str = "http://127.0.0.1:3001";
+const PUBLIC_DEMO_PROJECT_ID: &str = "proj_5f227192e2514a94a3bbbfa63e04e12a";
 const IDEMPOTENCY_KEY_HEADER: &str = "idempotency-key";
 
 pub(super) fn routes() -> Router<AppState> {
@@ -123,12 +124,17 @@ async fn project_overview(
     jar: CookieJar,
     Path(project_id): Path<String>,
 ) -> Result<Json<ProjectDashboardOverview>, ApiError> {
-    let session = require_session(&state, &jar).await?;
     let overview = state
         .portal
         .project_overview(&project_id)
         .await
         .ok_or(ApiError::not_found("project not found"))?;
+
+    if is_public_demo_project(&project_id) {
+        return Ok(Json(overview));
+    }
+
+    let session = require_session(&state, &jar).await?;
     require_project_owner(&overview.project, &session.user.address)?;
     Ok(Json(overview))
 }
@@ -532,6 +538,10 @@ fn require_project_owner(project: &PaymentProject, owner_wallet: &str) -> Result
     }
 
     Err(ApiError::not_found("project not found"))
+}
+
+fn is_public_demo_project(project_id: &str) -> bool {
+    project_id == PUBLIC_DEMO_PROJECT_ID
 }
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {

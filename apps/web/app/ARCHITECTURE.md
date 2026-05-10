@@ -17,7 +17,7 @@ apps/web/app
 |   |-- billing/page.tsx    # Protected account subscription status and payment history
 |   |-- billing/upgrade/page.tsx # Protected account subscription upgrade flow
 |   |-- merchant/page.tsx   # Protected account-level project inventory and creation
-|   |-- merchant/[projectId]/page.tsx # Protected project-level settings and payments
+|   |-- merchant/[projectId]/page.tsx # Protected project settings plus the public read-only demo dashboard exception
 |   `-- dashboard/page.tsx  # Protected all-project payment overview
 `-- api/                    # Server-only bridge routes; no product chrome
 ```
@@ -34,5 +34,5 @@ apps/web/app
 - `/merchant` is account scope for project inventory and creation; it deliberately omits billing and aggregate analytics.
 - `/billing` is account scope for subscription entitlement and prior subscription payments; `/billing/upgrade` owns billing cycle selection, private upgrade proof, and tier comparison.
 - `/merchant/[projectId]` is project scope: project keys, webhooks, checkout sessions, and settlement activity.
-- `/merchant`, `/merchant/[projectId]`, `/dashboard`, and `/billing` are merchant console surfaces and redirect anonymous visitors to `/login`.
+- `/merchant`, `/dashboard`, and `/billing` are merchant console surfaces and redirect anonymous visitors to `/login`; `/merchant/[projectId]` does the same except for the hardcoded public demo project, which renders read-only.
 - API routes stay outside `(merchant)` because HTTP bridges must not depend on product layout concerns.

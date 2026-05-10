@@ -4,7 +4,7 @@
 
 - `src/lib.rs` owns the Axum router, nonce/signature auth, merchant session issue/delete, protected merchant write paths, public invoice reads, operator diagnostics auth boundary, indexer cursor exposure, and generated contract-manifest reads.
 - `src/billing.rs` owns session-authenticated subscription reads, cycle-aware private upgrade intents, and the operator-only entitlement projection path that turns verified registry events into the backend billing read model.
-- `src/projects.rs` owns payment-project routes, API-key checkout quote/session creation, webhook endpoint management, outbox delivery dispatch, test webhook, manual resend, and withdraw read-model protection.
+- `src/projects.rs` owns payment-project routes, API-key checkout quote/session creation, webhook endpoint management, outbox delivery dispatch, test webhook, manual resend, withdraw read-model protection, and the single public demo-project overview exception.
 - `src/main.rs` awaits `AppState::new`, then binds the HTTP listener, defaulting to `127.0.0.1:8080` while allowing `ZAMAPAY_API_BIND` for isolated local verification.
 - `tests/*.rs` lock the auth boundary, subscription upgrades, merchant portal routes, and generated manifest exposure.
 - Merchant invoice creation validates a positive minor-unit amount before persisting the read model and projecting the chain invoice metadata.
@@ -29,5 +29,6 @@
 - Project checkout API responses include buyer-payable hosted checkout URL only after chain invoice authority and billing split have both been recorded.
 - Project checkout quote responses expose the immutable fee split and merchant owner wallet needed by the local-dev chain invoice bridge before the checkout session is persisted.
 - Project withdraw writes are blocked until a wallet-signed settlement contract transaction exists; the API may display historic read-model rows but must not create payout records from session auth alone.
+- Project overview reads stay owner-session protected except for the one hardcoded public demo project id; all project mutation routes still require the owner session or project API key path already assigned to them.
 - Generated contract truth is served from here so frontend code does not need to inspect Hardhat artifact folders directly.
 - Contract manifests are served through `/api/contracts/{environment}`. Unknown environments fail closed; generated local-dev and Sepolia manifests are the only intended active inputs.
