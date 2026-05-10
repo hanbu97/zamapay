@@ -80,25 +80,56 @@ export const docsPages: DocsPage[] = [
       {
         body: [
           "Use these local services for the deterministic closed loop. After every Hardhat Local reset, run the root reset command once so the ZamaPay and CardForge databases match the fresh chain.",
+          "Environment files live under `env/`: commit only `*.env.example`, keep same-name `.env` files local, and source the file for the process you are starting.",
         ],
         code: `# Terminal 0: after starting Hardhat Local
 npm run reset:local-dev
 
 # Terminal 1: ZamaPay API
-ZAMAPAY_API_BIND=127.0.0.1:8080 cargo run -p api
+set -a
+. env/local-dev.zamapay-api.env
+set +a
+cargo run -p api
 
 # Terminal 2: ZamaPay web
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8080 npm run dev --workspace @zamapay/web -- --port 3001
+set -a
+. env/local-dev.zamapay-web.env
+set +a
+npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 
 # Terminal 3: CardForge backend
-cd demo/cardforge/backend
-ZAMAPAY_PROJECT_ID=proj_...
-ZAMAPAY_API_KEY=zmp_test_...
-ZAMAPAY_WEBHOOK_SECRET=whsec_...
-ZAMAPAY_API_URL=http://127.0.0.1:8080
-cargo run`,
+set -a
+. env/local-dev.cardforge-backend.env
+set +a
+cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+
+# Terminal 4: CardForge frontend
+set -a
+. env/local-dev.cardforge-frontend.env
+set +a
+npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002`,
         id: "local-stack",
         title: "Local stack",
+      },
+      {
+        body: [
+          "Supabase changes the Postgres host, not the local-dev chain. Source the local-dev file first and the Supabase override second so only the database URL is replaced.",
+        ],
+        code: `# ZamaPay API with Supabase Postgres
+set -a
+. env/local-dev.zamapay-api.env
+. env/supabase.zamapay-api.env
+set +a
+cargo run -p api
+
+# CardForge backend with Supabase Postgres
+set -a
+. env/local-dev.cardforge-backend.env
+. env/supabase.cardforge-backend.env
+set +a
+cargo run --manifest-path demo/cardforge/backend/Cargo.toml`,
+        id: "supabase-overrides",
+        title: "Supabase overrides",
       },
     ],
   },
@@ -225,12 +256,32 @@ export function verifyZamaPayWebhook(headers, body, secret) {
             ["ZAMAPAY_API_KEY", "yes", "One-time revealed project API key."],
             ["ZAMAPAY_WEBHOOK_SECRET", "yes", "Secret used to verify ZamaPay webhook signatures."],
             ["ZAMAPAY_API_URL", "yes", "Rust API base URL, for example http://127.0.0.1:8080."],
+            ["ZAMAPAY_CHAIN_INVOICE_API_URL", "yes", "ZamaPay web URL used by the backend to create local-dev private chain invoices."],
             ["CARDFORGE_DATABASE_URL", "yes", "Independent CardForge Postgres database URL."],
             ["CARDFORGE_STORE_KEY", "optional", "Local namespace inside the CardForge database; defaults to local-dev."],
             ["CARDFORGE_WEBHOOK_ENDPOINT", "optional", "Defaults to http://127.0.0.1:8092/api/zamapay/webhook."],
+            ["NEXT_PUBLIC_CARDFORGE_API_URL", "frontend only", "Browser-safe CardForge backend URL."],
+            ["NEXT_PUBLIC_ZAMAPAY_CONSOLE_URL", "frontend only", "Browser-safe link back to the ZamaPay merchant console."],
           ],
         },
         title: "Standalone boundary",
+      },
+      {
+        body: [
+          "CardForge has two process boundaries. The backend receives secrets from `env/local-dev.cardforge-backend.env`; the frontend receives only browser-safe `NEXT_PUBLIC_*` values from `env/local-dev.cardforge-frontend.env`.",
+        ],
+        code: `set -a
+. env/local-dev.cardforge-backend.env
+. env/supabase.cardforge-backend.env # optional database override
+set +a
+cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+
+set -a
+. env/local-dev.cardforge-frontend.env
+set +a
+npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002`,
+        id: "cardforge-env-files",
+        title: "CardForge env files",
       },
       {
         body: [
@@ -646,6 +697,7 @@ struct PrivateCheckout {
       {
         body: [
           "Local-dev must stay clean: private checkout uses `PrivateCheckoutSettlement`, mock cUSDT uses `ConfidentialUSDMock`, and there is no transparent invoice fallback.",
+          "Use `env/local-dev.*.env` for Docker Postgres. Use `env/supabase.*.env` only as a database override while the chain remains local-dev.",
         ],
         code: `npm run reset:local-dev
 npm run verify:local`,

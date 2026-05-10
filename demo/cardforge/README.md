@@ -21,21 +21,34 @@ This recreates the separate `zamapay` and `cardforge` databases before redeployi
 Copy the shell exports shown by the ZamaPay project dialog into the CardForge backend terminal. The bundle includes `ZAMAPAY_CHAIN_INVOICE_API_URL=http://127.0.0.1:3001`, so CardForge creates a local-dev private settlement invoice before it opens hosted checkout. Then run the template from its own directories.
 
 ```bash
-cd demo/cardforge/backend
-export CARDFORGE_DATABASE_URL='postgres://zamapay:zamapay@127.0.0.1:5432/cardforge'
-cargo run
+set -a
+. env/local-dev.cardforge-backend.env
+set +a
+cargo run --manifest-path demo/cardforge/backend/Cargo.toml
 ```
 
 ```bash
-cd demo/cardforge/frontend
-npm install
-npm run dev -- --hostname 127.0.0.1 --port 3002
+set -a
+. env/local-dev.cardforge-frontend.env
+set +a
+npm --prefix demo/cardforge/frontend install
+npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002
+```
+
+Use Supabase for CardForge storage by sourcing the local file first and the Supabase override second:
+
+```bash
+set -a
+. env/local-dev.cardforge-backend.env
+. env/supabase.cardforge-backend.env
+set +a
+cargo run --manifest-path demo/cardforge/backend/Cargo.toml
 ```
 
 Optional local explorer links can be enabled for the wallet activity panel:
 
 ```bash
-NEXT_PUBLIC_LOCAL_EXPLORER_URL=http://127.0.0.1:4000 npm run dev -- --hostname 127.0.0.1 --port 3002
+NEXT_PUBLIC_LOCAL_EXPLORER_URL=http://127.0.0.1:4000 npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002
 ```
 
 When no local explorer is running, CardForge still records and displays the confirmed transaction hash.

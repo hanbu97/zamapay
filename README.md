@@ -21,14 +21,20 @@ npm --workspace contracts run node
 
 ```bash
 npm run reset:local-dev
+set -a
+. env/local-dev.zamapay-api.env
+set +a
 cargo run -p api
 ```
 
 ```bash
+set -a
+. env/local-dev.zamapay-web.env
+set +a
 npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 ```
 
-Set `DATABASE_URL=postgres://zamapay:zamapay@127.0.0.1:5432/zamapay` before starting the API. Projects, API keys, checkout sessions, payment projections, subscriptions, webhook state, and withdrawal read models use normalized Postgres tables as the single portal source of truth.
+Service environment contracts live under `env/`. Files ending in `.env.example` are safe templates; same-name `.env` files contain local secrets and are ignored by git. Projects, API keys, checkout sessions, payment projections, subscriptions, webhook state, and withdrawal read models use normalized Postgres tables as the single portal source of truth.
 
 Use `npm run reset:local-dev` after every Hardhat Local reset, before starting the API and CardForge backend. It recreates both local databases, `zamapay` and `cardforge`, before redeploying contracts so chain ids, invoice ids, balances, and fulfillment records stay aligned.
 
@@ -36,6 +42,16 @@ CardForge is a separate merchant demo and uses its own database URL:
 `CARDFORGE_DATABASE_URL=postgres://zamapay:zamapay@127.0.0.1:5432/cardforge`.
 Fresh Docker volumes create both `zamapay` and `cardforge`; for an existing volume, run
 `docker exec zamapay-postgres createdb -U zamapay cardforge` once if the CardForge database is missing.
+
+For a Supabase-backed local run, source the local-dev file first and the Supabase override second:
+
+```bash
+set -a
+. env/local-dev.zamapay-api.env
+. env/supabase.zamapay-api.env
+set +a
+cargo run -p api
+```
 
 Open:
 

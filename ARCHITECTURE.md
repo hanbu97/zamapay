@@ -6,6 +6,7 @@
 .
 |-- .env.example            # Local and Sepolia environment contract without secrets
 |-- docker-compose.yml      # Local Postgres service for normalized portal state
+|-- env/                    # Split process env contracts and ignored local secret files
 |-- README.md               # Platform quickstart, verification commands, and testnet handoff
 |-- apps/
 |   `-- web/                 # Next.js ZamaPay platform shell
@@ -35,6 +36,7 @@
 - `crates/api` owns wallet nonce issuance, signature verification, and cookie sessions.
 - `crates/shared` holds API DTOs and typed ids only; ABI-derived schemas must stay in generated artifacts later.
 - `docker-compose.yml` owns the local Postgres runtime; `DATABASE_URL` is the durable normalized portal-schema contract shared by local Docker and future hosted Postgres/Supabase.
+- `env/` owns process-specific environment contracts; example files are commit-safe and same-name `.env` files are local secret material.
 - `crates/indexer` and `crates/fulfillment` exist from day one so Phase 2 can land without reshaping the tree.
 - `contracts/` owns the Zama payment core: merchant registry, confidential token mock, invoice settlement, deploy, tests, and smoke scripts.
 - `scripts/` owns root local-dev operations and cross-package verification; package-local behavior stays with the package that executes it.
