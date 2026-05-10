@@ -79,9 +79,12 @@ export const docsPages: DocsPage[] = [
       },
       {
         body: [
-          "Use these local services for the deterministic closed loop. The API URL points to Rust, the app URL points to Next.js, and CardForge stays in its own demo directory.",
+          "Use these local services for the deterministic closed loop. After every Hardhat Local reset, run the root reset command once so the Mermer Pay and CardForge databases match the fresh chain.",
         ],
-        code: `# Terminal 1: Mermer Pay API
+        code: `# Terminal 0: after starting Hardhat Local
+npm run reset:local-dev
+
+# Terminal 1: Mermer Pay API
 MERMER_API_BIND=127.0.0.1:8080 cargo run -p api
 
 # Terminal 2: Mermer Pay web
@@ -251,7 +254,7 @@ export function verifyMermerWebhook(headers, body, secret) {
         body: [
           "Private Checkout v1 is a Private Checkout Proof MVP. It proves that a checkout contract can validate encrypted amount equality and emit only a fulfillment-safe paid/rejected result.",
           "The implemented local-dev token is ConfidentialUSDMock: an official-style mintable confidential cUSDT mock keyed by wallet address. It is not a MetaMask ERC20 token and should not be tested through a public ERC20 transfer.",
-          "The privacy claim is scoped to business data in PrivateCheckoutSettlement storage and events. Public observers should not see merchant wallet, payout wallet, project id, order id, or amount there. In the direct-wallet MVP, the buyer wallet is still visible as the EVM transaction sender.",
+          "The privacy claim is scoped to checkout business data in PrivateCheckoutSettlement storage and events. Public observers should not see merchant wallet, payout wallet, project id, order id, or amount there. In the direct-wallet MVP, the paying wallet is still visible as the EVM transaction sender, and withdraw recipient privacy is not claimed.",
         ],
         id: "privacy-target",
         table: {
@@ -262,7 +265,8 @@ export function verifyMermerWebhook(headers, body, secret) {
               "Direct-wallet MVP submits as msg.sender; not stored as an order field",
               "Public chain observers can see tx sender; Mermer Pay can map the checkout",
             ],
-            ["Merchant / payout wallet", "Not stored or emitted by the settlement contract", "Mermer Pay and merchant backend"],
+            ["Merchant wallet", "Checkout uses settlementBucketCommitment and bucketOwnerCommitment", "Mermer Pay, merchant backend, and withdraw observers"],
+            ["Payout wallet", "Not stored or emitted during checkout/payment; v1 withdraw recipient is calldata", "Merchant backend and withdraw observers"],
             ["Project / order id", "Hashed into orderCommitment", "Mermer Pay and merchant backend"],
             ["Gross and paid amount", "FHE encrypted handles", "Mermer Pay in v1, hidden from public chain observers"],
             ["Paid/rejected", "Public boolean after decrypting accepted", "Everyone"],
@@ -291,7 +295,7 @@ export function verifyMermerWebhook(headers, body, secret) {
             [
               "Merchant Settlement / Withdraw",
               "Merchant net, platform fee, and payout close without per-order public disclosure.",
-              "Out of v1; keep as a future settlement hook.",
+              "Implemented for local-dev; payout-recipient privacy is not claimed in v1.",
             ],
           ],
         },
@@ -299,7 +303,7 @@ export function verifyMermerWebhook(headers, body, secret) {
       },
       {
         body: [
-          "Use this field contract as the implementation boundary. Core checkout values may exist on-chain only as FHE handles. Public fields must be commitments, coarse status, or time bounds. Raw business and wallet data stays out of public settlement storage, events, and calldata.",
+          "Use this field contract as the implementation boundary. Core checkout values may exist on-chain only as FHE handles. Public checkout fields must be commitments, coarse status, or time bounds. The direct-wallet payer is public as the transaction sender, and v1 withdraw reveals the authorized recipient in calldata.",
         ],
         id: "field-contract",
         table: {
@@ -312,6 +316,27 @@ export function verifyMermerWebhook(headers, body, secret) {
               "euint64",
               "Order amount due.",
               "Stored only as an FHE handle; never emitted as plaintext.",
+            ],
+            [
+              "On-chain encrypted, v1 core",
+              "merchantNetAmount",
+              "euint64",
+              "Merchant net split for this checkout.",
+              "Imported with the same input proof; only added to encrypted pending if payment succeeds.",
+            ],
+            [
+              "On-chain encrypted, v1 core",
+              "platformFeeAmount",
+              "euint64",
+              "Platform fee split for this checkout.",
+              "Imported with the same input proof; only added to encrypted pending if payment succeeds.",
+            ],
+            [
+              "On-chain encrypted, v1 core",
+              "splitCheck",
+              "ebool",
+              "Encrypted result of merchantNetAmount + platformFeeAmount == expectedAmount.",
+              "Never decrypted per order; gates payment acceptance.",
             ],
             [
               "On-chain encrypted, v1 core",
@@ -357,6 +382,13 @@ export function verifyMermerWebhook(headers, body, secret) {
             ],
             [
               "On-chain public",
+              "bucketOwnerCommitment",
+              "bytes32",
+              "hash(settlementBucketCommitment, bucketOwner).",
+              "Submitted during checkout creation instead of the raw merchant wallet.",
+            ],
+            [
+              "On-chain public",
               "paymentStatus",
               "enum",
               "created / submitted / accepted / rejected / expired.",
@@ -384,15 +416,15 @@ export function verifyMermerWebhook(headers, body, secret) {
               "Public because of EVM mechanics; do not claim payer-address privacy in this MVP.",
             ],
             [
-              "Never public on-chain",
+              "Never public in checkout calldata/events",
               "merchant address",
               "address",
               "Merchant wallet or dashboard identity.",
-              "Keep in Mermer Pay and merchant backend only.",
+              "Checkout events do not emit it; withdraw authorization may reveal it.",
             ],
             [
               "Withdraw calldata",
-              "payout wallet",
+              "payout wallet during withdraw",
               "address",
               "Settlement destination.",
               "Bound by merchant EIP-712 authorization; local-dev does not claim payout-recipient privacy.",
@@ -461,14 +493,14 @@ export function verifyMermerWebhook(headers, body, secret) {
       {
         body: [
           "Use on-chain encryption when the contract must compute over a value. Use commitments when the chain only needs a stable reference and should not learn the raw identity or business id.",
-          "In this design, amounts are encrypted because the settlement contract compares paidAmount with expectedAmount. Merchant, payout wallet, project id, and order id stay out of PrivateCheckoutSettlement storage and events. Buyer address privacy is not claimed while the buyer submits the EVM transaction directly.",
+          "In this design, amounts are encrypted because the settlement contract compares paidAmount with expectedAmount. Merchant, payout wallet, project id, and order id stay out of checkout/payment storage and events. Payer-address privacy is not claimed while the buyer submits the EVM transaction directly; payout-recipient privacy is not claimed for v1 withdraw.",
         ],
         id: "encrypted-vs-hidden",
         table: {
           headers: ["Concept", "Use it for", "Rule"],
           rows: [
             ["On-chain encrypted", "expectedAmount, paidAmount, paymentCheck", "Chain can compute, observers cannot read"],
-            ["Not public on-chain", "merchant, payout wallet, projectId, orderId", "Raw value never appears in storage, events, or calldata"],
+            ["Not public in checkout/payment", "merchant, payout wallet, projectId, orderId", "Raw value never appears in checkout creation, payment submission, payment storage, or payment events"],
             ["Commitment", "orderCommitment, settlementBucketCommitment", "Hash high-entropy salted business data; rotate settlement buckets"],
           ],
         },
@@ -615,7 +647,8 @@ struct PrivateCheckout {
         body: [
           "Local-dev must stay clean: private checkout uses `PrivateCheckoutSettlement`, mock cUSDT uses `ConfidentialUSDMock`, and there is no transparent invoice fallback.",
         ],
-        code: `npm run verify:local`,
+        code: `npm run reset:local-dev
+npm run verify:local`,
         id: "local-readiness",
         title: "Local readiness",
       },

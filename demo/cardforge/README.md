@@ -10,6 +10,14 @@ Start Mermer Pay API and web from the repository root first. In the Mermer Pay c
 http://127.0.0.1:8092/api/mermer-pay/webhook
 ```
 
+After every Hardhat Local reset, run the root reset command before starting the platform and demo services:
+
+```bash
+npm run reset:local-dev
+```
+
+This recreates the separate `mermer` and `cardforge` databases before redeploying local contracts.
+
 Copy the shell exports shown by the Mermer Pay project dialog into the CardForge backend terminal. The bundle includes `MERMER_PAY_CHAIN_INVOICE_API_URL=http://127.0.0.1:3001`, so CardForge creates a local-dev private settlement invoice before it opens hosted checkout. Then run the template from its own directories.
 
 ```bash

@@ -246,7 +246,7 @@ mapping(bytes32 settlementBucketCommitment => euint64) encryptedPlatformPending;
 | Direct mock cUSDT confidential balance | Buyer has a demo confidential balance and the buyer-submitted transaction deducts an encrypted amount. | Implemented local-dev path. |
 | ERC-7984 / confidential wrapper transfer | Confidential token balance or transfer amount moves through a token contract. | Post-MVP unless address-linkage and operator semantics are deliberately handled. |
 
-If the rail is mock/demo balance, the product name should be `Private Checkout Proof MVP`. If the rail actually debits mock cUSDT, the demo can claim private checkout plus demo confidential payment rail. Do not claim full merchant settlement until withdraw and asset finality exist.
+If the rail is mock/demo balance, the product name should be `Private Checkout Proof MVP`. If the rail actually debits mock cUSDT, the demo can claim private checkout plus demo confidential payment rail. Do not claim a full private merchant settlement network: payout-recipient privacy, real asset finality, and public-testnet protocol-fee policy remain post-MVP.
 
 Local-dev issues mock cUSDT the same way the Zama `fhevm-mocks` `ConfidentialERC20Mintable` examples do: a clear test amount is minted on-chain into an encrypted `euint64` balance. CardForge's wallet card exposes this as a faucet. The buyer clicks `+`, signs `ConfidentialUSDMock.claimTestTokens()` in MetaMask, and receives 1000 test cUSDT on the local chain.
 

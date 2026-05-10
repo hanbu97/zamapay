@@ -13,6 +13,7 @@
     "lint:web": "npm --workspace apps/web run lint",
     "test:web": "npm --workspace apps/web run test",
     "test:contracts": "npm --workspace contracts run test",
+    "reset:local-dev": "node scripts/reset-local-dev.js",
     "verify:local": "node scripts/local-readiness.js",
     "verify:local:full": "node scripts/local-full-verify.js"
   }

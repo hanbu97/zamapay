@@ -2,11 +2,11 @@
   "network": "localhost",
   "chainId": 31337,
   "contracts": {
-    "MerchantRegistry": "0x276C216D241856199A83bf27b2286659e5b877D3",
-    "ConfidentialUSDMock": "0x3347B4d90ebe72BeFb30444C9966B2B990aE9FcB",
-    "SubscriptionPass": "0x3155755b79aA083bd953911C92705B7aA82a18F9",
-    "PrivateSubscriptionRegistry": "0x5bf5b11053e734690269C6B9D438F8C9d48F528A",
-    "PrivateCheckoutSettlement": "0xab16A69A5a8c12C732e0DEFF4BE56A70bb64c926"
+    "MerchantRegistry": "0x457cCf29090fe5A24c19c1bc95F492168C0EaFdb",
+    "ConfidentialUSDMock": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
+    "SubscriptionPass": "0x38a024C0b412B9d1db8BC398140D00F5Af3093D4",
+    "PrivateSubscriptionRegistry": "0x5fc748f1FEb28d7b76fa1c6B07D8ba2d5535177c",
+    "PrivateCheckoutSettlement": "0xb9bEECD1A582768711dE1EE7B0A1d582D9d72a6C"
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -41,11 +41,11 @@
     ]
   },
   "testTokenFaucet": {
-    "token": "0x3347B4d90ebe72BeFb30444C9966B2B990aE9FcB",
+    "token": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
     "claimAmountMinorUnits": "1000000000",
     "functionName": "claimTestTokens"
   },
-  "generatedAt": "2026-05-10T04:57:00.609Z",
+  "generatedAt": "2026-05-10T05:12:13.489Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 }

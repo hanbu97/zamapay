@@ -18,10 +18,10 @@ docker compose up -d postgres
 npm --workspace contracts run node
 ```
 
-3. In another terminal, deploy contracts onto `localhost` and refresh generated clients:
+3. In another terminal, reset local-dev state, deploy contracts onto `localhost`, and refresh generated clients:
 
 ```bash
-npm --workspace contracts run deploy:localhost
+npm run reset:local-dev
 ```
 
 4. Confirm the generated manifest now contains non-null addresses:
@@ -60,7 +60,8 @@ npm run verify:local
 ## Notes
 
 - `deploy:local` uses Hardhat's ephemeral network and is useful for fast validation, but its addresses die with the process.
-- `deploy:localhost` is the stable path for real end-to-end local integration.
+- `npm run reset:local-dev` is the stable path for real end-to-end local integration after a Hardhat Local reset. Run it before starting the API and CardForge backend. It recreates both local Postgres databases, `mermer` and `cardforge`, before deploying contracts so chain-local state and read models cannot drift.
+- `deploy:localhost` is contract-only; use it only when you deliberately want to keep existing local database rows.
 - `DATABASE_URL` persists projects, API keys, checkout sessions, invoices, operator projections, webhook outbox state, subscriptions, and withdrawal read models in normalized Postgres tables; auth sessions stay process-local.
 - `MERMER_PORTAL_STATE_KEY` is only for isolated local verification namespaces; normal local development uses the default `portal` row.
 - `NEXT_PUBLIC_CONTRACT_ENV=local-dev` is the default frontend manifest selector.

@@ -37,7 +37,7 @@
 - `docker-compose.yml` owns the local Postgres runtime; `DATABASE_URL` is the durable normalized portal-schema contract shared by local Docker and future hosted Postgres/Supabase.
 - `crates/indexer` and `crates/fulfillment` exist from day one so Phase 2 can land without reshaping the tree.
 - `contracts/` owns the Zama payment core: merchant registry, confidential token mock, invoice settlement, deploy, tests, and smoke scripts.
-- `scripts/` owns cross-package verification only; package-local behavior stays with the package that executes it.
+- `scripts/` owns root local-dev operations and cross-package verification; package-local behavior stays with the package that executes it.
 - `research/` captures market and pricing evidence; it informs product decisions but is not runtime input.
 - `generated/contracts/addresses` stores one manifest per environment so local and Sepolia deployments cannot overwrite each other.
 
