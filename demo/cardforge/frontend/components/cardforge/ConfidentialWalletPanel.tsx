@@ -8,11 +8,16 @@ import {
   ExternalLinkIcon,
   EyeIcon,
   EyeOffIcon,
+  BoxIcon,
+  Gamepad2Icon,
+  GemIcon,
+  KeyboardIcon,
   PlusIcon,
   Rows3Icon,
   RefreshCwIcon,
   ShieldCheckIcon,
-  TicketCheckIcon,
+  SwordsIcon,
+  type LucideIcon,
 } from 'lucide-react'
 import { getAddress } from 'viem'
 import {
@@ -62,6 +67,13 @@ type MintActivityRecord = {
 }
 
 type WalletActivityRecord = MintActivityRecord | PaymentActivityRecord
+type OwnedCardGroup = {
+  amountLabel: string
+  count: number
+  Icon: LucideIcon
+  productId: string
+  title: string
+}
 
 const hardhatChain = {
   chainId: '0x7a69',
@@ -329,6 +341,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
   const walletHandle = address ? shortHex(address) : 'Not connected'
   const walletActionLabel = hasWallet ? walletHandle : 'Connect wallet'
   const visibleActivity = mergeActivityRecords(activity, paymentActivity)
+  const visibleOwnedCards = groupOwnedCards(ownedCards)
 
   return (
     <Card className={cn('flex min-w-0 flex-col', className)}>
@@ -413,42 +426,26 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
               </Badge>
             </div>
 
-            {ownedCards.length ? (
-              <div className="mt-3 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1">
-                {ownedCards.map((card) => (
+            {visibleOwnedCards.length ? (
+              <div className="mt-3 grid min-h-0 flex-1 grid-cols-4 content-start gap-2 overflow-y-auto pr-1">
+                {visibleOwnedCards.map(({ amountLabel, count, Icon, productId, title }) => (
                   <article
-                    className="rounded-2xl border border-emerald-300/20 bg-emerald-300/[0.08] p-3"
+                    className="relative flex min-w-0 flex-col items-center gap-2 rounded-2xl border border-white/10 bg-black/25 px-2 py-3 text-center"
                     data-testid="owned-card-record"
-                    key={card.id}
+                    key={productId}
+                    title={title}
                   >
-                    <div className="flex min-w-0 items-start gap-3">
-                      <span className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-emerald-300 text-black">
-                        <TicketCheckIcon className="size-4" />
+                    {count > 1 ? (
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-[#f4ff00] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-black">
+                        x{count}
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-center justify-between gap-2">
-                          <p className="truncate text-sm font-semibold">{card.title}</p>
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-300/15 px-2 py-1 text-[11px] text-emerald-100">
-                            <CheckCircle2Icon className="size-3" />
-                            owned
-                          </span>
-                        </div>
-                        <p className="mt-1 truncate text-xs text-white/55">{ownedCardDescription(card)}</p>
-                        <div className="mt-3 grid gap-1">
-                          {card.cards.slice(0, 2).map((released) => (
-                            <div
-                              className="flex min-w-0 items-center justify-between gap-2 rounded-xl bg-black/25 px-2.5 py-1.5"
-                              key={`${card.id}:${released.secret}`}
-                            >
-                              <span className="min-w-0 truncate text-[11px] text-white/55">{released.label}</span>
-                              <code className="shrink-0 text-[11px] font-semibold text-emerald-100">{released.secret}</code>
-                            </div>
-                          ))}
-                          {card.cards.length > 2 ? (
-                            <p className="text-[11px] text-white/45">+{card.cards.length - 2} more unlock codes</p>
-                          ) : null}
-                        </div>
-                      </div>
+                    ) : null}
+                    <span className="inline-flex size-10 items-center justify-center rounded-full bg-[#f4ff00] text-black shadow-[0_0_22px_rgb(244_255_0/0.24)]">
+                      <Icon className="size-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-semibold text-white">{ownedCardName(title)}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-white/45">{amountLabel}</p>
                     </div>
                   </article>
                 ))}
@@ -743,9 +740,45 @@ function activityDescription(record: WalletActivityRecord): string {
   return `${record.amountLabel} paid on ${invoice}`
 }
 
-function ownedCardDescription(card: OwnedCardRecord): string {
-  const invoice = Number.isFinite(card.chainInvoiceId) ? `invoice #${card.chainInvoiceId}` : card.invoiceId
-  return `${card.amountLabel} paid on ${invoice}`
+function groupOwnedCards(cards: OwnedCardRecord[]): OwnedCardGroup[] {
+  const grouped = new Map<string, OwnedCardGroup>()
+  for (const card of cards) {
+    const key = card.productId || card.title
+    const existing = grouped.get(key)
+    if (existing) {
+      existing.count += 1
+      continue
+    }
+
+    grouped.set(key, {
+      amountLabel: card.amountLabel,
+      count: 1,
+      Icon: ownedCardIcon(card.productId),
+      productId: key,
+      title: card.title,
+    })
+  }
+
+  return [...grouped.values()]
+}
+
+function ownedCardIcon(productId: string): LucideIcon {
+  switch (productId) {
+    case 'arena-access':
+      return Gamepad2Icon
+    case 'mythic-loadout':
+      return SwordsIcon
+    case 'cyber-skin':
+      return KeyboardIcon
+    case 'founders-drop':
+      return BoxIcon
+    default:
+      return GemIcon
+  }
+}
+
+function ownedCardName(title: string): string {
+  return title.split(/\s+/)[0] || title
 }
 
 function activityTimestamp(record: WalletActivityRecord): number {

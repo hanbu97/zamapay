@@ -15,6 +15,7 @@ import { encryptLocalEuint64 } from '@/lib/local-fhevm-browser'
 import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 
 type HexAddress = `0x${string}`
+type HexValue = `0x${string}`
 
 type CheckoutPaymentCardProps = {
   amountLabel: string
@@ -116,6 +117,7 @@ export function CheckoutPaymentCard({
   const [error, setError] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
   const [optimisticPaid, setOptimisticPaid] = useState(false)
+  const [preferredPayerAddress, setPreferredPayerAddress] = useState<HexAddress | null>(null)
   const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus))
 
   const manifestEnvironment = contractEnvironmentForChainId(manifestChainId)
@@ -141,6 +143,13 @@ export function CheckoutPaymentCard({
         window.clearTimeout(redirectTimerRef.current)
       }
     }
+  }, [])
+
+  useEffect(() => {
+    const syncPreferredPayer = () => setPreferredPayerAddress(readPreferredPayerFromLocation())
+    syncPreferredPayer()
+    window.addEventListener('hashchange', syncPreferredPayer)
+    return () => window.removeEventListener('hashchange', syncPreferredPayer)
   }, [])
 
   async function handlePayment() {
@@ -173,8 +182,11 @@ export function CheckoutPaymentCard({
 
         const walletClient = createWalletClient({ chain: paymentEnvironment.chain, transport: custom(provider) })
         const publicClient = createPublicClient({ chain: paymentEnvironment.chain, transport: http(rpcUrl) })
-        const [selectedAddress] = await walletClient.requestAddresses()
-        const payerAddress = getAddress(selectedAddress)
+        const payerAddress = await resolvePayerAddress({
+          provider,
+          preferredPayerAddress,
+          setStatus,
+        })
         const orderCommitment = await publicClient.readContract({
           address: settlement,
           abi: privateCheckoutSettlementAbi,
@@ -311,6 +323,22 @@ export function CheckoutPaymentCard({
               <p className={isPaid ? 'mt-1 text-sm text-emerald-800' : 'mt-1 text-sm text-muted-foreground'}>
                 {status}
               </p>
+              {preferredPayerAddress && !isPaid ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>CardForge wallet {shortHex(preferredPayerAddress)}</span>
+                  <button
+                    className="rounded-full border px-2 py-1 font-medium text-foreground transition-colors hover:bg-muted"
+                    onClick={() => {
+                      setPreferredPayerAddress(null)
+                      removePreferredPayerFromLocation()
+                      setStatus('Wallet selected in MetaMask will pay this checkout.')
+                    }}
+                    type="button"
+                  >
+                    Use another wallet
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -385,7 +413,113 @@ function safeReferrerUrl() {
   }
 }
 
-function randomNonce(): HexAddress {
+function readPreferredPayerFromLocation(): HexAddress | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const current = new URL(window.location.href)
+  return normalizeAddress(current.hash.replace(/^#/, ''), 'payer') ?? normalizeAddress(current.search, 'preferredPayer')
+}
+
+function normalizeAddress(paramsText: string, key: string): HexAddress | null {
+  const raw = new URLSearchParams(paramsText).get(key)
+  if (!raw) {
+    return null
+  }
+
+  try {
+    return getAddress(raw) as HexAddress
+  } catch {
+    return null
+  }
+}
+
+function removePreferredPayerFromLocation() {
+  const current = new URL(window.location.href)
+  const hash = new URLSearchParams(current.hash.replace(/^#/, ''))
+  hash.delete('payer')
+  current.hash = hash.toString()
+  window.history.replaceState(null, '', current.toString())
+}
+
+async function resolvePayerAddress({
+  preferredPayerAddress,
+  provider,
+  setStatus,
+}: {
+  preferredPayerAddress: HexAddress | null
+  provider: ReturnType<typeof ensureEthereumProvider>
+  setStatus: (status: string) => void
+}): Promise<HexAddress> {
+  if (preferredPayerAddress) {
+    return resolvePreferredPayerAddress(provider, preferredPayerAddress, setStatus)
+  }
+
+  return resolveSelectedPayerAddress(provider)
+}
+
+async function resolvePreferredPayerAddress(
+  provider: ReturnType<typeof ensureEthereumProvider>,
+  preferredPayerAddress: HexAddress,
+  setStatus: (status: string) => void,
+): Promise<HexAddress> {
+  const initialAccounts = normalizedWalletAccounts(await provider.request({ method: 'eth_accounts' }))
+  if (hasWalletAccount(initialAccounts, preferredPayerAddress)) {
+    return preferredPayerAddress
+  }
+
+  setStatus(`Select CardForge wallet ${shortHex(preferredPayerAddress)} in MetaMask.`)
+  await provider.request({
+    method: 'wallet_requestPermissions',
+    params: [{ eth_accounts: {} }],
+  })
+  const accounts = normalizedWalletAccounts(await provider.request({ method: 'eth_accounts' }))
+  if (hasWalletAccount(accounts, preferredPayerAddress)) {
+    return preferredPayerAddress
+  }
+
+  const selected = accounts[0] ? ` Current wallet is ${shortHex(accounts[0])}.` : ''
+  throw new Error(`Select CardForge wallet ${shortHex(preferredPayerAddress)} to pay from the demo balance.${selected}`)
+}
+
+async function resolveSelectedPayerAddress(provider: ReturnType<typeof ensureEthereumProvider>): Promise<HexAddress> {
+  const accounts = normalizedWalletAccounts(await provider.request({ method: 'eth_requestAccounts' }))
+  const selected = accounts[0]
+  if (!selected) {
+    throw new Error('MetaMask returned no selected account.')
+  }
+
+  return selected
+}
+
+function normalizedWalletAccounts(value: unknown): HexAddress[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.flatMap((account) => {
+    if (typeof account !== 'string') {
+      return []
+    }
+
+    try {
+      return [getAddress(account) as HexAddress]
+    } catch {
+      return []
+    }
+  })
+}
+
+function hasWalletAccount(accounts: HexAddress[], address: HexAddress) {
+  return accounts.some((account) => account.toLowerCase() === address.toLowerCase())
+}
+
+function shortHex(value: string) {
+  return value.length > 14 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value
+}
+
+function randomNonce(): HexValue {
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)
   return bytesToHex(bytes)

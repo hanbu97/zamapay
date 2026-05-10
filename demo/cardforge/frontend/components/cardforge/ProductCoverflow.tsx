@@ -93,7 +93,7 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
     try {
       const activeWalletAddress = await readActiveWalletAddress()
       const checkout = await createCardForgeCheckout(config, product.id, activeWalletAddress ?? buyerWalletAddress)
-      window.location.assign(checkout.checkoutUrl)
+      window.location.assign(checkoutUrlWithPreferredPayer(checkout.checkoutUrl, activeWalletAddress ?? buyerWalletAddress))
     } catch (caught) {
       const message =
         caught instanceof CardForgeApiError
@@ -208,4 +208,33 @@ async function readActiveWalletAddress(): Promise<null | string> {
   }
 
   return null
+}
+
+function checkoutUrlWithPreferredPayer(checkoutUrl: string, buyerWalletAddress?: null | string) {
+  const preferredPayer = normalizedAddress(buyerWalletAddress)
+  if (!preferredPayer) {
+    return checkoutUrl
+  }
+
+  try {
+    const url = new URL(checkoutUrl, window.location.href)
+    const hash = new URLSearchParams(url.hash.replace(/^#/, ''))
+    hash.set('payer', preferredPayer)
+    url.hash = hash.toString()
+    return url.toString()
+  } catch {
+    return checkoutUrl
+  }
+}
+
+function normalizedAddress(value?: null | string) {
+  if (!value) {
+    return null
+  }
+
+  try {
+    return getAddress(value)
+  } catch {
+    return null
+  }
 }
