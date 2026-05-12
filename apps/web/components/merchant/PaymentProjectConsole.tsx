@@ -65,6 +65,8 @@ import {
 } from './PaymentProjectWithdraw'
 
 export type ProjectConsoleTab = 'overview' | 'integration' | 'webhooks' | 'payments'
+const defaultProjectWebhookUrl =
+  process.env.NEXT_PUBLIC_DEFAULT_PROJECT_WEBHOOK_URL ?? 'http://127.0.0.1:8092/api/zamapay/webhook'
 
 type PaymentProjectConsoleProps = {
   initialBilling: BillingSubscriptionResponse | null
@@ -98,7 +100,7 @@ export function PaymentProjectConsole({
 }: PaymentProjectConsoleProps) {
   const router = useRouter()
   const [overview, setOverview] = useState(initialOverview)
-  const [webhookUrl, setWebhookUrl] = useState(overview.webhookEndpoints[0]?.url ?? 'http://127.0.0.1:8092/api/zamapay/webhook')
+  const [webhookUrl, setWebhookUrl] = useState(overview.webhookEndpoints[0]?.url ?? defaultProjectWebhookUrl)
   const [apiKeyLabel, setApiKeyLabel] = useState('Merchant backend')
   const [oneTimeSecret, setOneTimeSecret] = useState<OneTimeSecret | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -112,14 +114,12 @@ export function PaymentProjectConsole({
   const activeBillingPlan = initialBilling?.subscription.plan
   const currentPlanCatalog = activeBillingPlan ? initialBilling?.plans.find((plan) => plan.plan === activeBillingPlan) : null
   const checkoutFeeBps = currentPlanCatalog?.checkoutFeeBps ?? projectedCheckoutFeeBps(overview)
-  const integrationSnippet = [
-    buildEnvExport('ZAMAPAY_PROJECT_ID', project.projectId),
-    buildEnvExport('ZAMAPAY_API_KEY', '<generated once>'),
-    buildEnvExport('ZAMAPAY_API_URL', apiBaseUrl),
-    buildEnvExport('ZAMAPAY_WEBHOOK_SECRET', '<shown once when webhook is created>'),
-    buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://zamapay:zamapay@127.0.0.1:5432/cardforge'),
-    buildEnvExport('CARDFORGE_STORE_KEY', 'local-dev'),
-  ].join('\n')
+  const integrationSnippet = buildIntegrationBundle({
+    apiBaseUrl,
+    apiKey: '<generated once>',
+    projectId: project.projectId,
+    webhookSecret: '<shown once when webhook is created>',
+  })
 
   function revealOneTimeSecret(secret: Omit<OneTimeSecret, 'copied'>) {
     setOneTimeSecret({ ...secret, copied: false })

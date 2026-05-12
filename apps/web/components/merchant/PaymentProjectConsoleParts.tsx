@@ -16,6 +16,8 @@ export type OneTimeSecret = {
   title: string
   value: string
 }
+const chainInvoiceApiUrl =
+  process.env.NEXT_PUBLIC_ZAMAPAY_CHAIN_INVOICE_API_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://127.0.0.1:3001'
 
 export function OneTimeSecretDialog({
   onClose,
@@ -266,7 +268,7 @@ export function buildIntegrationBundle({
     buildEnvExport('ZAMAPAY_PROJECT_ID', projectId),
     buildEnvExport('ZAMAPAY_API_KEY', apiKey),
     buildEnvExport('ZAMAPAY_API_URL', apiBaseUrl),
-    buildEnvExport('ZAMAPAY_CHAIN_INVOICE_API_URL', 'http://127.0.0.1:3001'),
+    buildEnvExport('ZAMAPAY_CHAIN_INVOICE_API_URL', chainInvoiceApiUrl),
     buildEnvExport('ZAMAPAY_WEBHOOK_SECRET', webhookSecret ?? '<create a webhook endpoint first>'),
     buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://zamapay:zamapay@127.0.0.1:5432/cardforge'),
     buildEnvExport('CARDFORGE_STORE_KEY', 'local-dev'),

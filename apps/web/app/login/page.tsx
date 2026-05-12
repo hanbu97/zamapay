@@ -96,7 +96,7 @@ function ProofItem({ description, icon: Icon, title }: ProofItemProps) {
 function LoginFooter() {
   return (
     <footer className="absolute inset-x-0 bottom-0 flex min-h-16 flex-wrap items-center justify-center gap-x-8 gap-y-3 border-t bg-background/85 px-6 py-4 text-sm text-muted-foreground backdrop-blur">
-      <Link href="/">zamapay.xyz</Link>
+      <Link href="/">zamapay.org</Link>
       <span>© 2026 ZamaPay Labs</span>
       <Link href="/docs">Docs</Link>
       <Link href="/docs/quickstart">Quickstart</Link>

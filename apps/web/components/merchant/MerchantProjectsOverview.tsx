@@ -51,6 +51,8 @@ const sortOptions: Array<{ label: string; value: ProjectSort }> = [
   { label: 'Sorted by name', value: 'name' },
   { label: 'Newest first', value: 'newest' },
 ]
+const defaultProjectWebhookUrl =
+  process.env.NEXT_PUBLIC_DEFAULT_PROJECT_WEBHOOK_URL ?? 'http://127.0.0.1:8092/api/zamapay/webhook'
 
 export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOverviewProps) {
   const router = useRouter()
@@ -61,7 +63,7 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
   const [view, setView] = useState<ProjectView>('grid')
   const [createOpen, setCreateOpen] = useState(false)
   const [projectName, setProjectName] = useState('Online store')
-  const [webhookUrl, setWebhookUrl] = useState('http://127.0.0.1:8092/api/zamapay/webhook')
+  const [webhookUrl, setWebhookUrl] = useState(defaultProjectWebhookUrl)
   const [apiKeyLabel, setApiKeyLabel] = useState('Merchant backend')
   const [oneTimeSecret, setOneTimeSecret] = useState<OneTimeSecret | null>(null)
   const [status, setStatus] = useState<string | null>(null)
