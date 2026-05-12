@@ -381,20 +381,7 @@ async fn create_local_chain_invoice(
     payload: &CreateCheckoutSessionRequest,
     quote: &CheckoutQuoteResponse,
 ) -> Result<LocalChainInvoiceResponse, ApiError> {
-    let response = state
-        .client
-        .post(format!(
-            "{}/api/dev/local-chain-invoice",
-            state.config.local_chain_invoice_api_url
-        ))
-        .json(&serde_json::json!({
-            "amountMinorUnits": payload.amount_minor_units,
-            "externalRef": payload.merchant_order_id,
-            "merchantNetMinorUnits": quote.billing.merchant_net_minor_units,
-            "merchantOwnerAddress": quote.merchant_owner_wallet,
-            "platformFeeMinorUnits": quote.billing.platform_fee_minor_units,
-            "settlementBucketSeed": state.config.project_id,
-        }))
+    let response = chain_invoice_request(&state.client, &state.config, payload, quote)
         .send()
         .await
         .map_err(ApiError::chain_invoice_unreachable)?;
@@ -408,6 +395,28 @@ async fn create_local_chain_invoice(
         .json()
         .await
         .map_err(ApiError::bad_chain_invoice_json)
+}
+
+fn chain_invoice_request(
+    client: &Client,
+    config: &Config,
+    payload: &CreateCheckoutSessionRequest,
+    quote: &CheckoutQuoteResponse,
+) -> reqwest::RequestBuilder {
+    client
+        .post(format!(
+            "{}/api/dev/local-chain-invoice",
+            config.local_chain_invoice_api_url
+        ))
+        .bearer_auth(&config.project_api_key)
+        .json(&serde_json::json!({
+            "amountMinorUnits": payload.amount_minor_units,
+            "externalRef": payload.merchant_order_id,
+            "merchantNetMinorUnits": quote.billing.merchant_net_minor_units,
+            "merchantOwnerAddress": quote.merchant_owner_wallet,
+            "platformFeeMinorUnits": quote.billing.platform_fee_minor_units,
+            "settlementBucketSeed": config.project_id,
+        }))
 }
 
 async fn record_pending_checkout(

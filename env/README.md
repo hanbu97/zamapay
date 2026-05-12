@@ -148,7 +148,9 @@ npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 For the local Sepolia demo, `ZAMAPAY_CHAIN_INVOICE_PRIVATE_KEY` must be the deployed
 `PrivateCheckoutSettlement.checkoutCreator`; it creates the private checkout invoice
 before CardForge opens hosted checkout. Buyer payment still happens from the browser
-wallet on the checkout page.
+wallet on the checkout page. When CardForge calls the bridge through a non-local
+production URL, it reuses the existing project API key and the web app validates the
+requested billing split against the Rust API before signing a chain invoice.
 
 Start CardForge against the Sepolia ZamaPay project and hosted Postgres:
 

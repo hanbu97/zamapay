@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { serverContractEnvironment } from '@/lib/contract-environment'
-import { canUseLocalDevServerBridge, isLocalRequestUrl } from '@/lib/dev-signer-gate'
+import { bearerToken, canUseLocalDevServerBridge, canUseSepoliaServerBridge } from '@/lib/dev-signer-gate'
 import { createLocalChainInvoice } from '@/lib/local-fhevm-dev'
 import { createSepoliaChainInvoice } from '@/lib/sepolia-fhevm-server'
 
@@ -16,6 +16,15 @@ type LocalChainInvoiceRequest = {
   settlementBucketSeed?: unknown
 }
 
+type CheckoutQuoteResponse = {
+  billing?: {
+    grossAmountMinorUnits?: unknown
+    merchantNetMinorUnits?: unknown
+    platformFeeMinorUnits?: unknown
+  }
+  merchantOwnerWallet?: unknown
+}
+
 function isLocalDevEnabled(request: Request) {
   return (
     serverContractEnvironment() === 'local-dev' &&
@@ -28,7 +37,17 @@ function isLocalDevEnabled(request: Request) {
 }
 
 function isSepoliaDevBridgeEnabled(request: Request) {
-  return process.env.NODE_ENV !== 'production' && isLocalRequestUrl(request.url)
+  return canUseSepoliaServerBridge({
+    authorizationHeader: request.headers.get('authorization'),
+    nodeEnv: process.env.NODE_ENV,
+    requestUrl: request.url,
+  })
+}
+
+function rustApiUrl(path: string): string {
+  const baseUrl =
+    process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
+  return `${baseUrl}${path}`
 }
 
 function readPositiveSafeInteger(value: unknown): number | null {
@@ -79,6 +98,27 @@ export async function POST(request: Request) {
   if (typeof body.merchantOwnerAddress !== 'string' || !body.merchantOwnerAddress.trim()) {
     return NextResponse.json({ error: 'merchantOwnerAddress is required.' }, { status: 400 })
   }
+  if (contractEnvironment === 'sepolia') {
+    const auth = request.headers.get('authorization')
+    const authToken = bearerToken(auth)
+    if (!authToken && process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'missing project API key' }, { status: 401 })
+    }
+
+    if (authToken) {
+      const validation = await validateProjectInvoiceRequest({
+        amountMinorUnits,
+        authorizationHeader: auth ?? '',
+        merchantNetMinorUnits,
+        merchantOwnerAddress: body.merchantOwnerAddress,
+        platformFeeMinorUnits,
+        projectId: body.settlementBucketSeed,
+      })
+      if (validation) {
+        return validation
+      }
+    }
+  }
 
   try {
     const invoiceInput = {
@@ -100,4 +140,50 @@ export async function POST(request: Request) {
     const message = caught instanceof Error ? caught.message : 'chain invoice creation failed'
     return NextResponse.json({ error: message }, { status: 502 })
   }
+}
+
+async function validateProjectInvoiceRequest(input: {
+  amountMinorUnits: number
+  authorizationHeader: string
+  merchantNetMinorUnits: number
+  merchantOwnerAddress: string
+  platformFeeMinorUnits: number
+  projectId: string
+}): Promise<NextResponse | null> {
+  const response = await fetch(rustApiUrl(`/api/projects/${encodeURIComponent(input.projectId)}/checkout-quote`), {
+    method: 'POST',
+    headers: {
+      authorization: input.authorizationHeader,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ amountMinorUnits: input.amountMinorUnits }),
+  }).catch(() => null)
+
+  if (!response) {
+    return NextResponse.json({ error: 'project API is unavailable' }, { status: 502 })
+  }
+  if (response.status === 401 || response.status === 403) {
+    return NextResponse.json({ error: 'invalid project API key' }, { status: 401 })
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: 'project API rejected chain invoice authorization' }, { status: response.status })
+  }
+
+  const quote = (await response.json().catch(() => null)) as CheckoutQuoteResponse | null
+  const billing = quote?.billing
+  if (
+    !billing ||
+    billing.grossAmountMinorUnits !== input.amountMinorUnits ||
+    billing.merchantNetMinorUnits !== input.merchantNetMinorUnits ||
+    billing.platformFeeMinorUnits !== input.platformFeeMinorUnits ||
+    typeof quote.merchantOwnerWallet !== 'string' ||
+    quote.merchantOwnerWallet.toLowerCase() !== input.merchantOwnerAddress.toLowerCase()
+  ) {
+    return NextResponse.json(
+      { error: 'chain invoice payload does not match the authorized project quote' },
+      { status: 400 },
+    )
+  }
+
+  return null
 }

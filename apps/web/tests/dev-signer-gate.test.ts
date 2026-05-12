@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { canUseDevSigner, canUseLocalDevServerBridge, isLocalRequestUrl } from '../lib/dev-signer-gate.ts'
+import {
+  canUseDevSigner,
+  canUseLocalDevServerBridge,
+  canUseSepoliaServerBridge,
+  isLocalRequestUrl,
+} from '../lib/dev-signer-gate.ts'
 
 test('dev signer allows only explicit local non-production use', () => {
   assert.equal(
@@ -80,5 +85,30 @@ test('local chain invoice bridge rejects production or remote hosts', () => {
       requestUrl: 'https://zamapay.example/api/dev/local-chain-invoice',
     }),
     false,
+  )
+})
+
+test('sepolia server bridge lets production project API key calls reach validation', () => {
+  assert.equal(
+    canUseSepoliaServerBridge({
+      authorizationHeader: 'Bearer zmp_test_project_key',
+      nodeEnv: 'production',
+      requestUrl: 'https://zamapay.org/api/dev/local-chain-invoice',
+    }),
+    true,
+  )
+  assert.equal(
+    canUseSepoliaServerBridge({
+      nodeEnv: 'production',
+      requestUrl: 'https://zamapay.org/api/dev/local-chain-invoice',
+    }),
+    false,
+  )
+  assert.equal(
+    canUseSepoliaServerBridge({
+      nodeEnv: 'development',
+      requestUrl: 'http://127.0.0.1:3001/api/dev/local-chain-invoice',
+    }),
+    true,
   )
 })

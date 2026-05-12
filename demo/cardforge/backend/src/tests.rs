@@ -173,6 +173,46 @@ async fn checkout_consumes_prepared_chain_invoice() {
 }
 
 #[tokio::test]
+async fn chain_invoice_bridge_uses_project_api_key() {
+    let config = test_config("http://127.0.0.1:3001", "proj_cardforge", "zmp_test_secret");
+    let request = chain_invoice_request(
+        &Client::new(),
+        &config,
+        &CreateCheckoutSessionRequest {
+            amount_label: "80 cUSDT".to_string(),
+            amount_minor_units: 80_000_000,
+            cancel_url: None,
+            chain_invoice_id: None,
+            chain_tx_hash: None,
+            merchant_order_id: "cardforge-order-test".to_string(),
+            metadata: Default::default(),
+            note: "demo".to_string(),
+            success_url: None,
+            title: "Arena Access Card".to_string(),
+        },
+        &CheckoutQuoteResponse {
+            billing: types::CheckoutBillingSnapshot {
+                fee_bps: 25,
+                gross_amount_minor_units: 80_000_000,
+                merchant_net_minor_units: 79_800_000,
+                platform_fee_minor_units: 200_000,
+                plan: "growth".to_string(),
+            },
+            merchant_owner_wallet: "0xcAa3F62150E5813A52c329498dBEfa913B49f2de".to_string(),
+        },
+    )
+    .build()
+    .unwrap();
+    assert_eq!(
+        request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("Bearer zmp_test_secret")
+    );
+}
+
+#[tokio::test]
 async fn checkout_uses_server_catalog_product_amounts() {
     let captured = Arc::new(Mutex::new(None::<Value>));
     let fake_zamapay = fake_zamapay_api_with_local_chain(captured.clone()).await;
@@ -605,6 +645,7 @@ async fn fake_zamapay_api_with_local_chain_counter(
 
 fn test_config(api_url: &str, project_id: &str, api_key: &str) -> Config {
     Config {
+        allowed_origins: Vec::new(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
         database_url: test_database_url(),
         login_url: "http://127.0.0.1:3001/login".to_string(),
