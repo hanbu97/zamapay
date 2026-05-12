@@ -1,0 +1,8 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "cargo build --release && cp target/release/cardforge-backend cardforge-backend-bin"
+
+[deploy]
+startCommand = "./cardforge-backend-bin"
+healthcheckPath = "/health"
+healthcheckTimeout = 300

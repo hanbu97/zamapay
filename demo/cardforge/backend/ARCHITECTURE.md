@@ -15,6 +15,7 @@ backend
 |   `-- types.rs      # DTOs shared by routes, catalog, and storage
 |-- Cargo.toml        # Rust package boundary
 |-- Cargo.lock        # Backend dependency lockfile owned by the template
+|-- railway.toml      # Railway build/start contract for the standalone backend service
 |-- rust-toolchain.toml # Builder compiler pin for Railway and local deploy parity
 `-- .env.example      # Server-only ZamaPay integration contract
 ```
@@ -24,6 +25,7 @@ backend
 - The backend is the only CardForge process that knows the ZamaPay API URL, project id, project API key, webhook secret, webhook endpoint, and allowed browser origins.
 - It is a standalone Rust package; it does not inherit root workspace versions or dependencies.
 - The Rust toolchain is pinned at the backend root so Railway does not fall back to an older compiler than the locked dependency graph supports.
+- `railway.toml` copies the release binary to a stable runtime path so Railpack start commands do not depend on Cargo target-directory layout.
 - `main.rs` is only the API composition layer; catalog data, process replacement, config parsing, storage, errors, and DTOs live in single-purpose modules.
 - Startup replaces only an older `cardforge-backend` process listening on the same bind port; unrelated listeners are reported and left untouched.
 - `/api/orders/prepare-checkout` pre-creates a short queue of product-scoped private settlement invoices so the storefront can warm Sepolia before the buyer clicks Buy.
