@@ -163,7 +163,7 @@ async function createSepoliaChainInvoiceInNode(input: {
   settlementBucketSeed: string
 }): Promise<SepoliaChainInvoice> {
   const scriptPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'create-sepolia-chain-invoice.mjs')
-  const child = spawn(process.execPath, ['--experimental-strip-types', scriptPath], {
+  const child = spawn(process.execPath, ['--no-warnings', '--experimental-strip-types', scriptPath], {
     cwd: process.cwd(),
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],
