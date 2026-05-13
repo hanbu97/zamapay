@@ -12,7 +12,8 @@ import {
   LogInIcon,
   ReceiptTextIcon,
 } from 'lucide-react'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import brandLogo from '../../../../assets/logo.svg'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import {
   Sidebar,
   SidebarContent,
@@ -100,7 +101,8 @@ export function AppSidebar({ isAuthenticated }: AppSidebarProps) {
           <SidebarMenuItem>
             <SidebarMenuButton render={<Link href="/" />} size="lg" tooltip="Back to home">
               <Avatar className="size-8 rounded-lg">
-                <AvatarFallback className="rounded-lg font-semibold">MP</AvatarFallback>
+                <AvatarImage alt="" aria-hidden="true" className="rounded-lg" src={brandLogo.src} />
+                <AvatarFallback className="rounded-lg font-semibold">Z</AvatarFallback>
               </Avatar>
               <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-semibold">ZamaPay</span>

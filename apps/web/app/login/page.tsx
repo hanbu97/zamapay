@@ -5,6 +5,7 @@ import { BookOpenIcon, LockKeyholeIcon, RadioTowerIcon, ShieldCheckIcon } from '
 import { LoginCard } from '@/components/auth/LoginCard'
 import { Separator } from '@/components/ui/separator'
 import { getOptionalSession } from '@/lib/api'
+import brandLogo from '../../../../assets/logo.svg'
 
 type LoginPageProps = {
   searchParams?: Promise<{
@@ -27,9 +28,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <div className="flex flex-1 items-center justify-center px-6 py-10 lg:py-14">
           <div className="flex w-full max-w-[400px] flex-col items-center gap-8">
             <Link className="flex items-center gap-3" href="/">
-              <span className="grid size-10 place-items-center rounded-xl border bg-card text-sm font-semibold shadow-sm">
-                MP
-              </span>
+              <img alt="" aria-hidden="true" className="size-10 shrink-0 rounded-xl border object-cover shadow-sm" src={brandLogo.src} />
               <span className="text-2xl font-semibold tracking-normal">ZamaPay</span>
             </Link>
             <LoginCard redirectTo={redirectTo} />

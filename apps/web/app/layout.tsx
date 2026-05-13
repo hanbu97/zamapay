@@ -11,6 +11,10 @@ const geist = Geist({
 export const metadata: Metadata = {
   title: 'ZamaPay',
   description: 'Confidential merchant checkout powered by Zama FHEVM.',
+  icons: {
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    shortcut: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+  },
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

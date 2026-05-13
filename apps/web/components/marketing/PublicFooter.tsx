@@ -1,5 +1,7 @@
 import Link from "next/link"
 
+import brandLogo from "../../../../assets/logo.svg"
+
 const productLinks = [
   { href: "/#platform", label: "Platform" },
   { href: "/pricing", label: "Pricing" },
@@ -61,7 +63,7 @@ export function PublicFooter({ isAuthenticated }: PublicFooterProps) {
       <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-12 md:grid-cols-2 md:px-8 lg:grid-cols-[1.3fr_repeat(4,minmax(0,1fr))]">
         <div className="flex max-w-sm flex-col gap-4">
           <Link className="flex w-fit items-center gap-2 font-semibold" href="/">
-            <span className="grid size-8 place-items-center rounded-md border bg-background text-xs">MP</span>
+            <img alt="" aria-hidden="true" className="size-8 shrink-0 rounded-md border object-cover" src={brandLogo.src} />
             <span>ZamaPay</span>
           </Link>
           <p className="text-sm leading-6 text-muted-foreground">
