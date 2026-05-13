@@ -9,43 +9,44 @@ import {
   privateSubscriptionRegistryAbi,
   subscriptionPassAbi,
 } from '../../../generated/clients/ts/contracts.ts'
+import { runtimeOptionalUrl, runtimeProfileForContractEnvironment } from './runtime-profile.ts'
 
 export type { AddressManifest }
 
+const localProfile = runtimeProfileForContractEnvironment('local-dev')
+const sepoliaProfile = runtimeProfileForContractEnvironment('sepolia')
+const localRpcUrl = runtimeOptionalUrl(localProfile, 'rpcEnv', 'defaultRpcUrl', 'local RPC URL')!
+const sepoliaRpcUrl =
+  runtimeOptionalUrl(sepoliaProfile, 'rpcEnv', 'defaultRpcUrl', 'Sepolia RPC URL') ??
+  'https://sepolia-rpc-unconfigured.zamapay.invalid'
+const sepoliaExplorerUrl = runtimeOptionalUrl(
+  sepoliaProfile,
+  'explorerEnv',
+  'defaultExplorerUrl',
+  'Sepolia block explorer URL',
+)
+
 export const localHardhat = defineChain({
-  id: 31337,
-  name: 'Hardhat Local',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'Ether',
-    symbol: 'ETH',
-  },
+  id: localProfile.chainId,
+  name: localProfile.chainName,
+  nativeCurrency: localProfile.nativeCurrency,
   rpcUrls: {
     default: {
-      http: ['http://127.0.0.1:8545'],
+      http: [localRpcUrl],
     },
   },
 })
 
 export const sepolia = defineChain({
-  id: 11155111,
-  name: 'Sepolia',
-  nativeCurrency: {
-    decimals: 18,
-    name: 'Sepolia Ether',
-    symbol: 'ETH',
-  },
+  id: sepoliaProfile.chainId,
+  name: sepoliaProfile.chainName,
+  nativeCurrency: sepoliaProfile.nativeCurrency,
   rpcUrls: {
     default: {
-      http: [process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'],
+      http: [sepoliaRpcUrl],
     },
   },
-  blockExplorers: {
-    default: {
-      name: 'Etherscan',
-      url: 'https://sepolia.etherscan.io',
-    },
-  },
+  blockExplorers: sepoliaExplorerUrl ? { default: { name: 'Etherscan', url: sepoliaExplorerUrl } } : undefined,
   testnet: true,
 })
 

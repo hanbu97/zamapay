@@ -15,6 +15,7 @@ import {
 } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { privateCheckoutSettlementAbi, sepolia, sepoliaAddresses } from './contracts.ts'
+import { runtimeOptionalUrl, runtimeProfileForContractEnvironment } from './runtime-profile.ts'
 import { settlementBucketCommitment } from './settlement-bucket.ts'
 
 type RelayerEncryptedInputBuilder = {
@@ -282,12 +283,17 @@ function chainInvoicePrivateKey(): Hex {
 }
 
 function sepoliaRpcUrl(): string {
-  const configured = process.env.SEPOLIA_RPC_URL ?? process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL
-  if (configured?.trim() && !configured.includes('replace-with')) {
-    return configured.trim()
+  const rpcUrl = runtimeOptionalUrl(
+    runtimeProfileForContractEnvironment('sepolia'),
+    'rpcEnv',
+    'defaultRpcUrl',
+    'Sepolia RPC URL',
+  )
+  if (rpcUrl && !rpcUrl.includes('replace-with')) {
+    return rpcUrl
   }
 
-  return 'https://ethereum-sepolia-rpc.publicnode.com'
+  throw new Error('Sepolia RPC URL is required. Set SEPOLIA_RPC_URL or NEXT_PUBLIC_SEPOLIA_RPC_URL.')
 }
 
 function sepoliaCommitment(...parts: string[]): Hex {

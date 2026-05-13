@@ -27,6 +27,7 @@ use uuid::Uuid;
 mod billing;
 mod http_policy;
 mod projects;
+mod runtime_profile;
 
 const SESSION_COOKIE_NAME: &str = "zamapay_session";
 const OPERATOR_KEY_HEADER: &str = "x-operator-key";

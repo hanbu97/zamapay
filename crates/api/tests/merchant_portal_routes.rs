@@ -92,7 +92,7 @@ async fn local_dev_contract_manifest_route_returns_generated_truth() {
             .is_some_and(|address| address.starts_with("0x"))
     );
 
-    let alias = app
+    let legacy_alias = app
         .oneshot(
             Request::builder()
                 .method(Method::GET)
@@ -102,7 +102,7 @@ async fn local_dev_contract_manifest_route_returns_generated_truth() {
         )
         .await
         .unwrap();
-    assert_eq!(alias.status(), StatusCode::NOT_FOUND);
+    assert_eq!(legacy_alias.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

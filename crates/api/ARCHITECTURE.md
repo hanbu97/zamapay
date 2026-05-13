@@ -6,6 +6,7 @@
 - `src/billing.rs` owns session-authenticated subscription reads, cycle-aware private upgrade intents, and the operator-only entitlement projection path that turns verified registry events into the backend billing read model.
 - `src/http_policy.rs` owns deploy-time HTTP edge policy: CORS origins, operator preflight headers, and session cookie attributes.
 - `src/projects.rs` owns payment-project routes, API-key checkout quote/session creation, webhook endpoint management, outbox delivery dispatch, test webhook, manual resend, withdraw read-model protection, and the single public demo-project overview exception.
+- `src/runtime_profile.rs` reads `env/runtime-profiles.json` so the API shares contract environment and checkout URL defaults with the web app and scripts.
 - `src/main.rs` awaits `AppState::new`, then binds the HTTP listener, preferring `ZAMAPAY_API_BIND`, falling back to Railway `PORT`, then local `127.0.0.1:8080`.
 - `tests/*.rs` lock the auth boundary, subscription upgrades, merchant portal routes, and generated manifest exposure.
 - Merchant invoice creation validates a positive minor-unit amount before persisting the read model and projecting the chain invoice metadata.
@@ -35,3 +36,4 @@
 - Project overview reads stay owner-session protected except for the env-selectable public demo project id; all project mutation routes still require the owner session or project API key path already assigned to them.
 - Generated contract truth is served from here so frontend code does not need to inspect Hardhat artifact folders directly.
 - Contract manifests are served through `/api/contracts/{environment}`. Unknown environments fail closed; generated local-dev and Sepolia manifests are the only intended active inputs.
+- Runtime profile JSON is the source for active contract environment and checkout URL defaults; Rust does not keep a second local-dev checkout fallback.

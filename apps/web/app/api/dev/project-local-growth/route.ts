@@ -4,6 +4,7 @@ import { serverContractEnvironment } from '@/lib/contract-environment'
 import { isLocalRequestUrl } from '@/lib/dev-signer-gate'
 import { finalizeLocalGrowthSubscription } from '@/lib/local-fhevm-dev'
 import type { BillingCycle } from '@/lib/api'
+import { postRustJson, RustApiError } from '@/lib/rust-api-transport'
 
 type LocalGrowthRequest = {
   billingCycle?: unknown
@@ -21,7 +22,6 @@ type SubscriptionProjectionBody = {
   subscriptionCheckHandle: string
 }
 
-const rustApiBaseUrl = process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
 const defaultOperatorKey = 'local-operator-dev-key'
 
 function isEnabled(request: Request) {
@@ -66,21 +66,16 @@ function requiredGrowthPlan(value: unknown): 'growth' {
 }
 
 async function projectSubscription(ownerAddress: string, body: SubscriptionProjectionBody) {
-  const response = await fetch(`${rustApiBaseUrl}/api/operator/subscription-entitlements/${ownerAddress}/projection`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-operator-key': operatorKey(),
-    },
-    body: JSON.stringify(body),
-  })
-  const text = await response.text()
-
-  if (!response.ok) {
-    throw new Error(`subscription projection failed with ${response.status}: ${text}`)
+  try {
+    return await postRustJson(`/api/operator/subscription-entitlements/${ownerAddress}/projection`, body, {
+      headers: { 'x-operator-key': operatorKey() },
+    })
+  } catch (caught) {
+    if (caught instanceof RustApiError) {
+      throw new Error(`subscription projection failed with ${caught.status}: ${caught.body}`)
+    }
+    throw caught
   }
-
-  return JSON.parse(text) as unknown
 }
 
 export async function POST(request: Request) {

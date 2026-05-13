@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { privateKeyToAccount } from 'viem/accounts'
+import { publicContractEnvironment } from '@/lib/contract-environment'
 import { canUseDevSigner } from '@/lib/dev-signer-gate'
 
 type SignMessageRequest = {
@@ -12,7 +13,7 @@ const localLoginPrivateKey =
 
 function isEnabled(request: Request) {
   return canUseDevSigner({
-    contractEnv: process.env.NEXT_PUBLIC_CONTRACT_ENV,
+    contractEnv: publicContractEnvironment(),
     enableDevSigner: process.env.ZAMAPAY_ENABLE_DEV_SIGNER,
     nodeEnv: process.env.NODE_ENV,
     requestUrl: request.url,

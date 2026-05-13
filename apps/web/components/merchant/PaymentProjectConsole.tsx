@@ -35,6 +35,7 @@ import {
   type ProjectDashboardOverview,
   type WebhookDeliveryRecord,
 } from '@/lib/api'
+import { runtimeApiBaseUrl } from '@/lib/runtime-profile'
 import {
   CodeBlock,
   FactRow,
@@ -107,7 +108,7 @@ export function PaymentProjectConsole({
   const [error, setError] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [balanceRange, setBalanceRange] = useState<BalanceRangeKey>('7d')
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
+  const apiBaseUrl = runtimeApiBaseUrl()
   const project = overview.project
   const balanceActivities = useMemo(() => projectBalanceActivities(overview), [overview])
   const activeTab = normalizeTab(initialTab)

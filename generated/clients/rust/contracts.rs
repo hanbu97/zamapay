@@ -4,11 +4,11 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
     "network": "localhost",
     "chainId": 31337,
     "contracts": {
-      "MerchantRegistry": "0x457cCf29090fe5A24c19c1bc95F492168C0EaFdb",
-      "ConfidentialUSDMock": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
-      "SubscriptionPass": "0x38a024C0b412B9d1db8BC398140D00F5Af3093D4",
-      "PrivateSubscriptionRegistry": "0x5fc748f1FEb28d7b76fa1c6B07D8ba2d5535177c",
-      "PrivateCheckoutSettlement": "0xb9bEECD1A582768711dE1EE7B0A1d582D9d72a6C"
+      "MerchantRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+      "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+      "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+      "PrivateCheckoutSettlement": "0x0165878A594ca255338adfa4d48449f69242Eb8F"
     },
     "billing": {
       "source": "PrivateSubscriptionRegistry",
@@ -43,11 +43,11 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
       ]
     },
     "testTokenFaucet": {
-      "token": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
+      "token": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
       "claimAmountMinorUnits": "1000000000",
       "functionName": "claimTestTokens"
     },
-    "generatedAt": "2026-05-10T05:12:13.489Z",
+    "generatedAt": "2026-05-13T05:22:43.130Z",
     "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
   },
@@ -110,11 +110,11 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
   "network": "localhost",
   "chainId": 31337,
   "contracts": {
-    "MerchantRegistry": "0x457cCf29090fe5A24c19c1bc95F492168C0EaFdb",
-    "ConfidentialUSDMock": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
-    "SubscriptionPass": "0x38a024C0b412B9d1db8BC398140D00F5Af3093D4",
-    "PrivateSubscriptionRegistry": "0x5fc748f1FEb28d7b76fa1c6B07D8ba2d5535177c",
-    "PrivateCheckoutSettlement": "0xb9bEECD1A582768711dE1EE7B0A1d582D9d72a6C"
+    "MerchantRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "PrivateCheckoutSettlement": "0x0165878A594ca255338adfa4d48449f69242Eb8F"
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -149,11 +149,11 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
     ]
   },
   "testTokenFaucet": {
-    "token": "0x525C7063E7C20997BaaE9bDa922159152D0e8417",
+    "token": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
     "claimAmountMinorUnits": "1000000000",
     "functionName": "claimTestTokens"
   },
-  "generatedAt": "2026-05-10T05:12:13.489Z",
+  "generatedAt": "2026-05-13T05:22:43.130Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 }

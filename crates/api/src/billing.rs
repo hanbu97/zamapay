@@ -10,6 +10,7 @@ use shared::{
 use storage::BillingSubscriptionError;
 
 use super::{ApiError, AppState, normalize_address, require_operator_key, session_from_cookie};
+use crate::runtime_profile;
 
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
@@ -120,8 +121,7 @@ fn billing_projection_error(error: BillingSubscriptionError) -> ApiError {
 }
 
 fn active_manifest() -> Result<shared::AddressManifest, ApiError> {
-    let environment =
-        std::env::var("ZAMAPAY_CONTRACT_ENV").unwrap_or_else(|_| "local-dev".to_string());
+    let environment = runtime_profile::active_contract_environment();
     contract_manifest(&environment)
         .map_err(|_| ApiError::internal("generated contract manifest is invalid"))?
         .ok_or_else(|| ApiError::locked("active contract manifest is not deployed"))

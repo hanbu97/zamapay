@@ -5,6 +5,7 @@
 ```text
 env
 |-- README.md                              # How to compose service env files
+|-- runtime-profiles.json                  # Shared runtime profile contract for chain, URL, RPC, and finality defaults
 |-- local-dev.zamapay-api.env.example      # Rust API server contract
 |-- local-dev.zamapay-web.env.example      # ZamaPay Next.js app contract
 |-- local-dev.cardforge-backend.env.example # CardForge merchant backend contract
@@ -22,7 +23,9 @@ env
 
 - Service env files stay split by process because each process has a different trust boundary.
 - `*.env.example` files are safe documentation; same-name `*.env` files hold local secrets and are ignored by git.
+- `Justfile` is the supported way to compose these files for normal local, Supabase, Sepolia local-UI, and preview checks; manual shell sourcing is only a debugging escape hatch.
 - Browser variables must use `NEXT_PUBLIC_*` and must not contain database URLs, project API keys, webhook secrets, or private keys; backend CORS origins are explicit server variables.
 - ZamaPay and CardForge use separate Postgres databases; sharing one database would blur platform truth and merchant-demo truth.
-- Supabase files are database overrides only. Chain selection is controlled by `ZAMAPAY_CONTRACT_ENV` and `NEXT_PUBLIC_CONTRACT_ENV`.
+- Runtime profiles are the single source for chain id, contract environment, project environment, URL defaults, RPC env names, bridge policy, and finality defaults.
+- Supabase files are database overrides only. Chain selection flows only through `ZAMAPAY_RUNTIME_PROFILE` / `NEXT_PUBLIC_RUNTIME_PROFILE`.
 - Sepolia files select deployed public-testnet contracts; the web server may hold the checkout-creator key for local demo invoice creation, while browser FHE proofs still come from Zama's official test relayer via SDK `SepoliaConfig`.

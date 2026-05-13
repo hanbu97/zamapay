@@ -365,7 +365,7 @@ Do not decrypt per-order gross, merchant net, or platform fee in the normal chec
 - Keep `accepted` as the only per-order decrypted value.
 - Reject expired checkouts, reused payment nonces, resubmission after final status, and double finalization.
 - Keep ZamaPay platform relayer out of the MVP. Local-dev uses Hardhat/FHEVM mock RPC plus a server submitter for merchant-signed withdraw packages; Sepolia uses Zama official relayer/gateway surfaces for FHE operations.
-- Keep environments explicit: no transparent settlement fallback and no hidden local-dev branch when `NEXT_PUBLIC_CONTRACT_ENV=sepolia`.
+- Keep environments explicit: no transparent settlement fallback and no hidden local-dev branch when `NEXT_PUBLIC_RUNTIME_PROFILE=sepolia-local-ui`.
 
 ## Implementation Direction
 

@@ -1,13 +1,10 @@
 # Environment Files
 
-These files make the runtime boundary explicit. Copy the example you need to the same name without `.example`, fill the secret values, then source it before starting that service.
+These files make the runtime boundary explicit. Copy the example you need to the same name without `.example`, fill the secret values, then run the matching `just` recipe from the repo root. The `Justfile` is the workflow entrypoint; manual `set -a; . env/...` sourcing is for debugging only.
 
 ```bash
 cp env/local-dev.zamapay-api.env.example env/local-dev.zamapay-api.env
-set -a
-. env/local-dev.zamapay-api.env
-set +a
-cargo run -p api
+just api-local
 ```
 
 ## Files
@@ -25,6 +22,24 @@ cargo run -p api
 | `sepolia.zamapay-web.env` | ZamaPay Next.js web | yes for chain invoice signer | Selects Sepolia wallet/manifest config and lets the local demo server create private checkout invoices. |
 | `sepolia.cardforge-backend.env` | CardForge Rust backend | yes | Merchant project credentials for a Sepolia ZamaPay project. |
 | `sepolia.cardforge-frontend.env` | CardForge Next.js storefront | no | Browser-safe Sepolia demo links. |
+
+## Runtime Profiles
+
+`runtime-profiles.json` is the shared contract for local and public-testnet runtime shape. Code should read chain id, RPC env names, API/web defaults, checkout base URLs, and finality defaults from this file instead of inventing local fallbacks.
+
+| Profile | Contract env | Purpose |
+| --- | --- | --- |
+| `local-dev` | `local-dev` | Hardhat Local, local Rust API, local Next.js checkout. |
+| `sepolia-local-ui` | `sepolia` | Sepolia contracts with local API/web processes for testnet QA. |
+| `sepolia-preview` | `sepolia` | Public preview shape; RPC and public URLs must be explicit HTTPS values. |
+
+Use these gates before switching environments:
+
+```bash
+just verify-runtime local-dev
+just verify-runtime sepolia-local-ui
+just preview-check
+```
 
 ## Secret Rule
 
@@ -47,7 +62,7 @@ Secret variables:
 Public browser variables:
 
 - `NEXT_PUBLIC_API_BASE_URL`
-- `NEXT_PUBLIC_CONTRACT_ENV`
+- `NEXT_PUBLIC_RUNTIME_PROFILE`
 - `NEXT_PUBLIC_CARDFORGE_DEMO_URL`
 - `NEXT_PUBLIC_CARDFORGE_API_URL`
 - `NEXT_PUBLIC_ZAMAPAY_CONSOLE_URL`
@@ -60,37 +75,25 @@ Public browser variables:
 ZamaPay API:
 
 ```bash
-set -a
-. env/local-dev.zamapay-api.env
-set +a
-cargo run -p api
+just api-local
 ```
 
 ZamaPay web:
 
 ```bash
-set -a
-. env/local-dev.zamapay-web.env
-set +a
-npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
+just web-local
 ```
 
 CardForge backend:
 
 ```bash
-set -a
-. env/local-dev.cardforge-backend.env
-set +a
-cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+just cardforge-api-local
 ```
 
 CardForge frontend:
 
 ```bash
-set -a
-. env/local-dev.cardforge-frontend.env
-set +a
-npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002
+just cardforge-web-local
 ```
 
 ## Supabase Local Run
@@ -98,19 +101,11 @@ npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002
 Use Supabase as the Postgres host while keeping the local Hardhat chain:
 
 ```bash
-set -a
-. env/local-dev.zamapay-api.env
-. env/supabase.zamapay-api.env
-set +a
-cargo run -p api
+just api-supabase-local
 ```
 
 ```bash
-set -a
-. env/local-dev.cardforge-backend.env
-. env/supabase.cardforge-backend.env
-set +a
-cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+just cardforge-api-supabase-local
 ```
 
 The later file wins, so Supabase overrides only the database URL.
@@ -121,28 +116,17 @@ Sepolia uses the real Zama FHEVM stack. Browser encrypted inputs and public decr
 
 ```bash
 cp env/sepolia.contracts.env.example env/sepolia.contracts.env
-set -a
-. env/sepolia.contracts.env
-set +a
-npm --workspace contracts run deploy:sepolia
+just deploy-sepolia-contracts
 ```
 
 Then start local ZamaPay against hosted Postgres and Sepolia contract manifests:
 
 ```bash
-set -a
-. env/local-dev.zamapay-api.env
-. env/supabase.zamapay-api.env
-. env/sepolia.zamapay-api.env
-set +a
-cargo run -p api
+just api-sepolia-local-ui
 ```
 
 ```bash
-set -a
-. env/sepolia.zamapay-web.env
-set +a
-npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
+just web-sepolia-local-ui
 ```
 
 For the local Sepolia demo, `ZAMAPAY_CHAIN_INVOICE_PRIVATE_KEY` must be the deployed
@@ -155,18 +139,17 @@ requested billing split against the Rust API before signing a chain invoice.
 Start CardForge against the Sepolia ZamaPay project and hosted Postgres:
 
 ```bash
-set -a
-. env/sepolia.cardforge-backend.env
-. env/supabase.cardforge-backend.env
-set +a
-cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+just cardforge-api-sepolia-local-ui
 ```
 
 ```bash
-set -a
-. env/sepolia.cardforge-frontend.env
-set +a
-npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002
+just cardforge-web-sepolia-local-ui
 ```
 
-For production previews, use the workspace build script as-is. It runs `next build --webpack` because the current Zama browser SDK/WASM chunk can stall Next 16 Turbopack optimized builds.
+Before a public preview deploy, run:
+
+```bash
+just preview-check
+```
+
+For production previews, use `just build-web`. It runs `next build --webpack` because the current Zama browser SDK/WASM chunk can stall Next 16 Turbopack optimized builds.

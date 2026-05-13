@@ -5,8 +5,11 @@
 ```text
 .
 |-- .env.example            # Local and Sepolia environment contract without secrets
+|-- .mise.toml              # Node and command-runner toolchain pin; Rust stays outside this file
 |-- docker-compose.yml      # Local Postgres service for normalized portal state
 |-- env/                    # Split process env contracts and ignored local secret files
+|-- Justfile                # Human workflow entrypoint for local, Supabase, and Sepolia runs
+|-- package.json            # npm workspace scripts for package-local build/test atoms
 |-- README.md               # Platform quickstart, verification commands, and testnet handoff
 |-- apps/
 |   `-- web/                 # Next.js ZamaPay platform shell
@@ -37,6 +40,10 @@
 - `crates/shared` holds API DTOs and typed ids only; ABI-derived schemas must stay in generated artifacts later.
 - `docker-compose.yml` owns the local Postgres runtime; `DATABASE_URL` is the durable normalized portal-schema contract shared by local Docker and future hosted Postgres/Supabase.
 - `env/` owns process-specific environment contracts; example files are commit-safe and same-name `.env` files are local secret material.
+- `.mise.toml` pins Node LTS and `just` only; Rust is intentionally left to the existing upgraded local toolchain.
+- `Justfile` owns human-facing and agent-facing workflow composition; it delegates runtime defaults to `env/runtime-profiles.json`, process env to `env/*.env`, and build/test atoms to npm, cargo, and Hardhat.
+- Agents must prefer existing `just` recipes for setup, reset, local services, Sepolia local-UI work, deployment composition, verification, and cache cleanup. Direct `npm`/`cargo`/`docker`/Hardhat commands are implementation details unless no recipe exists yet.
+- Repeatable operational steps graduate into `Justfile` recipes first, backed by `env/` and `scripts/` single-truth helpers, then README/runbook documentation. README-only shell workflows are not accepted as durable architecture.
 - Railway platform services use service-level build/start settings because `apps/web` and `crates/api` share the repository root differently; a single root `railway.toml` would lie about one of them.
 - `crates/indexer` and `crates/fulfillment` exist from day one so Phase 2 can land without reshaping the tree.
 - `contracts/` owns the Zama payment core: merchant registry, confidential token mock, invoice settlement, deploy, tests, and smoke scripts.

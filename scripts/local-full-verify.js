@@ -1,6 +1,9 @@
 const { spawnSync } = require('child_process')
 
+const node = process.execPath
+
 const checks = [
+  ['runtime profile config', [node, ['scripts/verify-runtime-profile.js', 'local-dev']]],
   ['web unit tests', ['npm', ['run', 'test:web']]],
   ['web e2e tests', ['npm', ['--workspace', 'apps/web', 'run', 'test:e2e']]],
   ['web typecheck', ['npm', ['run', 'lint:web']]],
@@ -8,7 +11,7 @@ const checks = [
   ['rust format', ['cargo', ['fmt', '--all', '--check']]],
   ['rust workspace tests', ['cargo', ['test', '--workspace']]],
   ['contract tests', ['npm', ['run', 'test:contracts']]],
-  ['local end-to-end readiness', ['npm', ['run', 'verify:local']]],
+  ['local end-to-end readiness', [node, ['scripts/local-readiness.js']]],
 ]
 
 function runCheck([name, [command, args]]) {

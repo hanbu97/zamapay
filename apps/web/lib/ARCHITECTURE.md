@@ -12,6 +12,8 @@ apps/web/lib
 |-- local-fhevm-browser.ts  # Browser Hardhat/FHEVM mock RPC bridge for encrypted checkout and subscription inputs
 |-- local-fhevm-dev.ts      # Server-only Hardhat FHEVM mock bridge for checkout, withdraw submission, and subscription finalization
 |-- merchant-portal.ts      # Protected billing/project loader and failure mapping
+|-- runtime-profile.ts      # Typed reader for env/runtime-profiles.json, URL defaults, and finality policy
+|-- rust-api-transport.ts   # Server route helper for Rust API URL building, proxy responses, and JSON POST errors
 |-- sepolia-fhevm-server.ts # Server-only Sepolia invoice creator using Zama official relayer encryption and checkout-creator signing
 |-- settlement-bucket.ts    # Deterministic settlement bucket commitment helper shared by invoice and withdraw flows
 |-- time-format.ts          # Merchant-facing timestamp formatting with unambiguous midnight display
@@ -25,7 +27,8 @@ apps/web/lib
 - API helpers are transport-only; they do not invent payment truth, project authority, delivery state, fulfillment release truth, subscription entitlement, or billing math.
 - Contract ABIs and billing/address manifests flow from `generated/clients/ts` so UI writes and public pricing follow compiled Solidity/deploy output.
 - `demo-dashboard.ts` is the only browser-safe source for the public demo project id; `NEXT_PUBLIC_DEMO_DASHBOARD_PROJECT_ID` may override the default without widening normal account auth.
-- `contract-environment.ts` owns the allowed environment vocabulary. `local-dev` and `sepolia` resolve to generated manifests, wallet chain metadata, and project environment values.
+- `runtime-profile.ts` owns the deploy/runtime vocabulary. `contract-environment.ts`, chain metadata, wallet metadata, API base URLs, and finality policy derive from the shared env profile contract.
+- `rust-api-transport.ts` is the only Next route transport helper for Rust API proxying; routes describe paths and policy, not repeated header/body/response plumbing.
 - `local-fhevm-dev.ts` is server-only and gated by API routes; it creates `PrivateCheckoutSettlement` checkouts with encrypted gross/net/fee inputs plus bucket-owner commitments, finalizes submitted checkout payments, submits merchant-signed local withdraw packages with the Hardhat submitter signer, and finalizes Growth subscription booleans.
 - `local-fhevm-browser.ts` is local-dev only; it uses Hardhat/FHEVM mock RPC to create encrypted payment/subscription inputs and decrypt buyer-owned confidential balances.
 - `zama-relayer-browser.ts` is Sepolia only; it uses `@zama-fhe/relayer-sdk/web` with `SepoliaConfig`, which points at Zama's official test relayer, and never talks to Hardhat mock RPC methods.

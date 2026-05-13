@@ -675,7 +675,7 @@ fn chain_invoice_rank(
 
 fn contract_billing_protocol() -> BillingProtocolManifest {
     contract_manifest(
-        &std::env::var("ZAMAPAY_CONTRACT_ENV").unwrap_or_else(|_| "local-dev".to_string()),
+        &std::env::var("ZAMAPAY_RUNTIME_PROFILE").unwrap_or_else(|_| "local-dev".to_string()),
     )
     .ok()
     .flatten()

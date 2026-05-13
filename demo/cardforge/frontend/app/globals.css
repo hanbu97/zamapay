@@ -1,9 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "swiper/css";
-@import "swiper/css/effect-coverflow";
-@import "swiper/css/pagination";
+@import "../node_modules/swiper/swiper.css";
+@import "../node_modules/swiper/modules/effect-coverflow.css";
+@import "../node_modules/swiper/modules/pagination.css";
 
 @custom-variant dark (&:is(.dark *));
 

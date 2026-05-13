@@ -36,20 +36,26 @@ loadRootEnv();
 
 require("@fhevm/hardhat-plugin");
 require("@nomicfoundation/hardhat-toolbox");
+const { profileOptionalUrl, runtimeProfile } = require("../scripts/runtime-profile");
 
 const deployerPrivateKey = process.env.DEPLOYER_PRIVATE_KEY || process.env.PRIVATE_KEY;
-const sepoliaRpcUrl = process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com";
+const localProfile = runtimeProfile("local-dev");
+const sepoliaProfile = runtimeProfile("sepolia-local-ui");
+const localRpcUrl = profileOptionalUrl(localProfile, "rpcEnv", "defaultRpcUrl", "local RPC URL");
+const sepoliaRpcUrl =
+  profileOptionalUrl(sepoliaProfile, "rpcEnv", "defaultRpcUrl", "Sepolia RPC URL") ||
+  "https://sepolia-rpc-unconfigured.zamapay.invalid";
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   networks: {
     localhost: {
-      url: "http://127.0.0.1:8545",
-      chainId: 31337,
+      url: localRpcUrl,
+      chainId: localProfile.chainId,
     },
     sepolia: {
       url: sepoliaRpcUrl,
-      chainId: 11155111,
+      chainId: sepoliaProfile.chainId,
       accounts: deployerPrivateKey ? [deployerPrivateKey] : [],
     },
   },

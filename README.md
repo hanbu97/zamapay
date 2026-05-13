@@ -11,46 +11,54 @@ Confidential merchant checkout for wallet-authenticated merchants, Zama FHEVM se
 
 ## Local Platform
 
+Tooling is pinned by `.mise.toml` for Node and `just`; Rust is intentionally not managed there because this workspace already uses the newly upgraded Rust toolchain.
+
+```bash
+mise trust
+mise install
+mise exec -- just --list
+mise exec -- just setup
+```
+
+The `Justfile` is the human entrypoint. It delegates to `env/`, `scripts/`, `npm`, `cargo`, and Hardhat instead of duplicating chain ids, URLs, finality, or secrets.
+
 Run these in separate terminals from the repo root.
 
 ```bash
-npm install
-docker compose up -d postgres
-npm --workspace contracts run node
+just db-up
+just contracts-node
 ```
 
 ```bash
-npm run reset:local-dev
-set -a
-. env/local-dev.zamapay-api.env
-set +a
-cargo run -p api
+just reset-local
+just api-local
 ```
 
 ```bash
-set -a
-. env/local-dev.zamapay-web.env
-set +a
-npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
+just web-local
 ```
 
 Service environment contracts live under `env/`. Files ending in `.env.example` are safe templates; same-name `.env` files contain local secrets and are ignored by git. Projects, API keys, checkout sessions, payment projections, subscriptions, webhook state, and withdrawal read models use normalized Postgres tables as the single portal source of truth.
 
-Use `npm run reset:local-dev` after every Hardhat Local reset, before starting the API and CardForge backend. It recreates both local databases, `zamapay` and `cardforge`, before redeploying contracts so chain ids, invoice ids, balances, and fulfillment records stay aligned.
+Use `just reset-local` after every Hardhat Local reset, before starting the API, web app, and CardForge backend. It recreates both local databases, `zamapay` and `cardforge`, redeploys contracts, refreshes generated clients, and clears local Next/Turbopack caches so chain ids, invoice ids, balances, fulfillment records, and CSS variables stay aligned.
+
+If a local browser page looks stale after branch churn, env changes, or a design-token rename, run:
+
+```bash
+just clean-local-dev
+```
+
+The local and Sepolia `just *web*local*` recipes already clear their own `.next` caches before starting.
 
 CardForge is a separate merchant demo and uses its own database URL:
 `CARDFORGE_DATABASE_URL=postgres://zamapay:zamapay@127.0.0.1:5432/cardforge`.
 Fresh Docker volumes create both `zamapay` and `cardforge`; for an existing volume, run
 `docker exec zamapay-postgres createdb -U zamapay cardforge` once if the CardForge database is missing.
 
-For a Supabase-backed local run, source the local-dev file first and the Supabase override second:
+For a Supabase-backed local run, let the recipe compose local-dev first and the Supabase override second:
 
 ```bash
-set -a
-. env/local-dev.zamapay-api.env
-. env/supabase.zamapay-api.env
-set +a
-cargo run -p api
+just api-supabase-local
 ```
 
 Open:
@@ -64,7 +72,7 @@ Standalone merchant templates live under `demo/` and are launched from their own
 Run the full local readiness gate after API, web, and Hardhat are running:
 
 ```bash
-npm run verify:local
+just verify-local
 ```
 
 This checks the local manifest, Rust API, Next pages, browser projection route, and hosted checkout rendering.
@@ -73,24 +81,37 @@ For manual browser-only `LoginCard` verification without a wallet extension, tem
 
 ## Public Testnet
 
-Public-testnet support is paused in this workspace. The active MVP is local-dev only: Hardhat/FHEVM mock RPC, `ConfidentialUSDMock.claimTestTokens()` from the browser wallet, direct buyer-wallet payment, encrypted pending buckets, merchant-signed withdraw, and local chain evidence projection after finalization.
+Public-testnet work is guarded by explicit runtime profiles and env files. The active local MVP remains Hardhat/FHEVM mock RPC, `ConfidentialUSDMock.claimTestTokens()` from the browser wallet, direct buyer-wallet payment, encrypted pending buckets, merchant-signed withdraw, and local chain evidence projection after finalization.
 
-Future Sepolia work should be reintroduced as one clean branch through Zama official relayer/gateway surfaces and an explicit protocol-fee funding policy. Do not revive the old Sepolia scripts, transparent settlement fallback, or owner-mint helper as active paths.
+Sepolia local-UI and preview setup lives in `env/README.md`. Use these entrypoints instead of hand-sourcing env stacks:
+
+```bash
+just verify-runtime sepolia-local-ui
+just deploy-sepolia-contracts
+just api-sepolia-local-ui
+just web-sepolia-local-ui
+just cardforge-api-sepolia-local-ui
+just cardforge-web-sepolia-local-ui
+```
+
+Before a public preview deploy, run:
+
+```bash
+just preview-check
+```
 
 ## Verification Commands
 
 ```bash
-npm run verify:local:full
+just verify-full
 ```
 
 For individual gates:
 
 ```bash
-npm run test:web
-npm run lint:web
-npm run build:web
-cargo fmt --all --check
-cargo test --workspace
-npm run test:contracts
-npm run verify:local
+just check
+just build-web
+just verify-local
 ```
+
+`just check` starts or reuses local Postgres because Rust integration tests need a database URL.

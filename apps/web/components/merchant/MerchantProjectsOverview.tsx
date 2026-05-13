@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Spinner } from '@/components/ui/spinner'
 import { createPaymentProject, createProjectApiKey, type PaymentProject } from '@/lib/api'
 import { contractEnvironmentConfig, publicContractEnvironment } from '@/lib/contract-environment'
+import { runtimeApiBaseUrl } from '@/lib/runtime-profile'
 import { OneTimeSecretDialog, buildIntegrationBundle, formatEnvironment, type OneTimeSecret } from './PaymentProjectConsoleParts'
 
 type MerchantProjectsOverviewProps = {
@@ -69,7 +70,7 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
+  const apiBaseUrl = runtimeApiBaseUrl()
 
   const visibleProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()

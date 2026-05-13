@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
+import { fetchRustFromRequest, rustTextResponse, rustTextResponseInit } from '@/lib/rust-api-transport'
 
 export const runtime = 'nodejs'
 
 const SESSION_COOKIE_NAME = 'zamapay_session'
-const rustApiBaseUrl = process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
 
 type SessionResponse = {
   authenticated?: unknown
@@ -13,18 +13,11 @@ type SessionResponse = {
 }
 
 export async function POST(request: Request) {
-  const body = await request.text()
-  const upstream = await fetch(`${rustApiBaseUrl}/api/auth/verify`, {
-    method: 'POST',
-    headers: {
-      'content-type': request.headers.get('content-type') ?? 'application/json',
-    },
-    body,
-  })
+  const upstream = await fetchRustFromRequest(request, '/api/auth/verify', { contentTypeFallback: 'application/json' })
   const text = await upstream.text()
 
   if (!upstream.ok) {
-    return forwardedResponse(upstream, text)
+    return rustTextResponse(upstream, text)
   }
 
   const session = readSessionResponse(text)
@@ -33,7 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Rust auth service did not return a session id.' }, { status: 502 })
   }
 
-  const response = forwardedResponse(upstream, text)
+  const response = new NextResponse(text, rustTextResponseInit(upstream))
   response.cookies.set({
     httpOnly: true,
     name: SESSION_COOKIE_NAME,
@@ -44,16 +37,6 @@ export async function POST(request: Request) {
   })
 
   return response
-}
-
-function forwardedResponse(upstream: Response, body: string) {
-  return new NextResponse(body, {
-    headers: {
-      'cache-control': 'no-store',
-      'content-type': upstream.headers.get('content-type') ?? 'application/json',
-    },
-    status: upstream.status,
-  })
 }
 
 function readSessionResponse(body: string): SessionResponse {

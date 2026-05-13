@@ -3,6 +3,8 @@ import { createPublicClient, http, parseEventLogs, type Hex } from 'viem'
 import { privateCheckoutSettlementAbi } from '@/lib/contracts'
 import { contractEnvironmentConfig, serverContractEnvironment, type ContractEnvironmentConfig } from '@/lib/contract-environment'
 import { finalizeLocalPrivatePayment } from '@/lib/local-fhevm-dev'
+import { runtimeFinalityConfig } from '@/lib/runtime-profile'
+import { postRustJson, RustApiError } from '@/lib/rust-api-transport'
 
 type ProjectionRequest = {
   chainInvoiceId?: unknown
@@ -30,10 +32,8 @@ type ConfirmationBody = {
   finalityThreshold: number
 }
 
-const rustApiBaseUrl = process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
 const operatorKey = process.env.ZAMAPAY_OPERATOR_KEY ?? 'local-operator-dev-key'
-const confirmations = Number(process.env.CONFIRMATIONS ?? 2)
-const finalityThreshold = Number(process.env.FINALITY_THRESHOLD ?? 2)
+const { confirmations, finalityThreshold } = runtimeFinalityConfig()
 
 class RouteError extends Error {
   constructor(
@@ -81,21 +81,16 @@ function activeSettlement(): ActiveSettlement {
 }
 
 async function rustJson<T>(pathname: string, body: PaymentProjectionBody | ConfirmationBody): Promise<T> {
-  const response = await fetch(`${rustApiBaseUrl}${pathname}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-operator-key': operatorKey,
-    },
-    body: JSON.stringify(body),
-  })
-  const text = await response.text()
-
-  if (!response.ok) {
-    throw new Error(`${pathname} failed with ${response.status}: ${text}`)
+  try {
+    return await postRustJson(pathname, body, {
+      headers: { 'x-operator-key': operatorKey },
+    })
+  } catch (caught) {
+    if (caught instanceof RustApiError) {
+      throw new Error(`${pathname} failed with ${caught.status}: ${caught.body}`)
+    }
+    throw caught
   }
-
-  return JSON.parse(text) as T
 }
 
 async function findFinalizedPayment(input: {

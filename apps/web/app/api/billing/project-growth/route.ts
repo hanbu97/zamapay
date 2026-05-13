@@ -3,6 +3,7 @@ import { createPublicClient, getAddress, http, isHex, parseEventLogs, type Hex }
 import type { BillingCycle } from '@/lib/api'
 import { contractEnvironmentConfig, serverContractEnvironment, type ContractEnvironmentConfig } from '@/lib/contract-environment'
 import { privateSubscriptionRegistryAbi } from '@/lib/contracts'
+import { postRustJson, RustApiError } from '@/lib/rust-api-transport'
 
 type GrowthProjectionRequest = {
   billingCycle?: unknown
@@ -25,7 +26,6 @@ type ActiveRegistry = {
   registryAddress: Hex
 }
 
-const rustApiBaseUrl = process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
 const operatorKey = process.env.ZAMAPAY_OPERATOR_KEY ?? 'local-operator-dev-key'
 
 class RouteError extends Error {
@@ -78,21 +78,16 @@ function publicClient(config: ContractEnvironmentConfig) {
 }
 
 async function projectSubscription(ownerAddress: string, body: SubscriptionProjectionBody) {
-  const response = await fetch(`${rustApiBaseUrl}/api/operator/subscription-entitlements/${ownerAddress}/projection`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-operator-key': operatorKey,
-    },
-    body: JSON.stringify(body),
-  })
-  const text = await response.text()
-
-  if (!response.ok) {
-    throw new RouteError(`subscription projection failed with ${response.status}: ${text}`, 502)
+  try {
+    return await postRustJson(`/api/operator/subscription-entitlements/${ownerAddress}/projection`, body, {
+      headers: { 'x-operator-key': operatorKey },
+    })
+  } catch (caught) {
+    if (caught instanceof RustApiError) {
+      throw new RouteError(`subscription projection failed with ${caught.status}: ${caught.body}`, 502)
+    }
+    throw caught
   }
-
-  return JSON.parse(text) as unknown
 }
 
 async function verifiedFinalizedGrowth(input: {

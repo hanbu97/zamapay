@@ -64,6 +64,15 @@ Keep runtime marker contracts stable and non-destructive when overlays are appli
 - Run lint, typecheck, tests, and static analysis after changes.
 - Final reports must include changed files, simplifications made, and remaining risks.
 
+## Project Workflow Contract
+- `Justfile` is the human and agent entrypoint for setup, reset, local services, public-testnet local UI, deployment composition, and verification. Start with `just --list` before inventing commands.
+- Prefer existing `just` recipes over hand-composed `npm`, `cargo`, `docker`, `hardhat`, or `set -a && . env/...` command sequences. Direct package commands are acceptable only when debugging the recipe internals or creating the next recipe.
+- Local-dev changes should flow through `just db-up`, `just contracts-node`, `just reset-local`, `just api-local`, `just web-local`, `just cardforge-api-local`, `just cardforge-web-local`, `just verify-local`, and `just verify-full`.
+- Sepolia/local-UI work should flow through `just verify-runtime sepolia-local-ui`, `just deploy-sepolia-contracts`, `just api-sepolia-local-ui`, `just web-sepolia-local-ui`, `just cardforge-api-sepolia-local-ui`, and `just cardforge-web-sepolia-local-ui`.
+- Generated state and cache cleanup are part of the workflow contract. Use `just clean-local-dev` or the `just *web*local*` recipes instead of manually deleting `.next` caches after branch churn, runtime-profile changes, or design-token renames.
+- New repeatable operations must become `just` recipes backed by `env/` and `scripts/` single-truth helpers. Do not add parallel README-only or ad hoc shell workflows.
+- When a workflow changes, update the relevant `ARCHITECTURE.md` and runbook in the same patch so future agents inherit the same operational path.
+
 <lore_commit_protocol>
 ## Lore Commit Protocol
 

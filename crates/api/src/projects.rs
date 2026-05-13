@@ -15,8 +15,8 @@ use shared::{
 use storage::CheckoutSessionError;
 
 use super::{ApiError, AppState, keyed_digest, session_from_cookie};
+use crate::runtime_profile;
 
-const DEFAULT_CHECKOUT_BASE_URL: &str = "http://127.0.0.1:3001";
 const DEFAULT_PUBLIC_DEMO_PROJECT_ID: &str = "proj_62dc3460ccb749a388c40356c101a01f";
 const IDEMPOTENCY_KEY_HEADER: &str = "idempotency-key";
 static PUBLIC_DEMO_PROJECT_ID: OnceLock<String> = OnceLock::new();
@@ -598,9 +598,7 @@ fn checkout_error(error: CheckoutSessionError) -> ApiError {
 }
 
 fn checkout_base_url() -> String {
-    std::env::var("ZAMAPAY_CHECKOUT_BASE_URL")
-        .or_else(|_| std::env::var("NEXT_PUBLIC_APP_URL"))
-        .unwrap_or_else(|_| DEFAULT_CHECKOUT_BASE_URL.to_string())
+    runtime_profile::checkout_base_url()
 }
 
 fn truncate_body(body: String) -> String {

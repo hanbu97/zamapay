@@ -1,18 +1,12 @@
-const fs = require('fs')
-const path = require('path')
+const { assert, assertConsistentEnvironment, profileUrl, readManifest, runtimeProfile } = require('./runtime-profile')
 
-const API_BASE_URL = process.env.ZAMAPAY_API_BASE_URL ?? 'http://127.0.0.1:8080'
-const WEB_BASE_URL = process.env.ZAMAPAY_WEB_BASE_URL ?? 'http://127.0.0.1:3001'
-const ROOT = path.resolve(__dirname, '..')
+const PROFILE = runtimeProfile(process.env.ZAMAPAY_RUNTIME_PROFILE ?? process.env.NEXT_PUBLIC_RUNTIME_PROFILE ?? 'local-dev')
+assert(PROFILE.contractEnvironment === 'local-dev', 'just verify-local requires the local-dev runtime profile')
+const API_BASE_URL = profileUrl(PROFILE, 'apiBaseEnv', 'defaultApiBaseUrl', 'API base URL')
+const WEB_BASE_URL = profileUrl(PROFILE, 'webBaseEnv', 'defaultWebBaseUrl', 'web base URL')
 const LOCAL_LOGIN_PRIVATE_KEY =
   process.env.ZAMAPAY_LOCAL_LOGIN_PRIVATE_KEY ??
   '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
-
-function assert(condition, message) {
-  if (!condition) {
-    throw new Error(message)
-  }
-}
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -59,19 +53,8 @@ async function check(name, run) {
 }
 
 function readLocalManifest() {
-  const manifestPath = path.join(ROOT, 'generated', 'contracts', 'addresses', 'local-dev.json')
-  assert(fs.existsSync(manifestPath), `local-dev manifest is missing: ${manifestPath}`)
-
-  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
-  assert(manifest.chainId === 31337, `local-dev manifest chainId must be 31337, got ${manifest.chainId}`)
-  assert(manifest.contracts?.MerchantRegistry?.startsWith('0x'), 'MerchantRegistry is missing from local-dev manifest')
-  assert(manifest.contracts?.ConfidentialUSDMock?.startsWith('0x'), 'ConfidentialUSDMock is missing from local-dev manifest')
-  assert(
-    manifest.contracts?.PrivateCheckoutSettlement?.startsWith('0x'),
-    'PrivateCheckoutSettlement is missing from local-dev manifest',
-  )
-
-  return manifest
+  assertConsistentEnvironment(PROFILE)
+  return readManifest(PROFILE)
 }
 
 function firstSetCookie(headers) {
@@ -162,8 +145,11 @@ async function main() {
     return health
   }))
   checks.push(await check('Rust API contract manifest', async () => {
-    const manifest = await json(`${API_BASE_URL}/api/contracts/local-dev`)
-    assert(manifest.chainId === 31337, `API manifest chainId must be 31337, got ${manifest.chainId}`)
+    const manifest = await json(`${API_BASE_URL}/api/contracts/${PROFILE.contractEnvironment}`)
+    assert(
+      manifest.chainId === PROFILE.chainId,
+      `API manifest chainId must be ${PROFILE.chainId}, got ${manifest.chainId}`,
+    )
     assert(
       manifest.contracts?.PrivateCheckoutSettlement === localManifest.contracts.PrivateCheckoutSettlement,
       `API PrivateCheckoutSettlement is stale: expected ${localManifest.contracts.PrivateCheckoutSettlement}, got ${manifest.contracts?.PrivateCheckoutSettlement}`,
@@ -207,6 +193,7 @@ async function main() {
       {
         ok: true,
         apiBaseUrl: API_BASE_URL,
+        profile: PROFILE.key,
         webBaseUrl: WEB_BASE_URL,
         checks,
       },

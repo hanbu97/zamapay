@@ -36,6 +36,7 @@ import {
 import { confidentialUsdMockAbi, privateSubscriptionRegistryAbi } from '@/lib/contracts'
 import {
   contractEnvironmentConfig,
+  publicContractEnvironment,
   type ContractEnvironmentConfig,
 } from '@/lib/contract-environment'
 import {
@@ -277,7 +278,7 @@ function defaultChainState(plansByKey: Map<BillingPlan, BillingPlanCatalogEntry>
 }
 
 function chainConfigForEnvironment(): BillingChainConfig {
-  const config = contractEnvironmentConfig(process.env.NEXT_PUBLIC_CONTRACT_ENV)
+  const config = contractEnvironmentConfig(publicContractEnvironment())
   const manifest = config.manifest
   const registry = ensureHexAddress(manifest?.contracts.PrivateSubscriptionRegistry ?? null, 'PrivateSubscriptionRegistry')
   const token = ensureHexAddress(manifest?.contracts.ConfidentialUSDMock ?? null, 'ConfidentialUSDMock')
@@ -293,7 +294,7 @@ function chainConfigForEnvironment(): BillingChainConfig {
 }
 
 function chainLabelForEnvironment() {
-  return contractEnvironmentConfig(process.env.NEXT_PUBLIC_CONTRACT_ENV).label
+  return contractEnvironmentConfig(publicContractEnvironment()).label
 }
 
 function contractUnavailableMessage(config: BillingChainConfig): string {

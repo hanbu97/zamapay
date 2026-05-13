@@ -10,7 +10,7 @@ frontend
 |   |-- cardforge/CreateCheckoutButton.tsx    # Checkout creation and fulfillment refresh clients
 |   |-- cardforge/ProductCoverflow.tsx        # Swiper Coverflow catalog and buyer checkout intent
 |   `-- ui/                              # shadcn primitives
-|-- generated/        # Deployable ABI/address snapshot copied from the root generated client
+|-- generated/        # Deployable contract and runtime-profile snapshots copied from root truth
 |-- lib/              # Browser-safe config, CardForge backend client, and active-chain wallet reader
 |-- components.json   # shadcn registry contract
 |-- next.config.ts    # Next headers needed by the Zama browser relayer and Railway production serving
@@ -26,8 +26,8 @@ frontend
 - Production responses include COOP/COEP headers so the Zama browser relayer can use threaded WASM primitives outside local dev.
 - `lib/config.ts` exposes only the CardForge backend URL and ZamaPay console link.
 - `lib/cardforge-api.ts` calls only the CardForge backend checkout, fulfillment, and webhook-log endpoints without browser credentials, so ZamaPay session cookies never enter the demo backend.
-- `generated/contracts.ts` is copied into the frontend package so Railway path-root deploys do not depend on files outside the service archive.
-- `lib/confidential-wallet.ts` selects the active contract environment from `NEXT_PUBLIC_CONTRACT_ENV`, reads the package-local generated address manifest, and keeps local-dev and Sepolia behind one browser wallet API.
+- `generated/contracts.ts` and `generated/runtime-profiles.json` are copied into the frontend package so Railway path-root deploys do not depend on files outside the service archive.
+- `lib/confidential-wallet.ts` selects the active contract environment from `NEXT_PUBLIC_RUNTIME_PROFILE`, reads the package-local generated address manifest, and keeps local-dev and Sepolia behind one browser wallet API.
 - `app/page.tsx` owns the selected wallet address so the catalog can tag checkout intent with the buyer wallet while the wallet panel can render wallet-scoped records.
 - `ConfidentialWalletPanel.tsx` opens MetaMask for account connection, active-chain selection, and `claimTestTokens()` faucet transactions; it renders confidential cUSDT from `ConfidentialUSDMock`, not from a public ERC20 token list.
 - Local-dev balance reveal uses the Hardhat FHEVM mock RPC. Sepolia balance reveal uses Zama's browser relayer SDK and wallet-signed user decrypt permission.

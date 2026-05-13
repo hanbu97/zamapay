@@ -29,11 +29,10 @@ Sepolia is the public-testnet target. FHE encrypted inputs and public decrypts m
 
 | Requirement | Evidence command |
 | --- | --- |
-| Contracts compile and private checkout tests pass | `npm --workspace contracts run test` |
-| Generated clients contain the selected contract manifest | `npm --workspace contracts run sync:generated` |
-| Web environment and checkout compile | `npm --workspace apps/web run lint` and `npm --workspace apps/web run test` |
-| Rust local-only DTO/API/storage compile | `cargo fmt --all --check` and `cargo check --workspace` |
-| Live local app readiness | `npm run verify:local` after Hardhat, Rust API, and Next web are running |
+| Contracts, web tests, and Rust workspace checks pass | `just check` |
+| Web production build compiles | `just build-web` |
+| Generated clients contain the selected contract manifest | `just reset-local` after `just contracts-node` |
+| Live local app readiness | `just verify-local` after Hardhat, Rust API, and Next web are running |
 
 ## Current Risks
 

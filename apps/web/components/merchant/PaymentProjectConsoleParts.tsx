@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { TableCell, TableRow } from '@/components/ui/table'
 import type { BillingPlan, BillingSubscriptionResponse, PaymentProject, ProjectDashboardOverview, ProjectEnvironmentKind } from '@/lib/api'
 import { labelForProjectEnvironment } from '@/lib/contract-environment'
+import { runtimeCheckoutBaseUrl } from '@/lib/runtime-profile'
 import { formatMerchantTimestamp } from '@/lib/time-format'
 
 export type OneTimeSecret = {
@@ -17,7 +18,7 @@ export type OneTimeSecret = {
   value: string
 }
 const chainInvoiceApiUrl =
-  process.env.NEXT_PUBLIC_ZAMAPAY_CHAIN_INVOICE_API_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? 'http://127.0.0.1:3001'
+  process.env.NEXT_PUBLIC_ZAMAPAY_CHAIN_INVOICE_API_URL ?? runtimeCheckoutBaseUrl()
 
 export function OneTimeSecretDialog({
   onClose,

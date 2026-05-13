@@ -1,0 +1,89 @@
+{
+  "defaultProfile": "local-dev",
+  "profiles": {
+    "local-dev": {
+      "label": "Local dev",
+      "contractEnvironment": "local-dev",
+      "projectEnvironment": "local_dev",
+      "chainId": 31337,
+      "chainName": "Hardhat Local",
+      "nativeCurrency": {
+        "decimals": 18,
+        "name": "Ether",
+        "symbol": "ETH"
+      },
+      "rpcEnv": ["NEXT_PUBLIC_LOCAL_RPC_URL", "ZAMAPAY_LOCAL_RPC_URL"],
+      "defaultRpcUrl": "http://127.0.0.1:8545",
+      "explorerEnv": ["NEXT_PUBLIC_LOCAL_EXPLORER_URL"],
+      "defaultExplorerUrl": null,
+      "apiBaseEnv": ["ZAMAPAY_API_BASE_URL", "NEXT_PUBLIC_API_BASE_URL"],
+      "defaultApiBaseUrl": "http://127.0.0.1:8080",
+      "webBaseEnv": ["ZAMAPAY_WEB_BASE_URL", "NEXT_PUBLIC_APP_URL"],
+      "defaultWebBaseUrl": "http://127.0.0.1:3001",
+      "checkoutBaseEnv": ["ZAMAPAY_CHECKOUT_BASE_URL", "NEXT_PUBLIC_APP_URL"],
+      "defaultCheckoutBaseUrl": "http://127.0.0.1:3001",
+      "confirmations": 2,
+      "finalityThreshold": 2,
+      "requiresExplicitRpc": false,
+      "allowsDevSigner": true,
+      "allowsServerInvoiceBridge": true,
+      "requiresHttpsPublicUrls": false
+    },
+    "sepolia-local-ui": {
+      "label": "Sepolia local UI",
+      "contractEnvironment": "sepolia",
+      "projectEnvironment": "sepolia",
+      "chainId": 11155111,
+      "chainName": "Sepolia",
+      "nativeCurrency": {
+        "decimals": 18,
+        "name": "Sepolia Ether",
+        "symbol": "ETH"
+      },
+      "rpcEnv": ["SEPOLIA_RPC_URL", "NEXT_PUBLIC_SEPOLIA_RPC_URL"],
+      "defaultRpcUrl": null,
+      "explorerEnv": ["NEXT_PUBLIC_SEPOLIA_EXPLORER_URL"],
+      "defaultExplorerUrl": "https://sepolia.etherscan.io",
+      "apiBaseEnv": ["ZAMAPAY_API_BASE_URL", "NEXT_PUBLIC_API_BASE_URL"],
+      "defaultApiBaseUrl": "http://127.0.0.1:8080",
+      "webBaseEnv": ["ZAMAPAY_WEB_BASE_URL", "NEXT_PUBLIC_APP_URL"],
+      "defaultWebBaseUrl": "http://127.0.0.1:3001",
+      "checkoutBaseEnv": ["ZAMAPAY_CHECKOUT_BASE_URL", "NEXT_PUBLIC_APP_URL"],
+      "defaultCheckoutBaseUrl": "http://127.0.0.1:3001",
+      "confirmations": 2,
+      "finalityThreshold": 2,
+      "requiresExplicitRpc": true,
+      "allowsDevSigner": false,
+      "allowsServerInvoiceBridge": true,
+      "requiresHttpsPublicUrls": false
+    },
+    "sepolia-preview": {
+      "label": "Sepolia preview",
+      "contractEnvironment": "sepolia",
+      "projectEnvironment": "sepolia",
+      "chainId": 11155111,
+      "chainName": "Sepolia",
+      "nativeCurrency": {
+        "decimals": 18,
+        "name": "Sepolia Ether",
+        "symbol": "ETH"
+      },
+      "rpcEnv": ["SEPOLIA_RPC_URL", "NEXT_PUBLIC_SEPOLIA_RPC_URL"],
+      "defaultRpcUrl": null,
+      "explorerEnv": ["NEXT_PUBLIC_SEPOLIA_EXPLORER_URL"],
+      "defaultExplorerUrl": "https://sepolia.etherscan.io",
+      "apiBaseEnv": ["ZAMAPAY_API_BASE_URL", "NEXT_PUBLIC_API_BASE_URL"],
+      "defaultApiBaseUrl": null,
+      "webBaseEnv": ["ZAMAPAY_WEB_BASE_URL", "NEXT_PUBLIC_APP_URL"],
+      "defaultWebBaseUrl": null,
+      "checkoutBaseEnv": ["ZAMAPAY_CHECKOUT_BASE_URL", "NEXT_PUBLIC_APP_URL"],
+      "defaultCheckoutBaseUrl": null,
+      "confirmations": 2,
+      "finalityThreshold": 2,
+      "requiresExplicitRpc": true,
+      "allowsDevSigner": false,
+      "allowsServerInvoiceBridge": false,
+      "requiresHttpsPublicUrls": true
+    }
+  }
+}

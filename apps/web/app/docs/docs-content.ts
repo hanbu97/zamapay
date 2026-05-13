@@ -82,54 +82,36 @@ export const docsPages: DocsPage[] = [
       {
         body: [
           "Use these local services for the deterministic closed loop. After every Hardhat Local reset, run the root reset command once so the ZamaPay and CardForge databases match the fresh chain.",
-          "Environment files live under `env/`: commit only `*.env.example`, keep same-name `.env` files local, and source the file for the process you are starting.",
+          "Environment files live under `env/`: commit only `*.env.example`, keep same-name `.env` files local, and use `just` recipes to compose them.",
         ],
-        code: `# Terminal 0: after starting Hardhat Local
-npm run reset:local-dev
+        code: `# Terminal 0
+just db-up
+just contracts-node
 
-# Terminal 1: ZamaPay API
-set -a
-. env/local-dev.zamapay-api.env
-set +a
-cargo run -p api
+# Terminal 1
+just reset-local
+just api-local
 
-# Terminal 2: ZamaPay web
-set -a
-. env/local-dev.zamapay-web.env
-set +a
-npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
+# Terminal 2
+just web-local
 
-# Terminal 3: CardForge backend
-set -a
-. env/local-dev.cardforge-backend.env
-set +a
-cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+# Terminal 3
+just cardforge-api-local
 
-# Terminal 4: CardForge frontend
-set -a
-. env/local-dev.cardforge-frontend.env
-set +a
-npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002`,
+# Terminal 4
+just cardforge-web-local`,
         id: "local-stack",
         title: "Local stack",
       },
       {
         body: [
-          "Supabase changes the Postgres host, not the local-dev chain. Source the local-dev file first and the Supabase override second so only the database URL is replaced.",
+          "Supabase changes the Postgres host, not the local-dev chain. The `just` recipes source local-dev first and the Supabase override second so only the database URL is replaced.",
         ],
         code: `# ZamaPay API with Supabase Postgres
-set -a
-. env/local-dev.zamapay-api.env
-. env/supabase.zamapay-api.env
-set +a
-cargo run -p api
+just api-supabase-local
 
 # CardForge backend with Supabase Postgres
-set -a
-. env/local-dev.cardforge-backend.env
-. env/supabase.cardforge-backend.env
-set +a
-cargo run --manifest-path demo/cardforge/backend/Cargo.toml`,
+just cardforge-api-supabase-local`,
         id: "supabase-overrides",
         title: "Supabase overrides",
       },
@@ -270,18 +252,13 @@ export function verifyZamaPayWebhook(headers, body, secret) {
       },
       {
         body: [
-          "CardForge has two process boundaries. The backend receives secrets from `env/local-dev.cardforge-backend.env`; the frontend receives only browser-safe `NEXT_PUBLIC_*` values from `env/local-dev.cardforge-frontend.env`.",
+          "CardForge has two process boundaries. The backend receives secrets from `env/local-dev.cardforge-backend.env`; the frontend receives only browser-safe `NEXT_PUBLIC_*` values from `env/local-dev.cardforge-frontend.env`. Use the recipes instead of hand-sourcing the files.",
         ],
-        code: `set -a
-. env/local-dev.cardforge-backend.env
-. env/supabase.cardforge-backend.env # optional database override
-set +a
-cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+        code: `just cardforge-api-local
+just cardforge-web-local
 
-set -a
-. env/local-dev.cardforge-frontend.env
-set +a
-npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002`,
+# Hosted Postgres override for the backend:
+just cardforge-api-supabase-local`,
         id: "cardforge-env-files",
         title: "CardForge env files",
       },
@@ -289,7 +266,7 @@ npm --prefix demo/cardforge/frontend run dev -- --hostname 127.0.0.1 --port 3002
         body: [
           "Use the local readiness gate for service truth, then run the browser CardForge flow for the private checkout proof. The old direct payment-projection script is intentionally removed.",
         ],
-        code: `npm run verify:local`,
+        code: `just verify-local`,
         id: "closed-loop-proof",
         title: "Closed loop proof",
       },
@@ -689,8 +666,8 @@ struct PrivateCheckout {
         table: {
           headers: ["Environment", "Use", "Required proof"],
           rows: [
-            ["local-dev", "Fast product loop and CI smoke.", "npm run verify:local"],
-            ["sepolia", "Public demo with real FHEVM encryption.", "Deploy contracts with `npm --workspace contracts run deploy:sepolia`, then run the UI with `NEXT_PUBLIC_CONTRACT_ENV=sepolia`."],
+            ["local-dev", "Fast product loop and CI smoke.", "`just verify-local`"],
+            ["sepolia", "Public demo with real FHEVM encryption.", "`just deploy-sepolia-contracts`, then `just api-sepolia-local-ui` and `just web-sepolia-local-ui`."],
             ["production", "Not enabled in this hackathon build.", "Real merchant signer custody, public HTTPS webhook, monitoring, and rate limits."],
           ],
         },
@@ -701,8 +678,8 @@ struct PrivateCheckout {
           "Local-dev must stay clean: private checkout uses `PrivateCheckoutSettlement`, mock cUSDT uses `ConfidentialUSDMock`, and there is no transparent invoice fallback.",
           "Use `env/local-dev.*.env` for Docker Postgres. Use `env/supabase.*.env` only as a database override while the chain remains local-dev.",
         ],
-        code: `npm run reset:local-dev
-npm run verify:local`,
+        code: `just reset-local
+just verify-local`,
         id: "local-readiness",
         title: "Local readiness",
       },
@@ -711,10 +688,9 @@ npm run verify:local`,
           "Sepolia deployment reads `env/sepolia.contracts.env`, writes `generated/contracts/addresses/sepolia.json`, and regenerates the TypeScript/Rust contract clients.",
           "Local dashboards and CardForge can still run on `127.0.0.1`; chain/RPC/manifest move to Sepolia, and browser FHE operations use Zama's official test relayer via `SepoliaConfig`.",
         ],
-        code: `set -a
-. env/sepolia.contracts.env
-set +a
-npm --workspace contracts run deploy:sepolia`,
+        code: `just deploy-sepolia-contracts
+just api-sepolia-local-ui
+just web-sepolia-local-ui`,
         id: "sepolia-readiness",
         title: "Sepolia readiness",
       },

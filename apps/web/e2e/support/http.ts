@@ -1,5 +1,7 @@
-export const API_BASE_URL = process.env.ZAMAPAY_API_BASE_URL ?? 'http://127.0.0.1:8080'
-export const WEB_BASE_URL = process.env.ZAMAPAY_WEB_BASE_URL ?? 'http://127.0.0.1:3001'
+import { runtimeApiBaseUrl, runtimeWebBaseUrl } from '../../lib/runtime-profile.ts'
+
+export const API_BASE_URL = runtimeApiBaseUrl()
+export const WEB_BASE_URL = runtimeWebBaseUrl()
 export const OPERATOR_KEY = process.env.ZAMAPAY_OPERATOR_KEY ?? 'local-operator-dev-key'
 
 export async function readText(url: string, options: RequestInit = {}) {

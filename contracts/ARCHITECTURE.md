@@ -7,6 +7,7 @@
 - `SubscriptionPass.sol` owns the soulbound merchant subscription NFT; it is identity, not transferable value.
 - `PrivateSubscriptionRegistry.sol` owns encrypted subscription terms, local Growth self-serve checks, and pass issuance.
 - `PrivateCheckoutSettlement.sol` owns Private Checkout v1: commitment-only checkout storage, bucket-owner commitments, encrypted gross/net/fee split validation, encrypted buyer debit, merchant/platform pending buckets, replay/expiry guards, public decrypt of only payment/withdraw booleans, and EIP-712 merchant-authorized encrypted withdraw that a chain submitter can send.
+- `hardhat.config.js` reads the shared runtime profile contract for local and Sepolia chain ids/RPC URLs.
 - `scripts/sync-generated.js` and `scripts/deploy-contracts.js` are the bridge from Hardhat artifacts into generated clients and the selected address manifests.
 
 ## Decisions

@@ -14,6 +14,7 @@ import {
   confidentialUsdMockAbi,
   type AddressManifest,
 } from '../generated/contracts'
+import runtimeProfileContract from '../generated/runtime-profiles.json' with { type: 'json' }
 import type { FhevmInstance } from '@zama-fhe/relayer-sdk/web'
 
 export type ConfidentialWalletSnapshot = {
@@ -61,6 +62,10 @@ export type WalletNetwork = {
 }
 
 type ContractEnvironment = 'local-dev' | 'sepolia'
+type RuntimeProfileKey = 'local-dev' | 'sepolia-local-ui' | 'sepolia-preview'
+type RuntimeProfile = {
+  contractEnvironment: ContractEnvironment
+}
 type DecryptReadOptions = {
   onBeforeWalletSignature?: () => void
 }
@@ -68,7 +73,7 @@ type RelayerSdk = typeof import('@zama-fhe/relayer-sdk/web')
 
 const hardhatRpcUrl = process.env.NEXT_PUBLIC_LOCAL_RPC_URL || 'http://127.0.0.1:8545'
 const sepoliaRpcUrl = process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'
-const selectedEnvironment = normalizeContractEnvironment(process.env.NEXT_PUBLIC_CONTRACT_ENV)
+const selectedEnvironment = activeRuntimeProfile().contractEnvironment
 const zeroHandle = `0x${'0'.repeat(64)}` as Hex
 const claimAmountMinorUnits = 1_000_000_000n
 const localHardhatChain = defineChain({
@@ -417,19 +422,19 @@ function chainIdHex(chainId: number): Hex {
   return `0x${chainId.toString(16)}` as Hex
 }
 
-function normalizeContractEnvironment(value: string | undefined): ContractEnvironment {
-  switch (value) {
-    case 'sepolia':
-    case 'test':
-    case 'testnet':
-      return 'sepolia'
-    default:
-      return 'local-dev'
-  }
-}
-
 function walletErrorCode(caught: unknown): unknown {
   return typeof caught === 'object' && caught !== null ? (caught as { code?: unknown }).code : undefined
+}
+
+function activeRuntimeProfile(): RuntimeProfile {
+  const key = (process.env.NEXT_PUBLIC_RUNTIME_PROFILE || 'local-dev').trim()
+  const profiles = runtimeProfileContract.profiles as Record<RuntimeProfileKey, RuntimeProfile>
+
+  if (!Object.hasOwn(profiles, key)) {
+    throw new Error(`Unsupported runtime profile "${key}". Use "local-dev", "sepolia-local-ui", or "sepolia-preview".`)
+  }
+
+  return profiles[key as RuntimeProfileKey]
 }
 
 function strip0x(value: string): string {

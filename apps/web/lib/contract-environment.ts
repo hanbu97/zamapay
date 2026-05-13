@@ -1,9 +1,14 @@
 import type { Chain } from 'viem'
 import { localDevAddresses, localHardhat, sepolia, sepoliaAddresses, type AddressManifest } from './contracts.ts'
+import {
+  contractEnvironmentFromRuntimeProfile,
+  runtimeProfileForContractEnvironment,
+  type ContractEnvironment,
+  type ProjectEnvironmentValue,
+} from './runtime-profile.ts'
 import { localHardhatWalletChain, sepoliaWalletChain, type WalletChain } from './wallet.ts'
 
-export type ContractEnvironment = 'local-dev' | 'sepolia'
-export type ProjectEnvironmentValue = 'local_dev' | 'sepolia'
+export type { ContractEnvironment, ProjectEnvironmentValue } from './runtime-profile.ts'
 
 export type ContractEnvironmentConfig = {
   key: ContractEnvironment
@@ -17,11 +22,14 @@ export type ContractEnvironmentConfig = {
 
 export const defaultContractEnvironment: ContractEnvironment = 'local-dev'
 
+const localRuntimeProfile = runtimeProfileForContractEnvironment('local-dev')
+const sepoliaRuntimeProfile = runtimeProfileForContractEnvironment('sepolia')
+
 export const contractEnvironmentConfigs: Record<ContractEnvironment, ContractEnvironmentConfig> = {
   'local-dev': {
     key: 'local-dev',
-    label: 'Local dev',
-    projectEnvironment: 'local_dev',
+    label: localRuntimeProfile.label,
+    projectEnvironment: localRuntimeProfile.projectEnvironment,
     manifestRoute: 'local-dev',
     chain: localHardhat,
     walletChain: localHardhatWalletChain,
@@ -29,8 +37,8 @@ export const contractEnvironmentConfigs: Record<ContractEnvironment, ContractEnv
   },
   sepolia: {
     key: 'sepolia',
-    label: 'Sepolia',
-    projectEnvironment: 'sepolia',
+    label: sepoliaRuntimeProfile.label,
+    projectEnvironment: sepoliaRuntimeProfile.projectEnvironment,
     manifestRoute: 'sepolia',
     chain: sepolia,
     walletChain: sepoliaWalletChain,
@@ -51,30 +59,22 @@ export function normalizeContractEnvironment(value: string | null | undefined): 
   }
 
   const normalized = value.trim().toLowerCase().replaceAll('_', '-')
-  switch (normalized) {
-    case 'dev':
-    case 'development':
-    case 'hardhat':
-    case 'local':
-    case 'localhost':
-    case 'local-dev':
-      return 'local-dev'
-    case 'public-testnet':
-    case 'sepolia':
-    case 'test':
-    case 'testnet':
-      return 'sepolia'
-    default:
-      throw new Error(`Unsupported contract environment "${value}". Use "local-dev" or "sepolia".`)
+  if (normalized === 'local-dev') {
+    return 'local-dev'
   }
+  if (normalized === 'sepolia') {
+    return 'sepolia'
+  }
+
+  throw new Error(`Unsupported contract environment "${value}". Use "local-dev" or "sepolia".`)
 }
 
 export function publicContractEnvironment(): ContractEnvironment {
-  return normalizeContractEnvironment(process.env.NEXT_PUBLIC_CONTRACT_ENV)
+  return contractEnvironmentFromRuntimeProfile(process.env.NEXT_PUBLIC_RUNTIME_PROFILE)
 }
 
 export function serverContractEnvironment(): ContractEnvironment {
-  return normalizeContractEnvironment(process.env.ZAMAPAY_CONTRACT_ENV ?? process.env.NEXT_PUBLIC_CONTRACT_ENV)
+  return contractEnvironmentFromRuntimeProfile(process.env.ZAMAPAY_RUNTIME_PROFILE ?? process.env.NEXT_PUBLIC_RUNTIME_PROFILE)
 }
 
 export function contractEnvironmentConfig(environment: string | null | undefined): ContractEnvironmentConfig {

@@ -154,10 +154,8 @@ fn whole_usd_from_minor_units(amount: Option<u64>) -> Option<u32> {
 pub fn normalize_contract_environment(environment: &str) -> Option<&'static str> {
     let normalized = environment.trim().to_ascii_lowercase().replace('_', "-");
     match normalized.as_str() {
-        "" | "dev" | "development" | "hardhat" | "local" | "localhost" | "local-dev" => {
-            Some("local-dev")
-        }
-        "public-testnet" | "sepolia" | "test" | "testnet" => Some("sepolia"),
+        "" | "local-dev" => Some("local-dev"),
+        "sepolia" | "sepolia-local-ui" | "sepolia-preview" => Some("sepolia"),
         _ => None,
     }
 }
@@ -206,19 +204,21 @@ mod tests {
     }
 
     #[test]
-    fn resolves_contract_manifest_aliases() {
-        let manifest = contract_manifest("localhost")
+    fn resolves_contract_manifest_inputs() {
+        let manifest = contract_manifest("local-dev")
             .expect("generated manifest map should parse")
-            .expect("localhost alias should resolve");
+            .expect("local-dev manifest should resolve");
 
         assert_eq!(manifest.chain_id, Some(31337));
-        assert_eq!(normalize_contract_environment("dev"), Some("local-dev"));
         assert_eq!(
-            normalize_contract_environment("local_dev"),
+            normalize_contract_environment("local-dev"),
             Some("local-dev")
         );
-        assert_eq!(normalize_contract_environment("test"), Some("sepolia"));
-        assert_eq!(normalize_contract_environment("testnet"), Some("sepolia"));
+        assert_eq!(normalize_contract_environment("sepolia"), Some("sepolia"));
+        assert_eq!(
+            normalize_contract_environment("sepolia-preview"),
+            Some("sepolia")
+        );
         assert_eq!(normalize_contract_environment("unknown"), None);
     }
 }

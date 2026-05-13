@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { serverContractEnvironment } from '@/lib/contract-environment'
 import { bearerToken, canUseLocalDevServerBridge, canUseSepoliaServerBridge } from '@/lib/dev-signer-gate'
 import { createLocalChainInvoice } from '@/lib/local-fhevm-dev'
+import { rustApiUrl } from '@/lib/rust-api-transport'
 import { createSepoliaChainInvoice } from '@/lib/sepolia-fhevm-server'
 
 export const runtime = 'nodejs'
@@ -29,7 +30,7 @@ function isLocalDevEnabled(request: Request) {
   return (
     serverContractEnvironment() === 'local-dev' &&
     canUseLocalDevServerBridge({
-      contractEnv: process.env.ZAMAPAY_CONTRACT_ENV ?? process.env.NEXT_PUBLIC_CONTRACT_ENV,
+      contractEnv: serverContractEnvironment(),
       nodeEnv: process.env.NODE_ENV,
       requestUrl: request.url,
     })
@@ -42,12 +43,6 @@ function isSepoliaDevBridgeEnabled(request: Request) {
     nodeEnv: process.env.NODE_ENV,
     requestUrl: request.url,
   })
-}
-
-function rustApiUrl(path: string): string {
-  const baseUrl =
-    process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
-  return `${baseUrl}${path}`
 }
 
 function readPositiveSafeInteger(value: unknown): number | null {

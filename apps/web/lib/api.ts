@@ -1,4 +1,5 @@
-import { contractEnvironmentConfig } from './contract-environment.ts'
+import { contractEnvironmentConfig, publicContractEnvironment } from './contract-environment.ts'
+import { runtimeApiBaseUrl } from './runtime-profile.ts'
 
 export type NonceResponse = {
   nonce: string
@@ -421,10 +422,23 @@ export class ApiRequestError extends Error {
   }
 }
 
-const apiBaseUrl = process.env.ZAMAPAY_API_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8080'
+const apiBaseUrl = runtimeApiBaseUrl()
+
+type ApiFetchOptions = {
+  body?: unknown
+  cache?: RequestCache
+  cookieHeader?: string
+  credentials?: RequestCredentials
+  fallback: string
+  method?: string
+}
 
 function rustApiUrl(path: string) {
   return typeof window === 'undefined' ? `${apiBaseUrl}${path}` : path
+}
+
+function platformApiUrl(path: string) {
+  return `${apiBaseUrl}${path}`
 }
 
 export function isUnauthorizedApiError(error: unknown): boolean {
@@ -433,54 +447,84 @@ export function isUnauthorizedApiError(error: unknown): boolean {
 
 async function apiRequestError(response: Response, fallback: string): Promise<ApiRequestError> {
   const body = await response.text().catch(() => '')
-  return new ApiRequestError(body || fallback, response.status, body)
+  const fallbackMessage = `${fallback.replace(/[.!?]$/, '')} with ${response.status}.`
+  return new ApiRequestError(body || fallbackMessage, response.status, body)
+}
+
+async function fetchApiJson<T>(url: string, options: ApiFetchOptions): Promise<T> {
+  const response = await fetch(url, apiFetchInit(options))
+  if (!response.ok) {
+    throw await apiRequestError(response, options.fallback)
+  }
+
+  return response.json() as Promise<T>
+}
+
+async function fetchOptionalApiJson<T>(url: string, options: ApiFetchOptions): Promise<T | null> {
+  const response = await fetch(url, apiFetchInit(options))
+  if (response.status === 404) {
+    return null
+  }
+  if (!response.ok) {
+    throw await apiRequestError(response, options.fallback)
+  }
+
+  return response.json() as Promise<T>
+}
+
+async function fetchApiOk(url: string, options: ApiFetchOptions): Promise<void> {
+  const response = await fetch(url, apiFetchInit(options))
+  if (!response.ok) {
+    throw await apiRequestError(response, options.fallback)
+  }
+}
+
+function apiFetchInit(options: ApiFetchOptions): RequestInit {
+  const headers = new Headers()
+  const hasBody = options.body !== undefined
+
+  if (hasBody) {
+    headers.set('content-type', 'application/json')
+  }
+  if (options.cookieHeader) {
+    headers.set('cookie', options.cookieHeader)
+  }
+
+  return {
+    body: hasBody ? JSON.stringify(options.body) : undefined,
+    cache: options.cache,
+    credentials: options.credentials,
+    headers,
+    method: options.method ?? (hasBody ? 'POST' : 'GET'),
+  }
 }
 
 export async function requestNonce(address: string): Promise<NonceResponse> {
-  const response = await fetch('/api/auth/nonce', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  return fetchApiJson('/api/auth/nonce', {
+    body: { address },
     credentials: 'include',
-    body: JSON.stringify({ address }),
+    fallback: 'Nonce request failed.',
   })
-
-  if (!response.ok) {
-    throw new Error(`Nonce request failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function verifySignature(payload: VerifyPayload): Promise<void> {
-  const response = await fetch('/api/auth/verify', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  await fetchApiOk('/api/auth/verify', {
+    body: payload,
     credentials: 'include',
-    body: JSON.stringify(payload),
+    fallback: 'Signature verification failed.',
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(body || `Signature verification failed with ${response.status}.`)
-  }
 }
 
 export async function getSession(cookieHeader: string): Promise<SessionResponse> {
-  let response: Response
   try {
-    response = await fetch(`${apiBaseUrl}/api/session`, {
-      headers: cookieHeader ? { cookie: cookieHeader } : {},
+    return await fetchApiJson(platformApiUrl('/api/session'), {
       cache: 'no-store',
+      cookieHeader,
+      fallback: 'Session lookup failed.',
     })
   } catch {
     return { authenticated: false, user: null }
   }
-
-  if (!response.ok) {
-    return { authenticated: false, user: null }
-  }
-
-  return response.json()
 }
 
 export async function getOptionalSession(cookieHeader: string): Promise<SessionResponse> {
@@ -493,7 +537,7 @@ export async function getOptionalSession(cookieHeader: string): Promise<SessionR
 
 export async function logoutSession(): Promise<void> {
   try {
-    const response = await fetch(`${apiBaseUrl}/api/session`, {
+    const response = await fetch(platformApiUrl('/api/session'), {
       method: 'DELETE',
       credentials: 'include',
     })
@@ -509,31 +553,23 @@ export async function logoutSession(): Promise<void> {
 }
 
 export async function getDashboardOverview(cookieHeader: string): Promise<DashboardOverview> {
-  const response = await fetch(`${apiBaseUrl}/api/dashboard/overview`, {
-    headers: cookieHeader ? { cookie: cookieHeader } : {},
+  return fetchApiJson(platformApiUrl('/api/dashboard/overview'), {
     cache: 'no-store',
+    cookieHeader,
+    fallback: 'Dashboard overview failed.',
   })
-
-  if (!response.ok) {
-    throw new Error(`Dashboard overview failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 async function clearBrowserSessionCookie(): Promise<void> {
-  const response = await fetch('/api/auth/logout', {
+  await fetchApiOk('/api/auth/logout', {
     method: 'POST',
     credentials: 'include',
+    fallback: 'Logout failed.',
   })
-
-  if (!response.ok) {
-    throw await apiRequestError(response, `Logout failed with ${response.status}.`)
-  }
 }
 
 export async function getContractManifest(environment?: string | null): Promise<ContractManifest> {
-  const manifest = contractEnvironmentConfig(environment ?? process.env.NEXT_PUBLIC_CONTRACT_ENV).manifest
+  const manifest = contractEnvironmentConfig(environment ?? publicContractEnvironment()).manifest
   if (!manifest) {
     throw new Error(`Contract manifest is not available for ${environment ?? 'the active environment'}.`)
   }
@@ -542,210 +578,119 @@ export async function getContractManifest(environment?: string | null): Promise<
 }
 
 export async function getInvoiceRecord(invoiceId: string): Promise<InvoiceRecord | null> {
-  const response = await fetch(`${apiBaseUrl}/api/invoices/${invoiceId}`, {
+  return fetchOptionalApiJson(platformApiUrl(`/api/invoices/${invoiceId}`), {
     cache: 'no-store',
+    fallback: 'Invoice lookup failed.',
   })
-
-  if (response.status === 404) {
-    return null
-  }
-
-  if (!response.ok) {
-    throw new Error(`Invoice lookup failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function getFulfillment(invoiceId: string): Promise<FulfillmentResponse | null> {
-  const response = await fetch(`${apiBaseUrl}/api/invoices/${invoiceId}/fulfillment`, {
+  return fetchOptionalApiJson(platformApiUrl(`/api/invoices/${invoiceId}/fulfillment`), {
     cache: 'no-store',
+    fallback: 'Fulfillment lookup failed.',
   })
-
-  if (response.status === 404) {
-    return null
-  }
-
-  if (!response.ok) {
-    throw new Error(`Fulfillment lookup failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function getPaymentProjects(cookieHeader: string): Promise<PaymentProject[]> {
-  const response = await fetch(rustApiUrl('/api/projects'), {
-    headers: cookieHeader ? { cookie: cookieHeader } : {},
-    credentials: 'include',
+  return fetchApiJson(rustApiUrl('/api/projects'), {
     cache: 'no-store',
+    cookieHeader,
+    credentials: 'include',
+    fallback: 'Project list failed.',
   })
-
-  if (!response.ok) {
-    throw await apiRequestError(response, `Project list failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function getBillingSubscription(cookieHeader: string): Promise<BillingSubscriptionResponse> {
-  const response = await fetch(rustApiUrl('/api/billing/subscription'), {
-    headers: cookieHeader ? { cookie: cookieHeader } : {},
-    credentials: 'include',
+  return fetchApiJson(rustApiUrl('/api/billing/subscription'), {
     cache: 'no-store',
+    cookieHeader,
+    credentials: 'include',
+    fallback: 'Billing subscription lookup failed.',
   })
-
-  if (!response.ok) {
-    throw await apiRequestError(response, `Billing subscription lookup failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function createBillingUpgradeIntent(
   payload: BillingUpgradeIntentPayload,
 ): Promise<BillingUpgradeIntentResponse> {
-  const response = await fetch(rustApiUrl('/api/billing/subscription/upgrade-intent'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  return fetchApiJson(rustApiUrl('/api/billing/subscription/upgrade-intent'), {
+    body: payload,
     credentials: 'include',
-    body: JSON.stringify(payload),
+    fallback: 'Billing upgrade intent failed.',
   })
-
-  if (!response.ok) {
-    throw await apiRequestError(response, `Billing upgrade intent failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function upgradeBillingSubscription(
   payload: UpgradeBillingSubscriptionPayload,
 ): Promise<BillingSubscriptionResponse> {
-  const response = await fetch(rustApiUrl('/api/billing/subscription/upgrade'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  return fetchApiJson(rustApiUrl('/api/billing/subscription/upgrade'), {
+    body: payload,
     credentials: 'include',
-    body: JSON.stringify(payload),
+    fallback: 'Billing subscription upgrade failed.',
   })
-
-  if (!response.ok) {
-    throw await apiRequestError(response, `Billing subscription upgrade failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function getProjectOverview(projectId: string, cookieHeader: string): Promise<ProjectDashboardOverview> {
-  const response = await fetch(rustApiUrl(`/api/projects/${projectId}`), {
-    headers: cookieHeader ? { cookie: cookieHeader } : {},
-    credentials: 'include',
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}`), {
     cache: 'no-store',
+    cookieHeader,
+    credentials: 'include',
+    fallback: 'Project overview failed.',
   })
-
-  if (!response.ok) {
-    throw await apiRequestError(response, `Project overview failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function createPaymentProject(payload: CreatePaymentProjectPayload): Promise<CreatePaymentProjectResponse> {
-  const response = await fetch(rustApiUrl('/api/projects'), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  return fetchApiJson(rustApiUrl('/api/projects'), {
+    body: payload,
     credentials: 'include',
-    body: JSON.stringify(payload),
+    fallback: 'Project creation failed.',
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(body || `Project creation failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function createProjectApiKey(
   projectId: string,
   payload: CreateProjectApiKeyPayload,
 ): Promise<CreateProjectApiKeyResponse> {
-  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/api-keys`), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/api-keys`), {
+    body: payload,
     credentials: 'include',
-    body: JSON.stringify(payload),
+    fallback: 'API key creation failed.',
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(body || `API key creation failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function configureProjectWebhook(
   projectId: string,
   payload: ConfigureWebhookEndpointPayload,
 ): Promise<ConfigureWebhookEndpointResponse> {
-  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/webhook-endpoints`), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/webhook-endpoints`), {
+    body: payload,
     credentials: 'include',
-    body: JSON.stringify(payload),
+    fallback: 'Webhook configuration failed.',
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(body || `Webhook configuration failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function createProjectWithdrawal(
   projectId: string,
   payload: CreateProjectWithdrawalPayload,
 ): Promise<ProjectDashboardOverview> {
-  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/withdrawals`), {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/withdrawals`), {
+    body: payload,
     credentials: 'include',
-    body: JSON.stringify(payload),
+    fallback: 'Project withdrawal failed.',
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(body || `Project withdrawal failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function testProjectWebhook(projectId: string, endpointId: string): Promise<WebhookDeliveryRecord[]> {
-  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/webhook-endpoints/${endpointId}/test`), {
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/webhook-endpoints/${endpointId}/test`), {
     method: 'POST',
     credentials: 'include',
+    fallback: 'Webhook test failed.',
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(body || `Webhook test failed with ${response.status}.`)
-  }
-
-  return response.json()
 }
 
 export async function resendProjectWebhookDelivery(projectId: string, deliveryId: string): Promise<WebhookDeliveryRecord[]> {
-  const response = await fetch(rustApiUrl(`/api/projects/${projectId}/deliveries/${deliveryId}/resend`), {
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/deliveries/${deliveryId}/resend`), {
     method: 'POST',
     credentials: 'include',
+    fallback: 'Webhook resend failed.',
   })
-
-  if (!response.ok) {
-    const body = await response.text()
-    throw new Error(body || `Webhook resend failed with ${response.status}.`)
-  }
-
-  return response.json()
 }

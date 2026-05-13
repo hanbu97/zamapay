@@ -2,12 +2,14 @@
 
 const { execFileSync, spawnSync } = require('node:child_process')
 const http = require('node:http')
+const { profileUrl, runtimeProfile } = require('./runtime-profile')
 
+const LOCAL_PROFILE = runtimeProfile('local-dev')
 const POSTGRES_CONTAINER = process.env.ZAMAPAY_POSTGRES_CONTAINER || 'zamapay-postgres'
 const POSTGRES_USER = assertSafeIdentifier(process.env.ZAMAPAY_POSTGRES_USER || 'zamapay')
 const PLATFORM_DATABASE = process.env.ZAMAPAY_DATABASE_NAME || 'zamapay'
 const CARDFORGE_DATABASE = process.env.CARDFORGE_DATABASE_NAME || 'cardforge'
-const HARDHAT_RPC_URL = process.env.ZAMAPAY_LOCAL_RPC_URL || 'http://127.0.0.1:8545'
+const HARDHAT_RPC_URL = profileUrl(LOCAL_PROFILE, 'rpcEnv', 'defaultRpcUrl', 'local RPC URL')
 
 async function main() {
   await assertHardhatLocal()
@@ -15,6 +17,7 @@ async function main() {
   await waitForPostgres()
   resetDatabases([PLATFORM_DATABASE, CARDFORGE_DATABASE])
   run('npm', ['--workspace', 'contracts', 'run', 'deploy:localhost'])
+  run('node', ['scripts/sync-cardforge-frontend-generated.js'])
   console.log('local-dev reset complete. Restart ZamaPay API and CardForge backend so they recreate fresh schemas.')
 }
 
@@ -134,7 +137,7 @@ function rpc(method, params) {
         })
       },
     )
-    request.on('error', () => reject(new Error(`Hardhat Local is not reachable at ${HARDHAT_RPC_URL}. Start npm --workspace contracts run node first.`)))
+    request.on('error', () => reject(new Error(`Hardhat Local is not reachable at ${HARDHAT_RPC_URL}. Start just contracts-node first.`)))
     request.on('timeout', () => {
       request.destroy()
       reject(new Error(`Hardhat Local timed out at ${HARDHAT_RPC_URL}.`))
