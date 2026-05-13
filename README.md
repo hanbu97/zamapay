@@ -22,6 +22,8 @@ mise exec -- just setup
 
 The `Justfile` is the human entrypoint. It delegates to `env/`, `scripts/`, `npm`, `cargo`, and Hardhat instead of duplicating chain ids, URLs, finality, or secrets.
 
+The workflow contract lives in [`docs/runbooks/development-deployment-workflow.md`](docs/runbooks/development-deployment-workflow.md). Follow that runbook for local-dev, CardForge binding, Supabase-backed local runs, Sepolia local-UI, preview checks, and recovery. The short path below is only the common local loop.
+
 Run these in separate terminals from the repo root.
 
 ```bash
@@ -69,6 +71,8 @@ Open:
 
 Standalone merchant templates live under `demo/` and are launched from their own directories. The ZamaPay root scripts do not start, build, or lint template projects.
 
+For CardForge project binding, either run `just seed-cardforge-local-project` or create a project in the merchant console and copy the one-time backend exports into the ignored `env/local-dev.cardforge-backend.env`. Use the browser-created project path when validating merchant-wallet withdraw because the project owner must match the MetaMask merchant account.
+
 Run the full local readiness gate after API, web, and Hardhat are running:
 
 ```bash
@@ -83,7 +87,7 @@ For manual browser-only `LoginCard` verification without a wallet extension, tem
 
 Public-testnet work is guarded by explicit runtime profiles and env files. The active local MVP remains Hardhat/FHEVM mock RPC, `ConfidentialUSDMock.claimTestTokens()` from the browser wallet, direct buyer-wallet payment, encrypted pending buckets, merchant-signed withdraw, and local chain evidence projection after finalization.
 
-Sepolia local-UI and preview setup lives in `env/README.md`. Use these entrypoints instead of hand-sourcing env stacks:
+Sepolia local-UI and preview setup lives in [`env/README.md`](env/README.md) and the workflow runbook. Use these entrypoints instead of hand-sourcing env stacks:
 
 ```bash
 just verify-runtime sepolia-local-ui

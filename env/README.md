@@ -2,6 +2,8 @@
 
 These files make the runtime boundary explicit. Copy the example you need to the same name without `.example`, fill the secret values, then run the matching `just` recipe from the repo root. The `Justfile` is the workflow entrypoint; manual `set -a; . env/...` sourcing is for debugging only.
 
+The command order and deployment lanes are documented in [`docs/runbooks/development-deployment-workflow.md`](../docs/runbooks/development-deployment-workflow.md). This file owns env-file contracts only.
+
 ```bash
 cp env/local-dev.zamapay-api.env.example env/local-dev.zamapay-api.env
 just api-local
@@ -40,6 +42,8 @@ just verify-runtime local-dev
 just verify-runtime sepolia-local-ui
 just preview-check
 ```
+
+When a profile changes, update `env/runtime-profiles.json`, run `just verify-runtime <profile>`, regenerate CardForge snapshots with `just sync-cardforge-generated`, and restart the affected web process through its `just *web*` recipe so stale `.next` state cannot hide the change.
 
 ## Secret Rule
 
@@ -95,6 +99,8 @@ CardForge frontend:
 ```bash
 just cardforge-web-local
 ```
+
+CardForge project credentials are not copied from examples. Create them with either `just seed-cardforge-local-project` or the merchant-console one-time export flow described in the workflow runbook, then restart `just cardforge-api-local`.
 
 ## Supabase Local Run
 
