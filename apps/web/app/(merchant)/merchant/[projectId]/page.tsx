@@ -149,7 +149,7 @@ async function renderProjectConsole({
         description={
           readOnly
             ? 'Public project dashboard for checkout sessions, webhook state, and settlement activity.'
-            : 'Project-level API keys, webhook endpoints, checkout sessions, and settlement activity.'
+            : 'Project-level server secrets, webhook endpoints, checkout sessions, and settlement activity.'
         }
         title={overview.project.name}
       />

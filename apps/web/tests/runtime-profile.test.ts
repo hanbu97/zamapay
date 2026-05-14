@@ -65,7 +65,7 @@ test('runtime URLs come from profile defaults unless env overrides them', () => 
       ZAMAPAY_API_BASE_URL: undefined,
       ZAMAPAY_RUNTIME_PROFILE: undefined,
     },
-    () => assert.equal(runtimeApiBaseUrl(), 'http://127.0.0.1:8080'),
+    () => assert.equal(runtimeApiBaseUrl(), 'http://127.0.0.1:18080'),
   )
 
   withEnv({ ZAMAPAY_API_BASE_URL: 'http://127.0.0.1:18080/' }, () => {

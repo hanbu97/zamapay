@@ -10,10 +10,14 @@ use serde::{Serialize, de::DeserializeOwned};
 use shared::{
     BillingCycle, BillingEntitlementStatus, BillingPaymentRecord, BillingPaymentStatus,
     BillingPlan, BillingSubscription, BillingSubscriptionStatus, CheckoutBillingSnapshot,
-    CheckoutSession, CheckoutSessionStatus, DecryptRequestSnapshot, FulfillmentReleaseAudit,
-    InvoiceAuthorityMode, InvoiceRecord, PaymentProject, PaymentProjectEnvironment, ProjectApiKey,
-    ProjectEnvironmentKind, ProjectInvoiceAuthority, ProjectStatus, ProjectWebhookEndpoint,
-    ProjectWithdrawalRecord, ProjectWithdrawalStatus, WebhookDeliveryRecord, WebhookEventRecord,
+    CheckoutSession, CheckoutSessionStatus, DecryptRequestSnapshot, EvmChain, EvmChainToken,
+    EvmIndexerCursor, EvmPaymentIntent, EvmReceiverAddress, EvmRpcNode, EvmTransferLedgerEntry,
+    FulfillmentReleaseAudit, InvoiceAuthorityMode, InvoiceRecord, PaymentProject,
+    PaymentProjectEnvironment, PaymentRail, ProjectApiKey, ProjectEnvironmentKind,
+    ProjectInvoiceAuthority, ProjectPaymentRailSetting, ProjectStatus, ProjectWebhookEndpoint,
+    ProjectWithdrawalRecord, ProjectWithdrawalStatus, WebhookDeliveryAttemptRecord,
+    WebhookDeliveryRecord, WebhookEndpointSecretRecord, WebhookEndpointSecretStatus,
+    WebhookEventRecord, webhook_payload_sha256,
 };
 
 use crate::project_support::StoredProjectApiKey;
@@ -24,14 +28,24 @@ pub(crate) struct PortalRecordSet {
     pub(crate) projects: HashMap<String, PaymentProject>,
     pub(crate) subscriptions: HashMap<String, BillingSubscription>,
     pub(crate) billing_payments: HashMap<String, Vec<BillingPaymentRecord>>,
+    pub(crate) evm_chains: HashMap<u64, EvmChain>,
+    pub(crate) evm_chain_tokens: HashMap<String, EvmChainToken>,
+    pub(crate) evm_rpc_nodes: HashMap<String, EvmRpcNode>,
+    pub(crate) evm_receiver_addresses: HashMap<String, EvmReceiverAddress>,
+    pub(crate) evm_payment_intents: HashMap<String, EvmPaymentIntent>,
+    pub(crate) evm_transfer_ledger: HashMap<String, EvmTransferLedgerEntry>,
+    pub(crate) evm_indexer_cursors: HashMap<String, EvmIndexerCursor>,
     pub(crate) environments: HashMap<String, PaymentProjectEnvironment>,
+    pub(crate) payment_rail_settings: HashMap<String, ProjectPaymentRailSetting>,
     pub(crate) invoice_authorities: HashMap<String, ProjectInvoiceAuthority>,
     pub(crate) api_keys: HashMap<String, StoredProjectApiKey>,
     pub(crate) webhook_endpoints: HashMap<String, ProjectWebhookEndpoint>,
+    pub(crate) webhook_endpoint_secrets: HashMap<String, WebhookEndpointSecretRecord>,
     pub(crate) checkout_sessions: HashMap<String, CheckoutSession>,
     pub(crate) idempotency_keys: HashMap<String, String>,
     pub(crate) webhook_events: HashMap<String, WebhookEventRecord>,
     pub(crate) webhook_deliveries: HashMap<String, WebhookDeliveryRecord>,
+    pub(crate) webhook_delivery_attempts: HashMap<String, WebhookDeliveryAttemptRecord>,
     pub(crate) project_withdrawals: HashMap<String, ProjectWithdrawalRecord>,
     pub(crate) next_invoice_number: u64,
 }
@@ -43,14 +57,24 @@ impl Default for PortalRecordSet {
             projects: HashMap::new(),
             subscriptions: HashMap::new(),
             billing_payments: HashMap::new(),
+            evm_chains: HashMap::new(),
+            evm_chain_tokens: HashMap::new(),
+            evm_rpc_nodes: HashMap::new(),
+            evm_receiver_addresses: HashMap::new(),
+            evm_payment_intents: HashMap::new(),
+            evm_transfer_ledger: HashMap::new(),
+            evm_indexer_cursors: HashMap::new(),
             environments: HashMap::new(),
+            payment_rail_settings: HashMap::new(),
             invoice_authorities: HashMap::new(),
             api_keys: HashMap::new(),
             webhook_endpoints: HashMap::new(),
+            webhook_endpoint_secrets: HashMap::new(),
             checkout_sessions: HashMap::new(),
             idempotency_keys: HashMap::new(),
             webhook_events: HashMap::new(),
             webhook_deliveries: HashMap::new(),
+            webhook_delivery_attempts: HashMap::new(),
             project_withdrawals: HashMap::new(),
             next_invoice_number: 1,
         }
@@ -102,6 +126,8 @@ pub(crate) struct InvoiceRow {
     pub(crate) billing_gross_amount_minor_units: Option<i64>,
     pub(crate) billing_platform_fee_minor_units: Option<i64>,
     pub(crate) billing_merchant_net_minor_units: Option<i64>,
+    pub(crate) payment_rail: String,
+    pub(crate) payment_intent_id: Option<String>,
 }
 
 impl InvoiceRow {
@@ -125,6 +151,8 @@ impl InvoiceRow {
                 self.billing_merchant_net_minor_units,
             ),
             note: self.note,
+            payment_rail: decode_enum(&self.payment_rail),
+            payment_intent_id: self.payment_intent_id,
             chain_invoice_id: self
                 .chain_invoice_id
                 .map(|value| u64_from_i64(value, "invoice.chain_invoice_id")),
@@ -210,6 +238,27 @@ impl ProjectRow {
             default_environment: decode_enum(&self.default_environment),
             billing_plan: decode_enum(&self.billing_plan),
             status: decode_enum(&self.status),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct PaymentRailSettingRow {
+    pub(crate) project_id: String,
+    pub(crate) payment_rail: String,
+    pub(crate) enabled: bool,
+    pub(crate) created_at: DateTime<Utc>,
+    pub(crate) updated_at: DateTime<Utc>,
+}
+
+impl PaymentRailSettingRow {
+    pub(crate) fn into_domain(self) -> ProjectPaymentRailSetting {
+        ProjectPaymentRailSetting {
+            project_id: self.project_id,
+            payment_rail: decode_enum::<PaymentRail>(&self.payment_rail),
+            enabled: self.enabled,
             created_at: self.created_at,
             updated_at: self.updated_at,
         }
@@ -331,15 +380,50 @@ impl WebhookEndpointRow {
 }
 
 #[derive(Debug, FromQueryResult)]
+pub(crate) struct WebhookEndpointSecretRow {
+    pub(crate) secret_id: String,
+    pub(crate) endpoint_id: String,
+    pub(crate) project_id: String,
+    pub(crate) status: String,
+    pub(crate) secret_ciphertext: String,
+    pub(crate) secret_preview: String,
+    pub(crate) migrated_from_deterministic: bool,
+    pub(crate) created_at: DateTime<Utc>,
+    pub(crate) revealed_at: Option<DateTime<Utc>>,
+    pub(crate) retired_at: Option<DateTime<Utc>>,
+    pub(crate) expires_at: Option<DateTime<Utc>>,
+}
+
+impl WebhookEndpointSecretRow {
+    pub(crate) fn into_domain(self) -> WebhookEndpointSecretRecord {
+        WebhookEndpointSecretRecord {
+            secret_id: self.secret_id,
+            endpoint_id: self.endpoint_id,
+            project_id: self.project_id,
+            status: decode_enum::<WebhookEndpointSecretStatus>(&self.status),
+            secret_ciphertext: self.secret_ciphertext,
+            secret_preview: self.secret_preview,
+            migrated_from_deterministic: self.migrated_from_deterministic,
+            created_at: self.created_at,
+            revealed_at: self.revealed_at,
+            retired_at: self.retired_at,
+            expires_at: self.expires_at,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
 pub(crate) struct CheckoutRow {
     pub(crate) checkout_session_id: String,
     pub(crate) project_id: String,
     pub(crate) environment: String,
+    pub(crate) payment_rail: String,
     pub(crate) merchant_order_id: String,
     pub(crate) idempotency_key: String,
     pub(crate) invoice_id: String,
-    pub(crate) chain_invoice_id: i64,
-    pub(crate) chain_tx_hash: String,
+    pub(crate) chain_invoice_id: Option<i64>,
+    pub(crate) chain_tx_hash: Option<String>,
+    pub(crate) payment_intent_id: Option<String>,
     pub(crate) checkout_url: String,
     pub(crate) title: String,
     pub(crate) amount_label: String,
@@ -364,11 +448,15 @@ impl CheckoutRow {
             checkout_session_id: self.checkout_session_id,
             project_id: self.project_id,
             environment: decode_enum(&self.environment),
+            payment_rail: decode_enum(&self.payment_rail),
             merchant_order_id: self.merchant_order_id,
             idempotency_key: self.idempotency_key,
             invoice_id: self.invoice_id,
-            chain_invoice_id: u64_from_i64(self.chain_invoice_id, "checkout.chain_invoice_id"),
+            chain_invoice_id: self
+                .chain_invoice_id
+                .map(|value| u64_from_i64(value, "checkout.chain_invoice_id")),
             chain_tx_hash: self.chain_tx_hash,
+            payment_intent_id: self.payment_intent_id,
             checkout_url: self.checkout_url,
             title: self.title,
             amount_label: self.amount_label,
@@ -405,6 +493,247 @@ impl CheckoutRow {
 }
 
 #[derive(Debug, FromQueryResult)]
+pub(crate) struct EvmChainRow {
+    pub(crate) chain_id: i64,
+    pub(crate) network: String,
+    pub(crate) name: String,
+    pub(crate) native_symbol: String,
+    pub(crate) finality_threshold: i64,
+    pub(crate) enabled: bool,
+}
+
+impl EvmChainRow {
+    pub(crate) fn into_domain(self) -> EvmChain {
+        EvmChain {
+            chain_id: u64_from_i64(self.chain_id, "evm_chain.chain_id"),
+            network: self.network,
+            name: self.name,
+            native_symbol: self.native_symbol,
+            finality_threshold: u64_from_i64(
+                self.finality_threshold,
+                "evm_chain.finality_threshold",
+            ),
+            enabled: self.enabled,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct EvmChainTokenRow {
+    pub(crate) token_id: String,
+    pub(crate) chain_id: i64,
+    pub(crate) network: String,
+    pub(crate) symbol: String,
+    pub(crate) contract_address: String,
+    pub(crate) decimals: i32,
+    pub(crate) min_amount_minor_units: i64,
+    pub(crate) enabled: bool,
+}
+
+impl EvmChainTokenRow {
+    pub(crate) fn into_domain(self) -> EvmChainToken {
+        EvmChainToken {
+            token_id: self.token_id,
+            chain_id: u64_from_i64(self.chain_id, "evm_chain_token.chain_id"),
+            network: self.network,
+            symbol: self.symbol,
+            contract_address: self.contract_address,
+            decimals: u8_from_i32(self.decimals, "evm_chain_token.decimals"),
+            min_amount_minor_units: u64_from_i64(
+                self.min_amount_minor_units,
+                "evm_chain_token.min_amount_minor_units",
+            ),
+            enabled: self.enabled,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct EvmRpcNodeRow {
+    pub(crate) rpc_node_id: String,
+    pub(crate) chain_id: i64,
+    pub(crate) network: String,
+    pub(crate) url: String,
+    pub(crate) kind: String,
+    pub(crate) enabled: bool,
+}
+
+impl EvmRpcNodeRow {
+    pub(crate) fn into_domain(self) -> EvmRpcNode {
+        EvmRpcNode {
+            rpc_node_id: self.rpc_node_id,
+            chain_id: u64_from_i64(self.chain_id, "evm_rpc_node.chain_id"),
+            network: self.network,
+            url: self.url,
+            kind: decode_enum(&self.kind),
+            enabled: self.enabled,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct EvmReceiverAddressRow {
+    pub(crate) receiver_id: String,
+    pub(crate) chain_id: i64,
+    pub(crate) network: String,
+    pub(crate) address: String,
+    pub(crate) status: String,
+    pub(crate) lease_intent_id: Option<String>,
+    pub(crate) leased_until: Option<DateTime<Utc>>,
+    pub(crate) available_after: Option<DateTime<Utc>>,
+}
+
+impl EvmReceiverAddressRow {
+    pub(crate) fn into_domain(self) -> EvmReceiverAddress {
+        EvmReceiverAddress {
+            receiver_id: self.receiver_id,
+            chain_id: u64_from_i64(self.chain_id, "evm_receiver.chain_id"),
+            network: self.network,
+            address: self.address,
+            status: decode_enum(&self.status),
+            lease_intent_id: self.lease_intent_id,
+            leased_until: self.leased_until,
+            available_after: self.available_after,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct EvmPaymentIntentRow {
+    pub(crate) intent_id: String,
+    pub(crate) checkout_session_id: String,
+    pub(crate) project_id: String,
+    pub(crate) chain_id: i64,
+    pub(crate) network: String,
+    pub(crate) token_symbol: String,
+    pub(crate) token_contract: String,
+    pub(crate) token_decimals: i32,
+    pub(crate) receiver_id: String,
+    pub(crate) receiver_address: String,
+    pub(crate) expected_amount_minor_units: i64,
+    pub(crate) matched_amount_minor_units: i64,
+    pub(crate) status: String,
+    pub(crate) detected_tx_hash: Option<String>,
+    pub(crate) payer_address: Option<String>,
+    pub(crate) confirmations: i64,
+    pub(crate) finality_threshold: i64,
+    pub(crate) created_at: DateTime<Utc>,
+    pub(crate) updated_at: DateTime<Utc>,
+    pub(crate) expires_at: DateTime<Utc>,
+}
+
+impl EvmPaymentIntentRow {
+    pub(crate) fn into_domain(self) -> EvmPaymentIntent {
+        EvmPaymentIntent {
+            intent_id: self.intent_id,
+            checkout_session_id: self.checkout_session_id,
+            project_id: self.project_id,
+            chain_id: u64_from_i64(self.chain_id, "evm_payment_intent.chain_id"),
+            network: self.network,
+            token_symbol: self.token_symbol,
+            token_contract: self.token_contract,
+            token_decimals: u8_from_i32(self.token_decimals, "evm_payment_intent.token_decimals"),
+            receiver_id: self.receiver_id,
+            receiver_address: self.receiver_address,
+            expected_amount_minor_units: u64_from_i64(
+                self.expected_amount_minor_units,
+                "evm_payment_intent.expected_amount_minor_units",
+            ),
+            matched_amount_minor_units: u64_from_i64(
+                self.matched_amount_minor_units,
+                "evm_payment_intent.matched_amount_minor_units",
+            ),
+            status: decode_enum(&self.status),
+            detected_tx_hash: self.detected_tx_hash,
+            payer_address: self.payer_address,
+            confirmations: u64_from_i64(self.confirmations, "evm_payment_intent.confirmations"),
+            finality_threshold: u64_from_i64(
+                self.finality_threshold,
+                "evm_payment_intent.finality_threshold",
+            ),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            expires_at: self.expires_at,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct EvmTransferLedgerRow {
+    pub(crate) transfer_id: String,
+    pub(crate) chain_id: i64,
+    pub(crate) token_contract: String,
+    pub(crate) tx_hash: String,
+    pub(crate) log_index: i64,
+    pub(crate) block_number: i64,
+    pub(crate) block_hash: Option<String>,
+    pub(crate) from_address: String,
+    pub(crate) to_address: String,
+    pub(crate) amount_minor_units: i64,
+    pub(crate) matched_intent_id: Option<String>,
+    pub(crate) confirmations: i64,
+    pub(crate) status: String,
+    pub(crate) observed_at: DateTime<Utc>,
+    pub(crate) updated_at: DateTime<Utc>,
+}
+
+impl EvmTransferLedgerRow {
+    pub(crate) fn into_domain(self) -> EvmTransferLedgerEntry {
+        EvmTransferLedgerEntry {
+            transfer_id: self.transfer_id,
+            chain_id: u64_from_i64(self.chain_id, "evm_transfer.chain_id"),
+            token_contract: self.token_contract,
+            tx_hash: self.tx_hash,
+            log_index: u64_from_i64(self.log_index, "evm_transfer.log_index"),
+            block_number: u64_from_i64(self.block_number, "evm_transfer.block_number"),
+            block_hash: self.block_hash,
+            from_address: self.from_address,
+            to_address: self.to_address,
+            amount_minor_units: u64_from_i64(
+                self.amount_minor_units,
+                "evm_transfer.amount_minor_units",
+            ),
+            matched_intent_id: self.matched_intent_id,
+            confirmations: u64_from_i64(self.confirmations, "evm_transfer.confirmations"),
+            status: decode_enum(&self.status),
+            observed_at: self.observed_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
+pub(crate) struct EvmIndexerCursorRow {
+    pub(crate) cursor_id: String,
+    pub(crate) chain_id: i64,
+    pub(crate) token_contract: String,
+    pub(crate) receiver_address: String,
+    pub(crate) last_scanned_block: i64,
+    pub(crate) last_finalized_block: i64,
+    pub(crate) updated_at: DateTime<Utc>,
+}
+
+impl EvmIndexerCursorRow {
+    pub(crate) fn into_domain(self) -> EvmIndexerCursor {
+        EvmIndexerCursor {
+            cursor_id: self.cursor_id,
+            chain_id: u64_from_i64(self.chain_id, "evm_indexer_cursor.chain_id"),
+            token_contract: self.token_contract,
+            receiver_address: self.receiver_address,
+            last_scanned_block: u64_from_i64(
+                self.last_scanned_block,
+                "evm_indexer_cursor.last_scanned_block",
+            ),
+            last_finalized_block: u64_from_i64(
+                self.last_finalized_block,
+                "evm_indexer_cursor.last_finalized_block",
+            ),
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
 pub(crate) struct CheckoutMetadataRow {
     pub(crate) checkout_session_id: String,
     pub(crate) metadata_key: String,
@@ -426,11 +755,23 @@ pub(crate) struct WebhookEventRow {
     pub(crate) subject_type: String,
     pub(crate) subject_id: String,
     pub(crate) payload_text: String,
+    pub(crate) raw_payload: String,
+    pub(crate) raw_payload_sha256: String,
     pub(crate) created_at: DateTime<Utc>,
 }
 
 impl WebhookEventRow {
     pub(crate) fn into_domain(self) -> WebhookEventRecord {
+        let raw_payload = if self.raw_payload.is_empty() {
+            self.payload_text.clone()
+        } else {
+            self.raw_payload
+        };
+        let raw_payload_sha256 = if self.raw_payload_sha256.is_empty() {
+            webhook_payload_sha256(&raw_payload)
+        } else {
+            self.raw_payload_sha256
+        };
         WebhookEventRecord {
             event_id: self.event_id,
             project_id: self.project_id,
@@ -440,6 +781,8 @@ impl WebhookEventRow {
             subject_id: self.subject_id,
             payload: serde_json::from_str(&self.payload_text)
                 .expect("webhook event payload should be valid JSON text"),
+            raw_payload_sha256,
+            raw_payload,
             created_at: self.created_at,
         }
     }
@@ -487,10 +830,53 @@ impl WebhookDeliveryRow {
 }
 
 #[derive(Debug, FromQueryResult)]
+pub(crate) struct WebhookDeliveryAttemptRow {
+    pub(crate) attempt_id: String,
+    pub(crate) delivery_id: String,
+    pub(crate) event_id: String,
+    pub(crate) endpoint_id: String,
+    pub(crate) project_id: String,
+    pub(crate) request_headers_text: String,
+    pub(crate) response_headers_text: Option<String>,
+    pub(crate) http_status: Option<i32>,
+    pub(crate) response_body: Option<String>,
+    pub(crate) error: Option<String>,
+    pub(crate) attempted_at: DateTime<Utc>,
+}
+
+impl WebhookDeliveryAttemptRow {
+    pub(crate) fn into_domain(self) -> WebhookDeliveryAttemptRecord {
+        WebhookDeliveryAttemptRecord {
+            attempt_id: self.attempt_id,
+            delivery_id: self.delivery_id,
+            event_id: self.event_id,
+            endpoint_id: self.endpoint_id,
+            project_id: self.project_id,
+            request_headers: serde_json::from_str(&self.request_headers_text)
+                .expect("webhook attempt request headers should be valid JSON text"),
+            response_headers: self.response_headers_text.map(|headers| {
+                serde_json::from_str(&headers)
+                    .expect("webhook attempt response headers should be valid JSON text")
+            }),
+            http_status: self
+                .http_status
+                .map(|value| u16_from_i32(value, "webhook_attempt.http_status")),
+            response_body: self.response_body,
+            error: self.error,
+            attempted_at: self.attempted_at,
+        }
+    }
+}
+
+#[derive(Debug, FromQueryResult)]
 pub(crate) struct WithdrawalRow {
     pub(crate) withdrawal_id: String,
     pub(crate) project_id: String,
     pub(crate) amount_minor_units: i64,
+    pub(crate) chain_id: Option<i64>,
+    pub(crate) token_contract: Option<String>,
+    pub(crate) receiver_address: Option<String>,
+    pub(crate) recipient_address: Option<String>,
     pub(crate) status: String,
     pub(crate) receipt: String,
     pub(crate) created_at: DateTime<Utc>,
@@ -506,6 +892,12 @@ impl WithdrawalRow {
                 self.amount_minor_units,
                 "withdrawal.amount_minor_units",
             ),
+            chain_id: self
+                .chain_id
+                .map(|value| u64_from_i64(value, "withdrawal.chain_id")),
+            token_contract: self.token_contract,
+            receiver_address: self.receiver_address,
+            recipient_address: self.recipient_address,
             status: decode_enum(&self.status),
             receipt: self.receipt,
             created_at: self.created_at,
@@ -618,6 +1010,14 @@ pub(crate) fn i64_from_u64(value: u64, field: &str) -> i64 {
 
 pub(crate) fn i32_from_u32(value: u32, field: &str) -> i32 {
     i32::try_from(value).unwrap_or_else(|_| panic!("{field} does not fit in postgres integer"))
+}
+
+pub(crate) fn i32_from_u8(value: u8) -> i32 {
+    i32::from(value)
+}
+
+pub(crate) fn u8_from_i32(value: i32, field: &str) -> u8 {
+    u8::try_from(value).unwrap_or_else(|_| panic!("{field} does not fit in u8"))
 }
 
 pub(crate) fn i32_from_u16(value: u16) -> i32 {

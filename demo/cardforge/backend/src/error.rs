@@ -28,7 +28,7 @@ impl ApiError {
         Self::new(
             StatusCode::UNAUTHORIZED,
             "zamapay_project_auth_failed",
-            "CardForge backend rejected the configured ZamaPay project API key.",
+            "CardForge backend rejected the configured ZamaPay project secret key.",
             None,
         )
     }

@@ -47,5 +47,6 @@
   },
   "generatedAt": "2026-05-10T09:36:52.169Z",
   "deployer": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE",
-  "platformFeeWallet": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE"
+  "platformFeeWallet": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE",
+  "standardErc20Tokens": []
 }

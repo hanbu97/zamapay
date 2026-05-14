@@ -2,6 +2,7 @@ set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
 zamapay_web_cache := "apps/web/.next"
 cardforge_web_cache := "demo/cardforge/frontend/.next"
+local_api_port := env_var_or_default("ZAMAPAY_LOCAL_API_PORT", "18080")
 
 default:
     @just --list
@@ -18,7 +19,7 @@ sync-cardforge-generated:
 
 # Seed CardForge's ignored local env with a fresh ZamaPay project/API key.
 seed-cardforge-local-project:
-    mise exec -- node scripts/seed-cardforge-local-project.js
+    ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/seed-cardforge-local-project.js
 
 # Print the tool versions that shape local builds.
 doctor:
@@ -65,11 +66,15 @@ verify-runtime profile="local-dev":
 
 # Fast local acceptance gate. Requires API, web, and Hardhat to be running.
 verify-local:
-    mise exec -- node scripts/local-readiness.js
+    ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/local-readiness.js
 
 # Full local acceptance gate.
 verify-full:
-    mise exec -- node scripts/local-full-verify.js
+    ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/local-full-verify.js
+
+# Verify the ordinary local ERC20 rail from project creation to indexed payment.
+verify-evm-local *args:
+    scripts/run-with-env.sh env/local-dev.zamapay-api.env -- env ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/local-evm-erc20-verify.mjs {{args}}
 
 # Check web, contracts, and Rust workspaces.
 check:
@@ -89,15 +94,23 @@ build-web:
 
 # Start the ZamaPay Rust API against local-dev.
 api-local:
-    scripts/run-with-env.sh env/local-dev.zamapay-api.env -- cargo run -p api
+    scripts/run-with-env.sh env/local-dev.zamapay-api.env -- env ZAMAPAY_API_BIND=127.0.0.1:{{local_api_port}} ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} cargo run -p api
+
+# Poll enabled ERC20 rails and project matching Transfer logs into ZamaPay.
+evm-indexer-local:
+    scripts/run-with-env.sh env/local-dev.zamapay-api.env -- env ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/evm-erc20-indexer.mjs
+
+# Run one ERC20 indexer pass for local debugging.
+evm-indexer-local-once:
+    scripts/run-with-env.sh env/local-dev.zamapay-api.env -- env ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/evm-erc20-indexer.mjs --once
 
 # Start the ZamaPay web app against local-dev.
 web-local: clean-zamapay-web-cache
-    scripts/run-with-env.sh env/local-dev.zamapay-web.env -- mise exec -- npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
+    scripts/run-with-env.sh env/local-dev.zamapay-web.env -- env NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 
 # Start the CardForge backend against local-dev.
 cardforge-api-local:
-    scripts/run-with-env.sh env/local-dev.cardforge-backend.env -- cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+    scripts/run-with-env.sh env/local-dev.cardforge-backend.env -- env ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} cargo run --manifest-path demo/cardforge/backend/Cargo.toml
 
 # Start the CardForge frontend against local-dev.
 cardforge-web-local: clean-cardforge-web-cache
@@ -105,11 +118,11 @@ cardforge-web-local: clean-cardforge-web-cache
 
 # Start the ZamaPay API with local chain and Supabase Postgres.
 api-supabase-local:
-    scripts/run-with-env.sh env/local-dev.zamapay-api.env env/supabase.zamapay-api.env -- cargo run -p api
+    scripts/run-with-env.sh env/local-dev.zamapay-api.env env/supabase.zamapay-api.env -- env ZAMAPAY_API_BIND=127.0.0.1:{{local_api_port}} ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} cargo run -p api
 
 # Start the CardForge backend with local chain and Supabase Postgres.
 cardforge-api-supabase-local:
-    scripts/run-with-env.sh env/local-dev.cardforge-backend.env env/supabase.cardforge-backend.env -- cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+    scripts/run-with-env.sh env/local-dev.cardforge-backend.env env/supabase.cardforge-backend.env -- env ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} cargo run --manifest-path demo/cardforge/backend/Cargo.toml
 
 # Deploy contracts to Sepolia. Requires env/sepolia.contracts.env.
 deploy-sepolia-contracts:
@@ -119,15 +132,15 @@ deploy-sepolia-contracts:
 
 # Start the ZamaPay API for Sepolia contracts with hosted Postgres.
 api-sepolia-local-ui:
-    scripts/run-with-env.sh env/local-dev.zamapay-api.env env/supabase.zamapay-api.env env/sepolia.zamapay-api.env -- cargo run -p api
+    scripts/run-with-env.sh env/local-dev.zamapay-api.env env/supabase.zamapay-api.env env/sepolia.zamapay-api.env -- env ZAMAPAY_API_BIND=127.0.0.1:{{local_api_port}} ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} cargo run -p api
 
 # Start the ZamaPay web app for Sepolia contracts.
 web-sepolia-local-ui: clean-zamapay-web-cache
-    scripts/run-with-env.sh env/sepolia.zamapay-web.env -- mise exec -- npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
+    scripts/run-with-env.sh env/sepolia.zamapay-web.env -- env NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- npm --workspace apps/web run dev -- --hostname 127.0.0.1 --port 3001
 
 # Start CardForge backend for a Sepolia ZamaPay project.
 cardforge-api-sepolia-local-ui:
-    scripts/run-with-env.sh env/sepolia.cardforge-backend.env env/supabase.cardforge-backend.env -- cargo run --manifest-path demo/cardforge/backend/Cargo.toml
+    scripts/run-with-env.sh env/sepolia.cardforge-backend.env env/supabase.cardforge-backend.env -- env ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} cargo run --manifest-path demo/cardforge/backend/Cargo.toml
 
 # Start CardForge frontend for Sepolia local UI.
 cardforge-web-sepolia-local-ui: clean-cardforge-web-cache

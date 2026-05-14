@@ -50,7 +50,7 @@ apps/web
 
 - Server components guard protected pages by consulting Rust session state.
 - `/login` is standalone; expired or missing sessions do not inherit merchant chrome.
-- Hosted checkout renders from Rust read-model APIs in a standalone buyer shell and uses one centered private-payment card.
+- Hosted checkout renders from Rust public checkout APIs in a standalone buyer shell and uses one centered payment card for either Zama private payment or ordinary ERC20 transfer intent; EVM pages consume the intent-specific asset from that same public checkout response so leased receivers remain payable.
 - Contract environments are selected through generated manifests. Local-dev uses Hardhat/FHEVM mock RPC; Sepolia uses deployed public-testnet manifests, wallet chain id `11155111`, and Zama official test relayer SDK calls for encrypted inputs and public decrypts.
 - Production builds use webpack because the current Zama browser SDK/WASM chunk stalls under Next 16 Turbopack during optimized builds.
 - `app/api/billing/project-growth` verifies configured-chain `SubscriptionChangeFinalized` evidence, then projects the anchored entitlement into Rust.

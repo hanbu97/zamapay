@@ -233,7 +233,7 @@ async fn subscription_upgrade_is_chain_sourced_not_backend_mutated() {
         .oneshot(
             Request::builder()
                 .method(Method::POST)
-                .uri(format!("/api/projects/{project_id}/api-keys"))
+                .uri(format!("/api/projects/{project_id}/project-secrets"))
                 .header("content-type", "application/json")
                 .header("cookie", &cookie)
                 .body(Body::from(
@@ -244,7 +244,7 @@ async fn subscription_upgrade_is_chain_sourced_not_backend_mutated() {
         .await
         .unwrap();
     assert_eq!(key.status(), StatusCode::OK);
-    let api_key = response_json(key).await["apiKey"]
+    let api_key = response_json(key).await["secretKey"]
         .as_str()
         .unwrap()
         .to_string();

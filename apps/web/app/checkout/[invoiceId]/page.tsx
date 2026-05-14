@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import { CheckoutPaymentCard } from '@/components/checkout/CheckoutPaymentCard'
-import { getContractManifest, getInvoiceRecord } from '@/lib/api'
+import { getContractManifest, getPublicCheckout } from '@/lib/api'
 
 type CheckoutPageProps = {
   params: Promise<{ invoiceId: string }>
@@ -8,13 +8,15 @@ type CheckoutPageProps = {
 
 export default async function CheckoutPage({ params }: CheckoutPageProps) {
   const { invoiceId } = await params
-  const invoice = await getInvoiceRecord(invoiceId)
+  const checkout = await getPublicCheckout(invoiceId)
 
-  if (!invoice) {
+  if (!checkout) {
     notFound()
   }
 
-  const manifest = await getContractManifest(invoice.environment)
+  const { evmPaymentIntent, invoice } = checkout
+  const manifest = invoice.paymentRail === 'evm_erc20' ? null : await getContractManifest(invoice.environment)
+  const evmAsset = invoice.paymentRail === 'evm_erc20' ? checkout.evmAsset : null
 
   return (
     <main className="relative isolate flex min-h-dvh items-center justify-center overflow-hidden bg-[#f7f8fb] px-4 py-8 text-foreground sm:px-6 lg:px-8">
@@ -26,14 +28,17 @@ export default async function CheckoutPage({ params }: CheckoutPageProps) {
         amountLabel={invoice.amountLabel}
         amountMinorUnits={invoice.amountMinorUnits}
         chainInvoiceId={invoice.chainInvoiceId}
+        evmAsset={evmAsset}
+        evmPaymentIntent={evmPaymentIntent}
         finalityStatus={invoice.snapshot.finalityStatus}
         invoiceId={invoice.invoiceId}
-        manifestChainId={manifest.chainId}
+        manifestChainId={manifest?.chainId ?? null}
         merchantName={invoice.merchantName}
+        paymentRail={invoice.paymentRail}
         paymentTruth={invoice.snapshot.paymentTruth}
-        settlementAddress={manifest.contracts.PrivateCheckoutSettlement}
+        settlementAddress={manifest?.contracts.PrivateCheckoutSettlement ?? null}
         title={invoice.title}
-        tokenAddress={manifest.contracts.ConfidentialUSDMock}
+        tokenAddress={manifest?.contracts.ConfidentialUSDMock ?? null}
       />
     </main>
   )

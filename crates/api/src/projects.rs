@@ -9,12 +9,15 @@ use chrono::Utc;
 use shared::{
     CheckoutQuoteRequest, CheckoutQuoteResponse, CheckoutSession, CheckoutSessionResponse,
     ConfigureWebhookEndpointRequest, CreateCheckoutSessionRequest, CreatePaymentProjectRequest,
-    CreateProjectApiKeyRequest, CreateProjectWithdrawalRequest, PaymentProject,
-    ProjectDashboardOverview, ProjectEnvironmentKind, WebhookDeliveryRecord, WebhookEventRecord,
+    CreateProjectApiKeyRequest, CreateProjectWithdrawalRequest, PaymentProject, PaymentRail,
+    ProjectDashboardOverview, ProjectEnvironmentKind, RotateWebhookEndpointSecretResponse,
+    SVIX_ID_HEADER, SVIX_SIGNATURE_HEADER, SVIX_TIMESTAMP_HEADER, UpdateProjectPaymentRailRequest,
+    WebhookDeliveryAttemptRecord, WebhookDeliveryRecord, WebhookEventRecord,
+    try_sign_webhook_payload_with_secrets,
 };
-use storage::CheckoutSessionError;
+use storage::{CheckoutSessionError, ProjectWithdrawalScope};
 
-use super::{ApiError, AppState, keyed_digest, session_from_cookie};
+use super::{ApiError, AppState, session_from_cookie};
 use crate::runtime_profile;
 
 const DEFAULT_PUBLIC_DEMO_PROJECT_ID: &str = "proj_62dc3460ccb749a388c40356c101a01f";
@@ -24,14 +27,22 @@ static PUBLIC_DEMO_PROJECT_ID: OnceLock<String> = OnceLock::new();
 pub(super) fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/projects", get(list_projects).post(create_project))
+        .route(
+            "/api/project-secret/bootstrap",
+            get(project_secret_bootstrap),
+        )
         .route("/api/projects/{project_id}", get(project_overview))
         .route(
-            "/api/projects/{project_id}/api-keys",
-            post(create_project_api_key),
+            "/api/projects/{project_id}/payment-rails/{payment_rail}",
+            patch(update_project_payment_rail),
         )
         .route(
-            "/api/projects/{project_id}/api-keys/{key_id}/revoke",
-            post(revoke_project_api_key),
+            "/api/projects/{project_id}/project-secrets",
+            post(create_project_secret),
+        )
+        .route(
+            "/api/projects/{project_id}/project-secrets/{key_id}/revoke",
+            post(revoke_project_secret),
         )
         .route(
             "/api/projects/{project_id}/webhook-endpoints",
@@ -40,6 +51,10 @@ pub(super) fn routes() -> Router<AppState> {
         .route(
             "/api/projects/{project_id}/webhook-endpoints/{endpoint_id}",
             patch(configure_webhook_endpoint_patch),
+        )
+        .route(
+            "/api/projects/{project_id}/webhook-endpoints/{endpoint_id}/rotate-secret",
+            post(rotate_webhook_endpoint_secret),
         )
         .route(
             "/api/projects/{project_id}/webhook-endpoints/{endpoint_id}/test",
@@ -70,6 +85,19 @@ pub(super) fn routes() -> Router<AppState> {
             "/api/projects/{project_id}/withdrawals",
             post(create_withdrawal),
         )
+}
+
+async fn project_secret_bootstrap(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<shared::ProjectSecretBootstrapResponse>, ApiError> {
+    let secret_key = bearer_token(&headers)?;
+    state
+        .portal
+        .project_secret_bootstrap(secret_key, Utc::now())
+        .await
+        .map(Json)
+        .ok_or(ApiError::unauthorized("invalid project secret key"))
 }
 
 async fn list_projects(
@@ -142,7 +170,34 @@ async fn project_overview(
     Ok(Json(overview))
 }
 
-async fn create_project_api_key(
+async fn update_project_payment_rail(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path((project_id, payment_rail)): Path<(String, String)>,
+    Json(payload): Json<UpdateProjectPaymentRailRequest>,
+) -> Result<Json<ProjectDashboardOverview>, ApiError> {
+    let session = require_session(&state, &jar).await?;
+    let project = state
+        .portal
+        .project_by_id(&project_id)
+        .await
+        .ok_or(ApiError::not_found("project not found"))?;
+    require_project_owner(&project, &session.user.address)?;
+    let payment_rail = parse_payment_rail(&payment_rail)?;
+    state
+        .portal
+        .update_project_payment_rail(&project_id, payment_rail, payload.enabled, Utc::now())
+        .await
+        .ok_or(ApiError::not_found("project not found"))?;
+    state
+        .portal
+        .project_overview(&project_id)
+        .await
+        .map(Json)
+        .ok_or(ApiError::not_found("project not found"))
+}
+
+async fn create_project_secret(
     State(state): State<AppState>,
     jar: CookieJar,
     Path(project_id): Path<String>,
@@ -155,7 +210,11 @@ async fn create_project_api_key(
         .await
         .ok_or(ApiError::not_found("project not found"))?;
     require_project_owner(&project, &session.user.address)?;
-    let label = payload.label.as_deref().unwrap_or("Default API key").trim();
+    let label = payload
+        .label
+        .as_deref()
+        .unwrap_or("Default project secret")
+        .trim();
     let response = state
         .portal
         .create_project_api_key(
@@ -169,7 +228,7 @@ async fn create_project_api_key(
     Ok(Json(response))
 }
 
-async fn revoke_project_api_key(
+async fn revoke_project_secret(
     State(state): State<AppState>,
     jar: CookieJar,
     Path((project_id, key_id)): Path<(String, String)>,
@@ -185,7 +244,7 @@ async fn revoke_project_api_key(
         .portal
         .revoke_project_api_key(&project_id, &key_id, Utc::now())
         .await
-        .ok_or(ApiError::not_found("api key not found"))?;
+        .ok_or(ApiError::not_found("project secret not found"))?;
     Ok(Json(key))
 }
 
@@ -242,6 +301,26 @@ async fn configure_webhook_endpoint_patch(
         .await
         .ok_or(ApiError::not_found("webhook endpoint not found"))?;
     Ok(Json(endpoint))
+}
+
+async fn rotate_webhook_endpoint_secret(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path((project_id, endpoint_id)): Path<(String, String)>,
+) -> Result<Json<RotateWebhookEndpointSecretResponse>, ApiError> {
+    let session = require_session(&state, &jar).await?;
+    let project = state
+        .portal
+        .project_by_id(&project_id)
+        .await
+        .ok_or(ApiError::not_found("project not found"))?;
+    require_project_owner(&project, &session.user.address)?;
+    let response = state
+        .portal
+        .rotate_webhook_endpoint_secret(&project_id, &endpoint_id, Utc::now())
+        .await
+        .ok_or(ApiError::not_found("webhook endpoint not found"))?;
+    Ok(Json(response))
 }
 
 async fn test_webhook_endpoint(
@@ -303,10 +382,15 @@ async fn create_checkout_session(
         .project_by_id(&project_id)
         .await
         .ok_or(ApiError::not_found("project not found"))?;
+    let evm_payment_intent = match checkout.payment_intent_id.as_deref() {
+        Some(intent_id) => state.portal.evm_payment_intent_by_id(intent_id).await,
+        None => None,
+    };
 
     Ok(Json(CheckoutSessionResponse {
         session: checkout,
         merchant_owner_wallet: project.owner_wallet,
+        evm_payment_intent,
     }))
 }
 
@@ -393,6 +477,55 @@ async fn create_withdrawal(
             "chainTxHash must be a transaction hash",
         ));
     }
+    let has_asset_scope = payload.chain_id.is_some()
+        || payload.token_contract.is_some()
+        || payload.receiver_address.is_some();
+    if has_asset_scope && (payload.chain_id.is_none() || payload.token_contract.is_none()) {
+        return Err(ApiError::bad_request(
+            "chainId and tokenContract are required for token-scoped withdrawals",
+        ));
+    }
+    if payload
+        .token_contract
+        .as_deref()
+        .is_some_and(|value| !is_evm_address(value))
+    {
+        return Err(ApiError::bad_request(
+            "tokenContract must be an EVM address",
+        ));
+    }
+    if payload
+        .receiver_address
+        .as_deref()
+        .is_some_and(|value| !is_evm_address(value))
+    {
+        return Err(ApiError::bad_request(
+            "receiverAddress must be an EVM address",
+        ));
+    }
+    if payload
+        .recipient_address
+        .as_deref()
+        .is_some_and(|value| !is_evm_address(value))
+    {
+        return Err(ApiError::bad_request(
+            "recipientAddress must be an EVM address",
+        ));
+    }
+    if let (Some(chain_id), Some(token_contract)) =
+        (payload.chain_id, payload.token_contract.as_ref())
+    {
+        let Some(asset) = overview.evm_asset_balances.iter().find(|asset| {
+            asset.chain_id == chain_id && asset.token_contract.eq_ignore_ascii_case(token_contract)
+        }) else {
+            return Err(ApiError::not_found("token balance not found"));
+        };
+        if payload.amount_minor_units > asset.withdrawable_minor_units {
+            return Err(ApiError::conflict(
+                "withdraw amount exceeds available token balance",
+            ));
+        }
+    }
     if overview.withdrawals.iter().any(|withdrawal| {
         withdrawal
             .receipt
@@ -409,6 +542,21 @@ async fn create_withdrawal(
             &project_id,
             payload.amount_minor_units,
             &payload.chain_tx_hash,
+            ProjectWithdrawalScope {
+                chain_id: payload.chain_id,
+                token_contract: payload
+                    .token_contract
+                    .as_ref()
+                    .map(|value| value.trim().to_string()),
+                receiver_address: payload
+                    .receiver_address
+                    .as_ref()
+                    .map(|value| value.trim().to_string()),
+                recipient_address: payload
+                    .recipient_address
+                    .as_ref()
+                    .map(|value| value.trim().to_string()),
+            },
             Utc::now(),
         )
         .await
@@ -451,62 +599,94 @@ async fn dispatch_delivery(
         .webhook_endpoint_by_id(&delivery.endpoint_id)
         .await
         .ok_or(ApiError::not_found("webhook endpoint not found"))?;
-    let secret = state
+    let secrets = state
         .portal
-        .webhook_secret_for_endpoint(&endpoint.endpoint_id)
-        .await
-        .ok_or(ApiError::not_found("webhook secret not found"))?;
-    let canonical_body = serde_json::to_string(&event.payload)
-        .map_err(|_| ApiError::internal("failed to serialize webhook event"))?;
-    let timestamp = Utc::now().to_rfc3339();
-    let signature_base = format!("{}.{}.{}", delivery.delivery_id, timestamp, canonical_body);
-    let signature = format!("v1={}", keyed_digest(&secret, &signature_base));
+        .active_webhook_secrets_for_endpoint(&endpoint.endpoint_id, Utc::now())
+        .await;
+    if secrets.is_empty() {
+        return Err(ApiError::not_found("webhook secret not found"));
+    }
+    let raw_body = if event.raw_payload.is_empty() {
+        serde_json::to_string(&event.payload)
+            .map_err(|_| ApiError::internal("failed to serialize webhook event"))?
+    } else {
+        event.raw_payload.clone()
+    };
+    let timestamp = Utc::now().timestamp();
+    let timestamp_text = timestamp.to_string();
+    let signature = try_sign_webhook_payload_with_secrets(
+        &secrets,
+        &delivery.delivery_id,
+        timestamp,
+        &raw_body,
+    )
+    .map_err(|_| ApiError::internal("webhook endpoint secret is invalid"))?;
+    let request_headers = serde_json::json!({
+        "content-type": "application/json",
+        SVIX_ID_HEADER: delivery.delivery_id,
+        "svix-event-id": event.event_id,
+        SVIX_TIMESTAMP_HEADER: timestamp_text,
+        SVIX_SIGNATURE_HEADER: signature,
+    });
 
     let response = state
         .webhook_client
         .post(&endpoint.url)
         .header("content-type", "application/json")
-        .header("x-zamapay-webhook-id", &delivery.delivery_id)
-        .header("x-zamapay-event-id", &event.event_id)
-        .header("x-zamapay-webhook-timestamp", &timestamp)
-        .header("x-zamapay-webhook-signature", &signature)
-        .header("x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1")
-        .body(canonical_body)
+        .header(SVIX_ID_HEADER, &delivery.delivery_id)
+        .header("svix-event-id", &event.event_id)
+        .header(SVIX_TIMESTAMP_HEADER, &timestamp_text)
+        .header(SVIX_SIGNATURE_HEADER, &signature)
+        .body(raw_body)
         .send()
         .await;
 
-    let signature_header = signature;
-    let result = match response {
+    let attempted_at = Utc::now();
+    let signature_header = signature.clone();
+    let (http_status, response_headers, response_body, error) = match response {
         Ok(response) => {
             let status = response.status().as_u16();
+            let response_headers = Some(headers_to_json(response.headers()));
             let body = response.text().await.unwrap_or_default();
-            state
-                .portal
-                .mark_webhook_delivery_result(
-                    &delivery.delivery_id,
-                    signature_header,
-                    Some(status),
-                    Some(truncate_body(body)),
-                    None,
-                    Utc::now(),
-                )
-                .await
+            (
+                Some(status),
+                response_headers,
+                Some(truncate_body(body)),
+                None,
+            )
         }
-        Err(error) => {
-            state
-                .portal
-                .mark_webhook_delivery_result(
-                    &delivery.delivery_id,
-                    signature_header,
-                    None,
-                    None,
-                    Some(error.to_string()),
-                    Utc::now(),
-                )
-                .await
-        }
-    }
-    .ok_or(ApiError::not_found("webhook delivery not found"))?;
+        Err(error) => (None, None, None, Some(error.to_string())),
+    };
+
+    state
+        .portal
+        .record_webhook_delivery_attempt(WebhookDeliveryAttemptRecord {
+            attempt_id: format!("wha_{}", uuid::Uuid::new_v4().simple()),
+            delivery_id: delivery.delivery_id.clone(),
+            event_id: delivery.event_id.clone(),
+            endpoint_id: delivery.endpoint_id.clone(),
+            project_id: delivery.project_id.clone(),
+            request_headers,
+            response_headers,
+            http_status,
+            response_body: response_body.clone(),
+            error: error.clone(),
+            attempted_at,
+        })
+        .await;
+
+    let result = state
+        .portal
+        .mark_webhook_delivery_result(
+            &delivery.delivery_id,
+            signature_header,
+            http_status,
+            response_body,
+            error,
+            Utc::now(),
+        )
+        .await
+        .ok_or(ApiError::not_found("webhook delivery not found"))?;
 
     Ok(vec![result])
 }
@@ -560,15 +740,15 @@ fn public_demo_project_id() -> &'static str {
 
 fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
     let Some(value) = headers.get(header::AUTHORIZATION) else {
-        return Err(ApiError::unauthorized("missing bearer API key"));
+        return Err(ApiError::unauthorized("missing bearer project secret"));
     };
     let value = value
         .to_str()
-        .map_err(|_| ApiError::unauthorized("invalid bearer API key"))?;
+        .map_err(|_| ApiError::unauthorized("invalid bearer project secret"))?;
     value
         .strip_prefix("Bearer ")
         .filter(|token| !token.trim().is_empty())
-        .ok_or(ApiError::unauthorized("invalid bearer API key"))
+        .ok_or(ApiError::unauthorized("invalid bearer project secret"))
 }
 
 fn required_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, ApiError> {
@@ -593,7 +773,18 @@ fn checkout_error(error: CheckoutSessionError) -> ApiError {
         CheckoutSessionError::InvalidRequest => ApiError::bad_request("invalid checkout session"),
         CheckoutSessionError::Locked => ApiError::locked("project invoice authority is locked"),
         CheckoutSessionError::NotFound => ApiError::not_found("checkout session not found"),
-        CheckoutSessionError::Unauthorized => ApiError::unauthorized("invalid project API key"),
+        CheckoutSessionError::RailDisabled => {
+            ApiError::locked("payment rail is disabled for this project")
+        }
+        CheckoutSessionError::Unauthorized => ApiError::unauthorized("invalid project secret"),
+    }
+}
+
+fn parse_payment_rail(value: &str) -> Result<PaymentRail, ApiError> {
+    match value {
+        "zama_private" => Ok(PaymentRail::ZamaPrivate),
+        "evm_erc20" => Ok(PaymentRail::EvmErc20),
+        _ => Err(ApiError::bad_request("unknown payment rail")),
     }
 }
 
@@ -610,8 +801,29 @@ fn truncate_body(body: String) -> String {
     format!("{}...", &body[..LIMIT])
 }
 
+fn headers_to_json(headers: &reqwest::header::HeaderMap) -> serde_json::Value {
+    let mut output = serde_json::Map::new();
+    for (name, value) in headers {
+        if let Ok(value) = value.to_str() {
+            output.insert(
+                name.as_str().to_string(),
+                serde_json::Value::String(value.to_string()),
+            );
+        }
+    }
+    serde_json::Value::Object(output)
+}
+
 fn is_transaction_hash(value: &str) -> bool {
     value.len() == 66
+        && value.starts_with("0x")
+        && value.as_bytes()[2..]
+            .iter()
+            .all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_evm_address(value: &str) -> bool {
+    value.len() == 42
         && value.starts_with("0x")
         && value.as_bytes()[2..]
             .iter()

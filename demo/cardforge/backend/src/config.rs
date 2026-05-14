@@ -1,7 +1,9 @@
 use std::{env, net::SocketAddr};
 
+use serde::Deserialize;
+
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:8092";
-const DEFAULT_API_URL: &str = "http://127.0.0.1:8080";
+const DEFAULT_API_URL: &str = "http://127.0.0.1:18080";
 const DEFAULT_CHAIN_INVOICE_API_URL: &str = "http://127.0.0.1:3001";
 const DEFAULT_CONSOLE_URL: &str = "http://127.0.0.1:3001/merchant";
 const DEFAULT_LOGIN_URL: &str = "http://127.0.0.1:3001/login";
@@ -18,18 +20,22 @@ pub(crate) struct Config {
     pub(crate) login_url: String,
     pub(crate) zamapay_api_url: String,
     pub(crate) zamapay_console_url: String,
-    pub(crate) project_api_key: String,
+    pub(crate) project_secret_key: String,
     pub(crate) merchant_label: String,
     pub(crate) project_id: String,
     pub(crate) store_key: String,
     pub(crate) webhook_endpoint: String,
+    pub(crate) webhook_endpoint_id: String,
     pub(crate) webhook_secret: String,
 }
 
 impl Config {
-    pub(crate) fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
+    pub(crate) async fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
+        let zamapay_api_url = clean_base_url(env_value("ZAMAPAY_API_URL", DEFAULT_API_URL));
         let zamapay_console_url =
             clean_base_url(env_value("ZAMAPAY_CONSOLE_URL", DEFAULT_CONSOLE_URL));
+        let secret_key = required_env("ZAMAPAY_SECRET_KEY")?;
+        let credentials = project_credentials(&zamapay_api_url, &secret_key).await?;
         Ok(Self {
             allowed_origins: list_env("CARDFORGE_ALLOWED_ORIGINS"),
             bind_addr: bind_addr()?,
@@ -39,16 +45,79 @@ impl Config {
                 "ZAMAPAY_CHAIN_INVOICE_API_URL",
                 DEFAULT_CHAIN_INVOICE_API_URL,
             )),
-            zamapay_api_url: clean_base_url(env_value("ZAMAPAY_API_URL", DEFAULT_API_URL)),
+            zamapay_api_url,
             zamapay_console_url,
-            project_api_key: required_env("ZAMAPAY_API_KEY")?,
+            project_secret_key: credentials.secret_key,
             merchant_label: env_value("CARDFORGE_MERCHANT_LABEL", DEFAULT_MERCHANT_LABEL),
-            project_id: required_env("ZAMAPAY_PROJECT_ID")?,
+            project_id: credentials.project_id,
             store_key: env_value("CARDFORGE_STORE_KEY", DEFAULT_STORE_KEY),
             webhook_endpoint: env_value("CARDFORGE_WEBHOOK_ENDPOINT", DEFAULT_WEBHOOK_ENDPOINT),
-            webhook_secret: required_env("ZAMAPAY_WEBHOOK_SECRET")?,
+            webhook_endpoint_id: credentials.webhook_endpoint_id,
+            webhook_secret: credentials.webhook_secret,
         })
     }
+}
+
+#[derive(Debug)]
+struct ProjectCredentials {
+    secret_key: String,
+    project_id: String,
+    webhook_endpoint_id: String,
+    webhook_secret: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectSecretBootstrapResponse {
+    project_id: String,
+    webhook_endpoint_id: Option<String>,
+    webhook_secret: Option<String>,
+}
+
+async fn project_credentials(
+    api_url: &str,
+    secret_key: &str,
+) -> Result<ProjectCredentials, Box<dyn std::error::Error>> {
+    let bootstrap = reqwest::Client::new()
+        .get(format!("{api_url}/api/project-secret/bootstrap"))
+        .bearer_auth(secret_key)
+        .send()
+        .await
+        .map_err(BootstrapError::transport)?;
+
+    let status = bootstrap.status();
+    if !status.is_success() {
+        return Err(Box::new(BootstrapError(format!(
+            "ZamaPay project secret bootstrap failed with HTTP {status}"
+        ))));
+    }
+
+    let bootstrap = bootstrap
+        .json::<ProjectSecretBootstrapResponse>()
+        .await
+        .map_err(BootstrapError::decode)?;
+    let project_id = if bootstrap.project_id.trim().is_empty() {
+        return Err(Box::new(BootstrapError(
+            "ZamaPay project secret bootstrap did not return project id".into(),
+        )));
+    } else {
+        bootstrap.project_id
+    };
+    let webhook_endpoint_id = bootstrap
+        .webhook_endpoint_id
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| BootstrapError("ZamaPay project has no enabled webhook endpoint".into()))?;
+    let webhook_secret = bootstrap
+        .webhook_secret
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| BootstrapError("ZamaPay project webhook secret is unavailable".into()))?;
+
+    Ok(ProjectCredentials {
+        secret_key: secret_key.to_string(),
+        project_id,
+        webhook_endpoint_id,
+        webhook_secret,
+    })
 }
 
 fn bind_addr() -> Result<SocketAddr, Box<dyn std::error::Error>> {
@@ -113,3 +182,113 @@ impl std::fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
+
+#[derive(Debug)]
+struct BootstrapError(String);
+
+impl BootstrapError {
+    fn transport(error: reqwest::Error) -> Self {
+        Self(format!(
+            "ZamaPay project secret bootstrap request failed: {error}"
+        ))
+    }
+
+    fn decode(error: reqwest::Error) -> Self {
+        Self(format!(
+            "ZamaPay project secret bootstrap returned invalid JSON: {error}"
+        ))
+    }
+}
+
+impl std::fmt::Display for BootstrapError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BootstrapError {}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use axum::{Json, Router, http::HeaderMap, routing::get};
+    use serde_json::json;
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn bootstraps_project_credentials_with_secret_key() {
+        let captured = Arc::new(Mutex::new(None::<String>));
+        let api = fake_bootstrap_api(
+            captured.clone(),
+            json!({
+                "projectId": "proj_1",
+                "environment": "local_dev",
+                "webhookEndpointId": "we_1",
+                "webhookEndpointUrl": "http://127.0.0.1:8092/api/zamapay/webhook",
+                "webhookSecret": "whsec_dGVzdA"
+            }),
+        )
+        .await;
+
+        let credentials = project_credentials(&api, "zms_test_1").await.unwrap();
+
+        assert_eq!(credentials.secret_key, "zms_test_1");
+        assert_eq!(credentials.project_id, "proj_1");
+        assert_eq!(credentials.webhook_endpoint_id, "we_1");
+        assert_eq!(credentials.webhook_secret, "whsec_dGVzdA");
+        assert_eq!(
+            captured.lock().unwrap().as_deref(),
+            Some("Bearer zms_test_1")
+        );
+    }
+
+    #[tokio::test]
+    async fn rejects_bootstrap_without_enabled_webhook() {
+        let api = fake_bootstrap_api(
+            Arc::new(Mutex::new(None)),
+            json!({
+                "projectId": "proj_1",
+                "environment": "local_dev",
+                "webhookEndpointId": null,
+                "webhookEndpointUrl": null,
+                "webhookSecret": null
+            }),
+        )
+        .await;
+
+        let error = project_credentials(&api, "zms_test_1").await.unwrap_err();
+
+        assert!(error.to_string().contains("no enabled webhook endpoint"));
+    }
+
+    async fn fake_bootstrap_api(
+        captured: Arc<Mutex<Option<String>>>,
+        body: serde_json::Value,
+    ) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let app = Router::new().route(
+            "/api/project-secret/bootstrap",
+            get(move |headers: HeaderMap| {
+                let captured = captured.clone();
+                let body = body.clone();
+                async move {
+                    *captured.lock().unwrap() = headers
+                        .get("authorization")
+                        .and_then(|value| value.to_str().ok())
+                        .map(ToOwned::to_owned);
+                    Json(body)
+                }
+            }),
+        );
+
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        format!("http://{addr}")
+    }
+}

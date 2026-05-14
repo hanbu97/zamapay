@@ -10,3 +10,4 @@ domain = { path = "../domain" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+webhook-verifier = { path = "../webhook-verifier" }

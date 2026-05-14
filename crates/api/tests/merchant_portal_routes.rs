@@ -1,6 +1,13 @@
-use axum::body::Body;
-use axum::http::{Method, Request, StatusCode};
+use axum::body::{Body, Bytes};
+use axum::http::{HeaderMap, Method, Request, StatusCode};
+use axum::routing::post;
+use chrono::Utc;
 use serde_json::json;
+use shared::{
+    SVIX_ID_HEADER, SVIX_SIGNATURE_HEADER, SVIX_TIMESTAMP_HEADER, verify_webhook_payload,
+};
+use std::time::Duration;
+use tokio::sync::mpsc;
 use tower::ServiceExt;
 
 use api::{AppState, app};
@@ -20,6 +27,15 @@ async fn response_json(response: axum::response::Response) -> serde_json::Value 
         .await
         .unwrap();
     serde_json::from_slice(&body).unwrap()
+}
+
+#[derive(Debug)]
+struct CapturedWebhook {
+    delivery_id: String,
+    event_id: String,
+    raw_body: String,
+    signature: String,
+    valid: bool,
 }
 
 #[tokio::test]
@@ -56,6 +72,84 @@ async fn public_invoice_route_returns_not_found_without_created_invoice() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn supported_evm_assets_are_public_but_watchlist_requires_operator_key() {
+    let app = app(test_state().await);
+
+    let assets = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/supported-assets")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(assets.status(), StatusCode::OK);
+    let assets = response_json(assets).await;
+    assert!(assets.as_array().unwrap().iter().any(|asset| {
+        asset["chainId"] == 31337
+            && asset["tokenSymbol"] == "USDT"
+            && asset["receiverAddress"]
+                .as_str()
+                .is_some_and(|address| address.starts_with("0x"))
+    }));
+
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/operator/evm/watchlist")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
+    let watchlist = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/operator/evm/watchlist")
+                .header("x-operator-key", "local-operator-dev-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(watchlist.status(), StatusCode::OK);
+
+    let cursor = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/operator/evm/cursors")
+                .header("content-type", "application/json")
+                .header("x-operator-key", "local-operator-dev-key")
+                .body(Body::from(
+                    json!({
+                        "chainId": 31337,
+                        "tokenContract": "0x0000000000000000000000000000000000001001",
+                        "receiverAddress": "0x00000000000000000000000000000000000000f1",
+                        "lastScannedBlock": 12,
+                        "lastFinalizedBlock": 10
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(cursor.status(), StatusCode::OK);
+    let cursor = response_json(cursor).await;
+    assert_eq!(cursor["lastScannedBlock"], 12);
 }
 
 #[tokio::test]
@@ -782,7 +876,7 @@ async fn operator_settlement_event_surfaces_diagnostics() {
 }
 
 #[tokio::test]
-async fn project_api_key_checkout_uses_chain_invoice_authority() {
+async fn project_secret_checkout_uses_chain_invoice_authority() {
     let state = test_state().await;
     let seeded_session = state
         .issue_dev_session("0x0000000000000000000000000000000000000009")
@@ -814,13 +908,9 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
     assert_eq!(project.status(), StatusCode::OK);
     let project = response_json(project).await;
     let project_id = project["project"]["projectId"].as_str().unwrap();
+    let endpoint_id = project["webhookEndpoint"]["endpointId"].as_str().unwrap();
     assert_eq!(project["project"]["billingPlan"], "free");
-    assert!(
-        project["webhookSecret"]
-            .as_str()
-            .unwrap()
-            .starts_with("whsec_")
-    );
+    assert!(project.get("webhookSecret").is_none());
     assert_eq!(
         project["invoiceAuthority"]["mode"],
         "platform_hosted_signer"
@@ -835,7 +925,7 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
         .oneshot(
             Request::builder()
                 .method(Method::POST)
-                .uri(format!("/api/projects/{project_id}/api-keys"))
+                .uri(format!("/api/projects/{project_id}/project-secrets"))
                 .header("content-type", "application/json")
                 .header("cookie", &cookie)
                 .body(Body::from(
@@ -851,8 +941,84 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
         .unwrap();
     assert_eq!(key.status(), StatusCode::OK);
     let key = response_json(key).await;
-    let api_key = key["apiKey"].as_str().unwrap();
-    assert!(api_key.starts_with("zmp_test_"));
+    let api_key = key["secretKey"].as_str().unwrap();
+    assert!(api_key.starts_with("zms_test_"));
+
+    let first_bootstrap = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/project-secret/bootstrap")
+                .header("authorization", format!("Bearer {api_key}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(first_bootstrap.status(), StatusCode::OK);
+    let first_bootstrap = response_json(first_bootstrap).await;
+    let first_webhook_secret = first_bootstrap["webhookSecret"].as_str().unwrap();
+    assert!(first_webhook_secret.starts_with("whsec_"));
+    assert_ne!(
+        project["webhookEndpoint"]["secretPreview"],
+        first_bootstrap["webhookSecret"]
+    );
+
+    let rotated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/api/projects/{project_id}/webhook-endpoints/{endpoint_id}/rotate-secret"
+                ))
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rotated.status(), StatusCode::OK);
+    let rotated = response_json(rotated).await;
+    assert!(rotated.get("webhookSecret").is_none());
+
+    let bootstrap = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/project-secret/bootstrap")
+                .header("authorization", format!("Bearer {api_key}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.status(), StatusCode::OK);
+    let bootstrap = response_json(bootstrap).await;
+    assert_eq!(bootstrap["projectId"], project_id);
+    assert_eq!(bootstrap["environment"], "local_dev");
+    assert_eq!(bootstrap["webhookEndpointId"], endpoint_id);
+    assert_ne!(bootstrap["webhookSecret"], first_webhook_secret);
+    assert_ne!(
+        rotated["endpoint"]["secretPreview"],
+        bootstrap["webhookSecret"]
+    );
+
+    let bad_bootstrap = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/project-secret/bootstrap")
+                .header("authorization", "Bearer zms_test_missing")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bad_bootstrap.status(), StatusCode::UNAUTHORIZED);
 
     let missing_key = app
         .clone()
@@ -944,6 +1110,91 @@ async fn project_api_key_checkout_uses_chain_invoice_authority() {
 }
 
 #[tokio::test]
+async fn project_payment_rail_route_updates_owner_setting() {
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
+    let cookie = format!("zamapay_session={}", seeded_session.session_id);
+    let app = app(state);
+
+    let project = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/projects")
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(Body::from(
+                    json!({
+                        "name": "Rail controls merchant",
+                        "environment": "local_dev",
+                        "billingPlan": "free"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(project.status(), StatusCode::OK);
+    let project = response_json(project).await;
+    let project_id = project["project"]["projectId"].as_str().unwrap();
+
+    let unauthorized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri(format!(
+                    "/api/projects/{project_id}/payment-rails/evm_erc20"
+                ))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({ "enabled": false }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let updated = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri(format!(
+                    "/api/projects/{project_id}/payment-rails/evm_erc20"
+                ))
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(Body::from(json!({ "enabled": false }).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated = response_json(updated).await;
+    assert!(
+        updated["paymentRails"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|setting| {
+                setting["paymentRail"] == "evm_erc20" && setting["enabled"] == false
+            })
+    );
+    assert!(
+        updated["paymentRails"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|setting| {
+                setting["paymentRail"] == "zama_private" && setting["enabled"] == true
+            })
+    );
+}
+
+#[tokio::test]
 async fn project_operator_projection_creates_project_outbox_records() {
     let state = test_state().await;
     let seeded_session = state
@@ -981,7 +1232,7 @@ async fn project_operator_projection_creates_project_outbox_records() {
         .oneshot(
             Request::builder()
                 .method(Method::POST)
-                .uri(format!("/api/projects/{project_id}/api-keys"))
+                .uri(format!("/api/projects/{project_id}/project-secrets"))
                 .header("content-type", "application/json")
                 .header("cookie", &cookie)
                 .body(Body::from(
@@ -991,7 +1242,7 @@ async fn project_operator_projection_creates_project_outbox_records() {
         )
         .await
         .unwrap();
-    let api_key = response_json(key).await["apiKey"]
+    let api_key = response_json(key).await["secretKey"]
         .as_str()
         .unwrap()
         .to_string();
@@ -1094,5 +1345,239 @@ async fn project_operator_projection_creates_project_outbox_records() {
     assert!(
         overview["webhookDeliveries"][0]["status"] == "retry_scheduled"
             || overview["webhookDeliveries"][0]["status"] == "dead_letter"
+    );
+}
+
+#[tokio::test]
+async fn webhook_dispatch_uses_svix_headers_and_hides_replay_material() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let webhook_url = format!("http://{}/webhooks/zamapay", listener.local_addr().unwrap());
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
+    let cookie = format!("zamapay_session={}", seeded_session.session_id);
+    let app = app(state);
+
+    let project = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/projects")
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(Body::from(
+                    json!({
+                        "name": "Signed webhook merchant",
+                        "environment": "local_dev",
+                        "webhookUrl": webhook_url
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(project.status(), StatusCode::OK);
+    let project = response_json(project).await;
+    let project_id = project["project"]["projectId"].as_str().unwrap();
+    let key = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/projects/{project_id}/project-secrets"))
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(Body::from(
+                    json!({ "label": "CardForge backend" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let api_key = response_json(key).await["secretKey"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let bootstrap = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/project-secret/bootstrap")
+                .header("authorization", format!("Bearer {api_key}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.status(), StatusCode::OK);
+    let webhook_secret = response_json(bootstrap).await["webhookSecret"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (tx, mut rx) = mpsc::channel::<CapturedWebhook>(1);
+    let secret_for_receiver = webhook_secret.clone();
+    let receiver = axum::Router::new().route(
+        "/webhooks/zamapay",
+        post(move |headers: HeaderMap, body: Bytes| {
+            let tx = tx.clone();
+            let secret = secret_for_receiver.clone();
+            async move {
+                let header = |name: &str| {
+                    headers
+                        .get(name)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string()
+                };
+                let delivery_id = header(SVIX_ID_HEADER);
+                let timestamp = header(SVIX_TIMESTAMP_HEADER);
+                let signature = header(SVIX_SIGNATURE_HEADER);
+                let event_id = header("svix-event-id");
+                let raw_body = String::from_utf8(body.to_vec()).unwrap();
+                let valid = verify_webhook_payload(
+                    &secret,
+                    &delivery_id,
+                    &timestamp,
+                    &signature,
+                    &raw_body,
+                    Utc::now(),
+                );
+                tx.send(CapturedWebhook {
+                    delivery_id,
+                    event_id,
+                    raw_body,
+                    signature,
+                    valid,
+                })
+                .await
+                .ok();
+                StatusCode::NO_CONTENT
+            }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, receiver).await.unwrap();
+    });
+
+    let checkout = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/projects/{project_id}/checkout-sessions"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {api_key}"))
+                .header("idempotency-key", "order-signed-webhook")
+                .body(Body::from(
+                    json!({
+                        "merchantOrderId": "order-signed-webhook",
+                        "title": "CardForge prepaid card bundle",
+                        "amountLabel": "120 cUSDT",
+                        "amountMinorUnits": 120000000,
+                        "note": "Standalone project checkout",
+                        "chainInvoiceId": 12001,
+                        "chainTxHash": "0xsignedwebhook"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let chain_invoice_id = response_json(checkout).await["chainInvoiceId"]
+        .as_u64()
+        .unwrap();
+
+    let paid = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/api/operator/chain-invoices/{chain_invoice_id}/payment-projection"
+                ))
+                .header("content-type", "application/json")
+                .header("x-operator-key", "local-operator-dev-key")
+                .body(Body::from(
+                    json!({
+                        "paymentTxHash": "0xpay",
+                        "payerAddress": "0x0000000000000000000000000000000000000002"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(paid.status(), StatusCode::OK);
+
+    let finality = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/api/operator/chain-invoices/{chain_invoice_id}/confirmations"
+                ))
+                .header("content-type", "application/json")
+                .header("x-operator-key", "local-operator-dev-key")
+                .body(Body::from(
+                    json!({
+                        "confirmations": 2,
+                        "finalityThreshold": 2
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(finality.status(), StatusCode::OK);
+
+    let captured = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    server.abort();
+
+    assert!(captured.valid);
+    assert!(captured.delivery_id.starts_with("del_"));
+    assert!(captured.event_id.starts_with("evt_"));
+    assert!(captured.signature.starts_with("v1,"));
+    let payload: serde_json::Value = serde_json::from_str(&captured.raw_body).unwrap();
+    assert_eq!(payload["event"], "invoice.fulfillment_ready");
+
+    let overview = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/projects/{project_id}"))
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(overview.status(), StatusCode::OK);
+    let overview = response_json(overview).await;
+    assert_eq!(overview["webhookDeliveries"][0]["status"], "delivered");
+    assert!(
+        overview["webhookDeliveries"][0]
+            .get("signatureHeader")
+            .is_none()
+    );
+    assert!(overview["webhookEvents"][0].get("rawPayload").is_none());
+    assert_eq!(
+        overview["webhookEvents"][0]["rawPayloadSha256"]
+            .as_str()
+            .unwrap()
+            .len(),
+        64
     );
 }

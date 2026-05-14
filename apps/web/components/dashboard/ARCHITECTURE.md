@@ -10,4 +10,4 @@ apps/web/components/dashboard
 ## Decisions
 
 - The old merchant settlement decrypt card was removed with the transparent invoice settlement path.
-- Dashboard components do not create merchant checkouts; checkout creation lives behind project API keys so merchant templates stay separate from the platform console.
+- Dashboard components do not create merchant checkouts; checkout creation lives behind project secrets so merchant templates stay separate from the platform console.

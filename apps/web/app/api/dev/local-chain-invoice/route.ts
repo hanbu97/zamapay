@@ -97,7 +97,7 @@ export async function POST(request: Request) {
     const auth = request.headers.get('authorization')
     const authToken = bearerToken(auth)
     if (!authToken && process.env.NODE_ENV === 'production') {
-      return NextResponse.json({ error: 'missing project API key' }, { status: 401 })
+      return NextResponse.json({ error: 'missing project secret' }, { status: 401 })
     }
 
     if (authToken) {
@@ -158,7 +158,7 @@ async function validateProjectInvoiceRequest(input: {
     return NextResponse.json({ error: 'project API is unavailable' }, { status: 502 })
   }
   if (response.status === 401 || response.status === 403) {
-    return NextResponse.json({ error: 'invalid project API key' }, { status: 401 })
+    return NextResponse.json({ error: 'invalid project secret' }, { status: 401 })
   }
   if (!response.ok) {
     return NextResponse.json({ error: 'project API rejected chain invoice authorization' }, { status: response.status })

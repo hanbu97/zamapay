@@ -4,13 +4,9 @@ const node = process.execPath
 
 const checks = [
   ['runtime profile config', [node, ['scripts/verify-runtime-profile.js', 'local-dev']]],
-  ['web unit tests', ['npm', ['run', 'test:web']]],
+  ['workspace check', ['just', ['check']]],
   ['web e2e tests', ['npm', ['--workspace', 'apps/web', 'run', 'test:e2e']]],
-  ['web typecheck', ['npm', ['run', 'lint:web']]],
   ['web production build', ['npm', ['run', 'build:web']]],
-  ['rust format', ['cargo', ['fmt', '--all', '--check']]],
-  ['rust workspace tests', ['cargo', ['test', '--workspace']]],
-  ['contract tests', ['npm', ['run', 'test:contracts']]],
   ['local end-to-end readiness', [node, ['scripts/local-readiness.js']]],
 ]
 

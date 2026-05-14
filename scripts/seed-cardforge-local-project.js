@@ -6,11 +6,18 @@ const path = require('node:path')
 const projectRoot = path.resolve(__dirname, '..')
 const envPath = path.join(projectRoot, 'env', 'local-dev.cardforge-backend.env')
 const fallbackPrivateKey = '0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+const legacyCardForgeEnvKeys = [
+  'ZAMAPAY_API_KEY',
+  'ZAMAPAY_PROJECT_ID',
+  'ZAMAPAY_WEBHOOK_ENDPOINT_ID',
+  'ZAMAPAY_WEBHOOK_SECRET',
+  'ZAMAPAY_CREDENTIALS',
+]
 
 async function main() {
   const localEnv = readEnv(envPath)
   const apiBaseUrl = stripTrailingSlash(
-    process.env.ZAMAPAY_API_BASE_URL || process.env.ZAMAPAY_API_URL || localEnv.ZAMAPAY_API_URL || 'http://127.0.0.1:8080',
+    process.env.ZAMAPAY_API_BASE_URL || process.env.ZAMAPAY_API_URL || localEnv.ZAMAPAY_API_URL || 'http://127.0.0.1:18080',
   )
   const account = await localAccount()
   const sessionCookie = await walletSessionCookie(apiBaseUrl, account)
@@ -32,7 +39,7 @@ async function main() {
     throw new Error('ZamaPay project creation did not return project.projectId.')
   }
 
-  const createdKey = await apiJson(`${apiBaseUrl}/api/projects/${encodeURIComponent(projectId)}/api-keys`, {
+  const createdSecret = await apiJson(`${apiBaseUrl}/api/projects/${encodeURIComponent(projectId)}/project-secrets`, {
     method: 'POST',
     headers: jsonHeaders(sessionCookie),
     body: JSON.stringify({
@@ -40,18 +47,16 @@ async function main() {
       label: 'CardForge local dev',
     }),
   })
-  const apiKey = createdKey.apiKey
+  const secretKey = createdSecret.secretKey
 
-  if (!apiKey) {
-    throw new Error('ZamaPay API key creation did not return apiKey.')
+  if (!secretKey) {
+    throw new Error('ZamaPay project secret creation did not return secretKey.')
   }
 
   writeEnv(envPath, {
     ZAMAPAY_API_URL: apiBaseUrl,
-    ZAMAPAY_API_KEY: apiKey,
-    ZAMAPAY_PROJECT_ID: projectId,
-    ...(createdProject.webhookSecret ? { ZAMAPAY_WEBHOOK_SECRET: createdProject.webhookSecret } : {}),
-  })
+    ZAMAPAY_SECRET_KEY: secretKey,
+  }, legacyCardForgeEnvKeys)
 
   console.log(`seeded CardForge local project: ${projectId}`)
   console.log(`updated ${path.relative(projectRoot, envPath)}`)
@@ -134,17 +139,22 @@ function readEnv(filePath) {
   )
 }
 
-function writeEnv(filePath, updates) {
+function writeEnv(filePath, updates, deletes = []) {
   const seen = new Set()
+  const deleted = new Set(deletes)
   const lines = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8').split(/\r?\n/) : []
-  const nextLines = lines.map((line) => {
+  const nextLines = lines.flatMap((line) => {
     const match = line.match(/^([A-Z0-9_]+)=/)
+    if (match && deleted.has(match[1])) {
+      return []
+    }
+
     if (!match || !Object.hasOwn(updates, match[1])) {
-      return line
+      return [line]
     }
 
     seen.add(match[1])
-    return `${match[1]}=${quoteEnv(updates[match[1]])}`
+    return [`${match[1]}=${quoteEnv(updates[match[1]])}`]
   })
 
   for (const [key, value] of Object.entries(updates)) {

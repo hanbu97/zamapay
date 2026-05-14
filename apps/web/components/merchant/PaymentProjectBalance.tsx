@@ -10,7 +10,9 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { ProjectDashboardOverview, ProjectEnvironmentKind } from '@/lib/api'
+import { formatMinorTokenUnits } from '@/lib/amount-format'
 import { contractEnvironmentConfig } from '@/lib/contract-environment'
+import { sessionTokenSymbol } from '@/lib/project-amounts'
 import { compact, formatMinorUnits, formatTime } from './PaymentProjectConsoleParts'
 
 export type BalanceRangeKey = '24h' | '7d' | '30d' | 'all'
@@ -26,6 +28,7 @@ type BalanceActivity = {
   referenceValue: string | null
   status: string
   subtitle: string
+  symbol?: string
   title: string
 }
 
@@ -62,10 +65,12 @@ export function BalanceTrendCard({
   activities,
   onRangeChange,
   range,
+  symbol,
 }: {
   activities: BalanceActivity[]
   onRangeChange: (value: BalanceRangeKey) => void
   range: BalanceRangeKey
+  symbol?: string
 }) {
   const trend = useMemo(() => buildBalanceTrend(activities, range), [activities, range])
   const hasActivity = activities.length > 0
@@ -99,9 +104,9 @@ export function BalanceTrendCard({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid gap-3 sm:grid-cols-3">
-          <BalanceTrendFact label="Current" value={formatMinorUnits(trend.currentBalanceMinorUnits)} />
-          <BalanceTrendFact label="Period change" value={formatSignedMinorUnits(trend.netChangeMinorUnits)} />
-          <BalanceTrendFact label="Opening" value={formatMinorUnits(trend.openingBalanceMinorUnits)} />
+          <BalanceTrendFact label="Current" value={formatActivityMinorUnits(trend.currentBalanceMinorUnits, symbol)} />
+          <BalanceTrendFact label="Period change" value={formatSignedMinorUnits(trend.netChangeMinorUnits, undefined, symbol)} />
+          <BalanceTrendFact label="Opening" value={formatActivityMinorUnits(trend.openingBalanceMinorUnits, symbol)} />
         </div>
         <div className="h-56 rounded-lg border bg-muted/20 p-2">
           {hasActivity ? (
@@ -132,7 +137,7 @@ export function BalanceTrendCard({
                   tickLine={false}
                   width={56}
                 />
-                <Tooltip content={<BalanceTooltip />} cursor={{ stroke: 'var(--border)' }} />
+                <Tooltip content={<BalanceTooltip symbol={symbol} />} cursor={{ stroke: 'var(--border)' }} />
                 <Area
                   dataKey="balance"
                   fill="url(#merchant-balance-fill)"
@@ -172,9 +177,11 @@ function BalanceTrendFact({ label, value }: { label: string; value: string }) {
 function BalanceTooltip({
   active,
   payload,
+  symbol,
 }: {
   active?: boolean
   payload?: Array<{ payload?: BalanceTrendPoint }>
+  symbol?: string
 }) {
   const point = payload?.[0]?.payload
 
@@ -187,11 +194,11 @@ function BalanceTooltip({
       <div className="font-medium">{point.fullLabel}</div>
       <div className="mt-2 flex justify-between gap-6">
         <span className="text-muted-foreground">Balance</span>
-        <span className="font-medium">{formatMinorUnits(point.balanceMinorUnits)}</span>
+        <span className="font-medium">{formatActivityMinorUnits(point.balanceMinorUnits, symbol)}</span>
       </div>
       <div className="mt-1 flex justify-between gap-6">
         <span className="text-muted-foreground">Net</span>
-        <span>{formatSignedMinorUnits(point.netMinorUnits)}</span>
+        <span>{formatSignedMinorUnits(point.netMinorUnits, undefined, symbol)}</span>
       </div>
     </div>
   )
@@ -280,10 +287,10 @@ function BalanceActivityRow({
       <TableCell>
         <div className="flex flex-col gap-1">
           <span className={`font-medium ${activity.direction === 'inflow' ? 'text-emerald-700' : 'text-amber-700'}`}>
-            {formatSignedMinorUnits(activity.minorUnits, activity.direction)}
+            {formatSignedMinorUnits(activity.minorUnits, activity.direction, activity.symbol)}
           </span>
           {typeof activity.grossMinorUnits === 'number' ? (
-            <span className="text-xs text-muted-foreground">gross {formatMinorUnits(activity.grossMinorUnits)}</span>
+            <span className="text-xs text-muted-foreground">gross {formatActivityMinorUnits(activity.grossMinorUnits, activity.symbol)}</span>
           ) : null}
         </div>
       </TableCell>
@@ -361,27 +368,45 @@ export function projectBalanceActivities(overview: ProjectDashboardOverview): Ba
         referenceLabel: 'Payment tx',
         referenceValue: paymentTxHash ?? null,
         status: session.status,
-        subtitle: `${session.title} - invoice #${session.chainInvoiceId}`,
+        subtitle: `${session.title} - ${balanceActivityReference(session)}`,
+        symbol: sessionTokenSymbol(session, overview),
         title: 'Checkout paid',
       }
     })
 
   const outflows = overview.withdrawals.map(
-    (withdrawal): BalanceActivity => ({
-      direction: 'outflow',
-      id: `withdrawal-${withdrawal.withdrawalId}`,
-      minorUnits: withdrawal.amountMinorUnits,
-      occurredAt: withdrawal.completedAt,
-      referenceHref: transactionExplorerHref(overview.project.defaultEnvironment, withdrawal.receipt),
-      referenceLabel: 'Receipt',
-      referenceValue: withdrawal.receipt,
-      status: withdrawal.status,
-      subtitle: withdrawal.withdrawalId,
-      title: 'Withdraw completed',
-    }),
+    (withdrawal): BalanceActivity => {
+      const asset = overview.evmAssetBalances.find(
+        (balance) =>
+          balance.chainId === withdrawal.chainId &&
+          balance.tokenContract.toLowerCase() === withdrawal.tokenContract?.toLowerCase(),
+      )
+
+      return {
+        direction: 'outflow',
+        id: `withdrawal-${withdrawal.withdrawalId}`,
+        minorUnits: withdrawal.amountMinorUnits,
+        occurredAt: withdrawal.completedAt,
+        referenceHref: transactionExplorerHref(overview.project.defaultEnvironment, withdrawal.receipt),
+        referenceLabel: 'Receipt',
+        referenceValue: withdrawal.receipt,
+        status: withdrawal.status,
+        subtitle: withdrawal.withdrawalId,
+        symbol: asset?.tokenSymbol,
+        title: 'Withdraw completed',
+      }
+    },
   )
 
   return [...inflows, ...outflows].sort((left, right) => activityTimestamp(right) - activityTimestamp(left))
+}
+
+function balanceActivityReference(session: ProjectDashboardOverview['checkoutSessions'][number]) {
+  if (session.paymentRail === 'evm_erc20') {
+    return session.paymentIntentId ? `intent ${session.paymentIntentId}` : 'ERC20 intent'
+  }
+
+  return session.chainInvoiceId === null ? 'private invoice pending' : `invoice #${session.chainInvoiceId}`
 }
 
 function transactionExplorerHref(environment: ProjectEnvironmentKind, txHash: string | null): string | null {
@@ -501,11 +526,15 @@ function formatChartTick(timestamp: number, spanMs: number) {
   return new Intl.DateTimeFormat('en-US', { day: '2-digit', month: 'short' }).format(date)
 }
 
-function formatSignedMinorUnits(value: number, direction?: BalanceActivity['direction']) {
+function formatSignedMinorUnits(value: number, direction?: BalanceActivity['direction'], symbol?: string) {
   if (value === 0) {
-    return formatMinorUnits(0)
+    return formatActivityMinorUnits(0, symbol)
   }
 
   const sign = direction ? (direction === 'inflow' ? '+' : '-') : value > 0 ? '+' : '-'
-  return `${sign}${formatMinorUnits(Math.abs(value))}`
+  return `${sign}${formatActivityMinorUnits(Math.abs(value), symbol)}`
+}
+
+function formatActivityMinorUnits(value: number, symbol?: string) {
+  return symbol ? formatMinorTokenUnits(value, { symbol }) : formatMinorUnits(value)
 }

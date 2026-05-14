@@ -10,5 +10,5 @@ apps/web/app/api/projects
 ## Decisions
 
 - Browser project calls must use the web origin because the session cookie is scoped to the Railway web host.
-- The proxy preserves the Rust API as the single source of truth for projects, API keys, webhooks, withdrawals, and delivery retries.
+- The proxy preserves the Rust API as the single source of truth for projects, project secrets, webhooks, withdrawals, and delivery retries.
 - Server components can still call Rust directly with an explicit cookie header; browser calls use this route by passing a relative `/api/projects` URL.

@@ -28,6 +28,12 @@ export type AddressManifest = {
     claimAmountMinorUnits: string
     functionName: string
   }
+  standardErc20Tokens?: Array<{
+    symbol: string | null
+    contract: `0x${string}` | null
+    decimals: number | null
+    faucetFunctionName: string | null
+  }>
 }
 
 export const merchantRegistryAbi = [
@@ -2558,7 +2564,21 @@ export const addressManifests = {
     "claimAmountMinorUnits": "1000000000",
     "functionName": "claimTestTokens"
   },
-  "generatedAt": "2026-05-13T05:22:43.130Z",
+  "standardErc20Tokens": [
+    {
+      "symbol": "USDT",
+      "contract": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "decimals": 6,
+      "faucetFunctionName": "claimTestTokens"
+    },
+    {
+      "symbol": "USDC",
+      "contract": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "decimals": 6,
+      "faucetFunctionName": "claimTestTokens"
+    }
+  ],
+  "generatedAt": "2026-05-14T03:19:33.810Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 },
@@ -2611,7 +2631,8 @@ export const addressManifests = {
   },
   "generatedAt": "2026-05-10T09:36:52.169Z",
   "deployer": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE",
-  "platformFeeWallet": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE"
+  "platformFeeWallet": "0xcaA3F62150E5813A52c329498dBefa913B49f2dE",
+  "standardErc20Tokens": []
 },
 } as const satisfies Record<string, AddressManifest>
 

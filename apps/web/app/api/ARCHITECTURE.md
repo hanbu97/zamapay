@@ -11,10 +11,12 @@ apps/web/app/api
 |-- billing/project-growth/route.ts
 |-- checkout/project-finalized-payment/route.ts
 |-- dev/
-|   |-- sign-message/route.ts
-|   |-- project-local-growth/route.ts
+|   |-- local-session/route.ts
+|   |-- local-evm-withdraw/route.ts
 |   |-- local-private-withdraw/route.ts
-|   `-- local-chain-invoice/route.ts
+|   |-- local-chain-invoice/route.ts
+|   |-- project-local-growth/route.ts
+|   `-- sign-message/route.ts
 `-- projects/[[...path]]/route.ts
 ```
 
@@ -27,6 +29,8 @@ apps/web/app/api
 - `billing/project-growth` verifies a `SubscriptionChangeFinalized` transaction from the configured manifest, then projects Growth entitlement into Rust without browser access to the operator key.
 - `project-finalized-payment` verifies a supplied `PrivatePaymentFinalized` transaction on the configured manifest or, for local-dev hosted checkout, finalizes a submitted private payment server-side; it returns after paid projection and lets finality/webhook projection continue in the background.
 - `dev/sign-message` delegates its environment decision to `lib/dev-signer-gate.ts`; it requires `ZAMAPAY_ENABLE_DEV_SIGNER=1`, is disabled outside local non-production mode, and exists only to verify the browser login path without a wallet extension.
+- `dev/local-session` uses the same local signer gate to mint a same-origin merchant session for browser QA when wallet UI automation is unavailable.
+- `dev/local-evm-withdraw` impersonates a local Hardhat ERC20 receiver and returns withdrawal transaction evidence for browser QA of the ordinary EVM rail.
 - `dev/project-local-growth` accepts the browser-submitted Growth request transaction, server-finalizes the publicly decrypted boolean, and projects the entitlement without leaking the operator key to client code.
 - `dev/local-chain-invoice` creates the environment-selected `PrivateCheckoutSettlement` checkout for localhost non-production server calls: local-dev uses Hardhat/FHEVM mock encryption, Sepolia uses Zama's official test relayer plus the checkout-creator signer; project checkout must persist that chain evidence.
 - `dev/local-private-withdraw` is the local-dev submitter shim: it accepts a merchant EIP-712 authorization plus encrypted withdraw input bound to the Hardhat submitter signer, submits the contract call, and returns only chain evidence.

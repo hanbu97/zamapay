@@ -33,7 +33,7 @@ const tiers = [
     badge: "Free",
     description: "Start without a monthly fee.",
     fee: freeFee,
-    features: ["No monthly fee", "Hosted checkout", "Project API key", "Signed webhooks"],
+    features: ["No monthly fee", "Hosted checkout", "Project secret key", "Signed webhooks"],
     name: "Free",
     price: "$0",
     support: "Self-serve",

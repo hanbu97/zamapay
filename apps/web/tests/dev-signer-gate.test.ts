@@ -88,10 +88,10 @@ test('local chain invoice bridge rejects production or remote hosts', () => {
   )
 })
 
-test('sepolia server bridge lets production project API key calls reach validation', () => {
+test('sepolia server bridge lets production project secret calls reach validation', () => {
   assert.equal(
     canUseSepoliaServerBridge({
-      authorizationHeader: 'Bearer zmp_test_project_key',
+      authorizationHeader: 'Bearer zms_test_project_key',
       nodeEnv: 'production',
       requestUrl: 'https://zamapay.org/api/dev/local-chain-invoice',
     }),

@@ -3,6 +3,7 @@
 These files make the runtime boundary explicit. Copy the example you need to the same name without `.example`, fill the secret values, then run the matching `just` recipe from the repo root. The `Justfile` is the workflow entrypoint; manual `set -a; . env/...` sourcing is for debugging only.
 
 The command order and deployment lanes are documented in [`docs/runbooks/development-deployment-workflow.md`](../docs/runbooks/development-deployment-workflow.md). This file owns env-file contracts only.
+Local ZamaPay API defaults to `127.0.0.1:18080`; the `Justfile` applies `ZAMAPAY_LOCAL_API_PORT` consistently across API, web, CardForge backend, ERC20 workers, and verification recipes.
 
 ```bash
 cp env/local-dev.zamapay-api.env.example env/local-dev.zamapay-api.env
@@ -15,15 +16,17 @@ just api-local
 | --- | --- | --- | --- |
 | `local-dev.zamapay-api.env` | ZamaPay Rust API | yes | API bind, platform database, operator/gateway/webhook keys. |
 | `local-dev.zamapay-web.env` | ZamaPay Next.js web | no for browser values, yes for server-only bridge keys | Dashboard, checkout, local-dev chain bridge, and dev signer gate. |
-| `local-dev.cardforge-backend.env` | CardForge Rust backend | yes | Merchant project API key, webhook secret, and CardForge database. |
+| `local-dev.cardforge-backend.env` | CardForge Rust backend | yes | Merchant project secret and CardForge database. |
 | `local-dev.cardforge-frontend.env` | CardForge Next.js storefront | no | Browser-safe CardForge API and ZamaPay console URLs. |
 | `supabase.zamapay-api.env` | ZamaPay Rust API | yes | Replaces local Docker `DATABASE_URL` with Supabase Postgres. |
 | `supabase.cardforge-backend.env` | CardForge Rust backend | yes | Replaces local Docker `CARDFORGE_DATABASE_URL` with CardForge Supabase Postgres. |
 | `sepolia.contracts.env` | Hardhat deployer | yes | Sepolia RPC, deployer key, and optional platform fee wallet. |
 | `sepolia.zamapay-api.env` | ZamaPay Rust API | no | Selects the Sepolia contract manifest. |
 | `sepolia.zamapay-web.env` | ZamaPay Next.js web | yes for chain invoice signer | Selects Sepolia wallet/manifest config and lets the local demo server create private checkout invoices. |
-| `sepolia.cardforge-backend.env` | CardForge Rust backend | yes | Merchant project credentials for a Sepolia ZamaPay project. |
+| `sepolia.cardforge-backend.env` | CardForge Rust backend | yes | Merchant project secret for a Sepolia ZamaPay project. |
 | `sepolia.cardforge-frontend.env` | CardForge Next.js storefront | no | Browser-safe Sepolia demo links. |
+
+Optional ERC20 rail overrides belong to the API process env: `ZAMAPAY_LOCAL_EVM_RPC_URL`, `ZAMAPAY_LOCAL_EVM_RECEIVER_ADDRESS`, `ZAMAPAY_LOCAL_EVM_USDT_CONTRACT`, `ZAMAPAY_LOCAL_EVM_USDC_CONTRACT`, and public `ZAMAPAY_EVM_RECEIVER_ADDRESS`. Local defaults come from the generated contract manifest after `just reset-local`; public receivers must be explicit.
 
 ## Runtime Profiles
 
@@ -45,6 +48,8 @@ just preview-check
 
 When a profile changes, update `env/runtime-profiles.json`, run `just verify-runtime <profile>`, regenerate CardForge snapshots with `just sync-cardforge-generated`, and restart the affected web process through its `just *web*` recipe so stale `.next` state cannot hide the change.
 
+CardForge backend env files are templates. The ZamaPay console export fills only `ZAMAPAY_SECRET_KEY`, a `zms_test_...` server-side project secret. CardForge sends it to `/api/project-secret/bootstrap` at startup, then uses the returned project id and current webhook verifier secret internally. Invalid placeholders must fail verification instead of becoming raw HMAC keys. `ZAMAPAY_API_URL`, CardForge database/store variables, and local private-chain helper URLs stay owned by the selected env template. `ZAMAPAY_SECRET_ENCRYPTION_KEY` is a ZamaPay API server secret; it is required outside local-dev/test and must never be copied into merchant env files.
+
 ## Secret Rule
 
 Do not commit files ending in `.env`. Commit only `.env.example`.
@@ -56,12 +61,13 @@ Secret variables:
 - `DEPLOYER_PRIVATE_KEY`
 - `PRIVATE_KEY`
 - `SEPOLIA_RPC_URL`
-- `ZAMAPAY_API_KEY`
+- `ZAMAPAY_SECRET_KEY`
 - `ZAMAPAY_CHAIN_INVOICE_PRIVATE_KEY`
-- `ZAMAPAY_WEBHOOK_SECRET`
+- `ZAMAPAY_SECRET_ENCRYPTION_KEY`
 - `ZAMAPAY_OPERATOR_KEY`
 - `ZAMAPAY_GATEWAY_CALLBACK_KEY`
 - `ZAMAPAY_LOCAL_LOGIN_PRIVATE_KEY`
+- `ZAMAPAY_LOCAL_EVM_RECEIVER_ADDRESS`
 
 Public browser variables:
 
@@ -81,6 +87,20 @@ ZamaPay API:
 ```bash
 just api-local
 ```
+
+Ordinary ERC20 transfer indexer:
+
+```bash
+just evm-indexer-local
+```
+
+Ordinary ERC20 local checkout proof:
+
+```bash
+just verify-evm-local
+```
+
+Use `just verify-evm-local --prepare-only` to create a checkout and print its hosted buyer URL before sending the test transfer. The URL is the canonical frontend entry for this rail: `http://127.0.0.1:3001/checkout/{checkoutSessionId}`.
 
 ZamaPay web:
 
@@ -139,7 +159,7 @@ For the local Sepolia demo, `ZAMAPAY_CHAIN_INVOICE_PRIVATE_KEY` must be the depl
 `PrivateCheckoutSettlement.checkoutCreator`; it creates the private checkout invoice
 before CardForge opens hosted checkout. Buyer payment still happens from the browser
 wallet on the checkout page. When CardForge calls the bridge through a non-local
-production URL, it reuses the existing project API key and the web app validates the
+production URL, it reuses the existing project secret and the web app validates the
 requested billing split against the Rust API before signing a chain invoice.
 
 Start CardForge against the Sepolia ZamaPay project and hosted Postgres:

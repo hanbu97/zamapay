@@ -50,6 +50,7 @@ pub(crate) struct StorefrontResponse {
     pub(crate) products: Vec<Product>,
     pub(crate) project_id: String,
     pub(crate) webhook_endpoint: String,
+    pub(crate) webhook_endpoint_id: String,
 }
 
 #[derive(Serialize)]

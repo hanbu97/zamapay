@@ -9,23 +9,26 @@ use domain::{
 use sea_orm::DatabaseConnection;
 use shared::{
     BillingPaymentRecord, BillingProtocolManifest, BillingSubscription, CheckoutSession,
-    DashboardOverview, DashboardSummary, DecryptCallbackOutcome, DecryptRequestSnapshot,
-    FulfillmentReleaseAudit, InvoiceRecord, OperatorDiagnostics, PaymentProject,
-    PaymentProjectEnvironment, ProjectInvoiceAuthority, ProjectWebhookEndpoint,
-    ProjectWithdrawalRecord, SessionUser, WebhookDeliveryRecord, WebhookEventRecord,
-    contract_manifest,
+    DashboardOverview, DashboardSummary, DecryptCallbackOutcome, DecryptRequestSnapshot, EvmChain,
+    EvmChainToken, EvmIndexerCursor, EvmPaymentIntent, EvmReceiverAddress, EvmRpcNode,
+    EvmTransferLedgerEntry, FulfillmentReleaseAudit, InvoiceRecord, OperatorDiagnostics,
+    PaymentProject, PaymentProjectEnvironment, PaymentRail, ProjectInvoiceAuthority,
+    ProjectPaymentRailSetting, ProjectWebhookEndpoint, ProjectWithdrawalRecord, SessionUser,
+    WebhookDeliveryAttemptRecord, WebhookDeliveryRecord, WebhookEndpointSecretRecord,
+    WebhookEndpointSecretStatus, WebhookEventRecord, contract_manifest,
 };
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
 mod billing;
+mod evm_rail;
 mod invoice_seed;
 mod pg_store;
 mod project_support;
 mod projections;
 mod projects;
 pub use billing::BillingSubscriptionError;
-pub use project_support::CheckoutSessionError;
+pub use project_support::{CheckoutSessionError, ProjectWithdrawalScope};
 
 use invoice_seed::seeded_invoice;
 use pg_store::{
@@ -134,14 +137,24 @@ pub struct PortalStore {
     subscriptions: Arc<RwLock<HashMap<String, BillingSubscription>>>,
     billing_payments: Arc<RwLock<HashMap<String, Vec<BillingPaymentRecord>>>>,
     billing_protocol: Arc<BillingProtocolManifest>,
+    evm_chains: Arc<RwLock<HashMap<u64, EvmChain>>>,
+    evm_chain_tokens: Arc<RwLock<HashMap<String, EvmChainToken>>>,
+    evm_rpc_nodes: Arc<RwLock<HashMap<String, EvmRpcNode>>>,
+    evm_receiver_addresses: Arc<RwLock<HashMap<String, EvmReceiverAddress>>>,
+    evm_payment_intents: Arc<RwLock<HashMap<String, EvmPaymentIntent>>>,
+    evm_transfer_ledger: Arc<RwLock<HashMap<String, EvmTransferLedgerEntry>>>,
+    evm_indexer_cursors: Arc<RwLock<HashMap<String, EvmIndexerCursor>>>,
     environments: Arc<RwLock<HashMap<String, PaymentProjectEnvironment>>>,
+    payment_rail_settings: Arc<RwLock<HashMap<String, ProjectPaymentRailSetting>>>,
     invoice_authorities: Arc<RwLock<HashMap<String, ProjectInvoiceAuthority>>>,
     api_keys: Arc<RwLock<HashMap<String, project_support::StoredProjectApiKey>>>,
     webhook_endpoints: Arc<RwLock<HashMap<String, ProjectWebhookEndpoint>>>,
+    webhook_endpoint_secrets: Arc<RwLock<HashMap<String, WebhookEndpointSecretRecord>>>,
     checkout_sessions: Arc<RwLock<HashMap<String, CheckoutSession>>>,
     idempotency_keys: Arc<RwLock<HashMap<String, String>>>,
     webhook_events: Arc<RwLock<HashMap<String, WebhookEventRecord>>>,
     webhook_deliveries: Arc<RwLock<HashMap<String, WebhookDeliveryRecord>>>,
+    webhook_delivery_attempts: Arc<RwLock<HashMap<String, WebhookDeliveryAttemptRecord>>>,
     project_withdrawals: Arc<RwLock<HashMap<String, ProjectWithdrawalRecord>>>,
     next_invoice_number: Arc<RwLock<u64>>,
     database: Arc<DatabaseConnection>,
@@ -182,8 +195,14 @@ impl PortalStore {
         let database_url = database_url.into();
         let state_key = state_key.into();
         let database = open_portal_database(&database_url).await;
-        let records = load_portal_records_from(&database, &state_key).await;
-        Self::from_record_set(records, database, state_key)
+        let mut records = load_portal_records_from(&database, &state_key).await;
+        evm_rail::seed_evm_catalog(&mut records);
+        let migrated_webhook_secrets = migrate_webhook_endpoint_secrets(&mut records);
+        let store = Self::from_record_set(records, database, state_key);
+        if migrated_webhook_secrets {
+            store.persist().await;
+        }
+        store
     }
 
     fn from_record_set(
@@ -197,14 +216,24 @@ impl PortalStore {
             subscriptions: Arc::new(RwLock::new(records.subscriptions)),
             billing_payments: Arc::new(RwLock::new(records.billing_payments)),
             billing_protocol: Arc::new(contract_billing_protocol()),
+            evm_chains: Arc::new(RwLock::new(records.evm_chains)),
+            evm_chain_tokens: Arc::new(RwLock::new(records.evm_chain_tokens)),
+            evm_rpc_nodes: Arc::new(RwLock::new(records.evm_rpc_nodes)),
+            evm_receiver_addresses: Arc::new(RwLock::new(records.evm_receiver_addresses)),
+            evm_payment_intents: Arc::new(RwLock::new(records.evm_payment_intents)),
+            evm_transfer_ledger: Arc::new(RwLock::new(records.evm_transfer_ledger)),
+            evm_indexer_cursors: Arc::new(RwLock::new(records.evm_indexer_cursors)),
             environments: Arc::new(RwLock::new(records.environments)),
+            payment_rail_settings: Arc::new(RwLock::new(records.payment_rail_settings)),
             invoice_authorities: Arc::new(RwLock::new(records.invoice_authorities)),
             api_keys: Arc::new(RwLock::new(records.api_keys)),
             webhook_endpoints: Arc::new(RwLock::new(records.webhook_endpoints)),
+            webhook_endpoint_secrets: Arc::new(RwLock::new(records.webhook_endpoint_secrets)),
             checkout_sessions: Arc::new(RwLock::new(records.checkout_sessions)),
             idempotency_keys: Arc::new(RwLock::new(records.idempotency_keys)),
             webhook_events: Arc::new(RwLock::new(records.webhook_events)),
             webhook_deliveries: Arc::new(RwLock::new(records.webhook_deliveries)),
+            webhook_delivery_attempts: Arc::new(RwLock::new(records.webhook_delivery_attempts)),
             project_withdrawals: Arc::new(RwLock::new(records.project_withdrawals)),
             next_invoice_number: Arc::new(RwLock::new(records.next_invoice_number)),
             database: Arc::new(database),
@@ -311,6 +340,9 @@ impl PortalStore {
     ) -> Option<InvoiceRecord> {
         let mut invoices = self.invoices.write().await;
         let invoice = invoices.get_mut(invoice_id)?;
+        if invoice.payment_rail != PaymentRail::ZamaPrivate {
+            return None;
+        }
 
         project_paid(invoice, chain_invoice_id, payment_tx_hash, payer_address);
         let invoice = invoice.clone();
@@ -331,6 +363,9 @@ impl PortalStore {
             .await?;
         let mut invoices = self.invoices.write().await;
         let invoice = invoices.get_mut(&invoice_id)?;
+        if invoice.payment_rail != PaymentRail::ZamaPrivate {
+            return None;
+        }
 
         project_paid(
             invoice,
@@ -631,14 +666,24 @@ impl PortalStore {
             projects: self.projects.read().await.clone(),
             subscriptions: self.subscriptions.read().await.clone(),
             billing_payments: self.billing_payments.read().await.clone(),
+            evm_chains: self.evm_chains.read().await.clone(),
+            evm_chain_tokens: self.evm_chain_tokens.read().await.clone(),
+            evm_rpc_nodes: self.evm_rpc_nodes.read().await.clone(),
+            evm_receiver_addresses: self.evm_receiver_addresses.read().await.clone(),
+            evm_payment_intents: self.evm_payment_intents.read().await.clone(),
+            evm_transfer_ledger: self.evm_transfer_ledger.read().await.clone(),
+            evm_indexer_cursors: self.evm_indexer_cursors.read().await.clone(),
             environments: self.environments.read().await.clone(),
+            payment_rail_settings: self.payment_rail_settings.read().await.clone(),
             invoice_authorities: self.invoice_authorities.read().await.clone(),
             api_keys: self.api_keys.read().await.clone(),
             webhook_endpoints: self.webhook_endpoints.read().await.clone(),
+            webhook_endpoint_secrets: self.webhook_endpoint_secrets.read().await.clone(),
             checkout_sessions: self.checkout_sessions.read().await.clone(),
             idempotency_keys: self.idempotency_keys.read().await.clone(),
             webhook_events: self.webhook_events.read().await.clone(),
             webhook_deliveries: self.webhook_deliveries.read().await.clone(),
+            webhook_delivery_attempts: self.webhook_delivery_attempts.read().await.clone(),
             project_withdrawals: self.project_withdrawals.read().await.clone(),
             next_invoice_number,
         };
@@ -671,6 +716,44 @@ fn chain_invoice_rank(
         invoice.snapshot.invoice_id,
         invoice.invoice_id.clone(),
     )
+}
+
+fn migrate_webhook_endpoint_secrets(records: &mut PortalRecordSet) -> bool {
+    let mut migrated = false;
+    for endpoint in records.webhook_endpoints.values() {
+        let has_current = records.webhook_endpoint_secrets.values().any(|secret| {
+            secret.endpoint_id == endpoint.endpoint_id
+                && secret.status == WebhookEndpointSecretStatus::Current
+        });
+        if has_current {
+            continue;
+        }
+        let secret = project_support::webhook_secret(&endpoint.project_id, &endpoint.endpoint_id);
+        let record = WebhookEndpointSecretRecord {
+            secret_id: format!(
+                "wsec_migrated_{}",
+                project_support::hash_secret(&format!(
+                    "{}:{}",
+                    endpoint.project_id, endpoint.endpoint_id
+                ))
+            ),
+            endpoint_id: endpoint.endpoint_id.clone(),
+            project_id: endpoint.project_id.clone(),
+            status: WebhookEndpointSecretStatus::Current,
+            secret_ciphertext: project_support::encrypt_webhook_secret(&secret),
+            secret_preview: project_support::secret_preview(&secret),
+            migrated_from_deterministic: true,
+            created_at: endpoint.created_at,
+            revealed_at: None,
+            retired_at: None,
+            expires_at: None,
+        };
+        records
+            .webhook_endpoint_secrets
+            .insert(record.secret_id.clone(), record);
+        migrated = true;
+    }
+    migrated
 }
 
 fn contract_billing_protocol() -> BillingProtocolManifest {

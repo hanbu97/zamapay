@@ -227,7 +227,7 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
       <Card>
         <CardHeader>
           <CardTitle>Operation guide</CardTitle>
-          <CardDescription>Create project, API key, webhook, then hand configuration to the merchant backend.</CardDescription>
+          <CardDescription>Create project, secret key, webhook, then hand configuration to the merchant backend.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="relative aspect-[4/3] overflow-hidden rounded-lg border bg-muted">
@@ -241,7 +241,7 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
           </div>
           <div className="mt-3 grid gap-2 text-sm">
             <FigureRow label="Project" value="proj_..." />
-            <FigureRow label="Key prefix" value="zmp_test_..." />
+            <FigureRow label="Key prefix" value="zms_test_..." />
             <FigureRow label="Webhook" value="enabled" />
           </div>
         </CardContent>
@@ -254,13 +254,13 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
       <Card>
         <CardHeader>
           <CardTitle>Backend handoff</CardTitle>
-          <CardDescription>Only the merchant backend sees the project API key.</CardDescription>
+          <CardDescription>Only the merchant backend sees the project secret key.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3">
             <FlowNode icon={StoreIcon} label="Merchant app" value="Order intent" />
             <FlowArrow />
-            <FlowNode icon={KeyRoundIcon} label="Merchant backend" value="Bearer zmp_test_..." />
+            <FlowNode icon={KeyRoundIcon} label="Merchant backend" value="Bearer zms_test_..." />
             <FlowArrow />
             <FlowNode icon={ReceiptTextIcon} label="ZamaPay" value="Hosted checkout URL" />
           </div>
@@ -280,7 +280,7 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
           <div className="grid gap-2">
             <FigureRow label="Event" value="payment.finality_safe" />
             <FigureRow label="Delivery" value="attempt 1 / delivered" />
-            <FigureRow label="Signature" value="keccak256.secret_prefix.v1" />
+            <FigureRow label="Signature" value="svix v1 HMAC-SHA256" />
             <FigureRow label="Retry" value="manual resend available" />
           </div>
         </CardContent>

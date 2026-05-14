@@ -11,6 +11,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { BillingPaymentRecord, BillingPlan, BillingSubscriptionResponse } from '@/lib/api'
+import { formatMinorTokenUnits } from '@/lib/amount-format'
 
 type MerchantBillingOverviewProps = {
   billing: BillingSubscriptionResponse
@@ -170,7 +171,7 @@ function formatPeriod(start: string, end: string) {
 }
 
 function formatMinorUnits(value: number, currency: string) {
-  return `${(value / 1_000000).toLocaleString('en-US', { maximumFractionDigits: 2 })} ${currency}`
+  return formatMinorTokenUnits(value, { locale: 'en-US', symbol: currency })
 }
 
 function compactHash(value: string) {

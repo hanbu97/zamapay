@@ -6,16 +6,21 @@ use sea_orm::{
     DbErr, FromQueryResult, Statement, TransactionTrait, Value,
 };
 use shared::{
-    BillingPaymentRecord, BillingSubscription, CheckoutSession, InvoiceRecord, PaymentProject,
-    PaymentProjectEnvironment, ProjectInvoiceAuthority, ProjectWebhookEndpoint,
-    ProjectWithdrawalRecord, WebhookDeliveryRecord, WebhookEventRecord,
+    BillingPaymentRecord, BillingSubscription, CheckoutSession, EvmChain, EvmChainToken,
+    EvmIndexerCursor, EvmPaymentIntent, EvmReceiverAddress, EvmRpcNode, EvmTransferLedgerEntry,
+    InvoiceRecord, PaymentProject, PaymentProjectEnvironment, PaymentRail, ProjectInvoiceAuthority,
+    ProjectPaymentRailSetting, ProjectWebhookEndpoint, ProjectWithdrawalRecord,
+    WebhookDeliveryAttemptRecord, WebhookDeliveryRecord, WebhookEndpointSecretRecord,
+    WebhookEventRecord,
 };
 
 use super::dto::{
     ApiKeyRow, AuthorityRow, BillingPaymentRow, CheckoutMetadataRow, CheckoutRow, CounterRow,
-    EnvironmentRow, IdempotencyRow, InvoiceRow, PortalRecordSet, ProjectRow, SubscriptionRow,
-    WebhookDeliveryRow, WebhookEndpointRow, WebhookEventRow, WithdrawalRow, encode_enum,
-    i32_from_u16, i32_from_u32, i64_from_u64, owner_key,
+    EnvironmentRow, EvmChainRow, EvmChainTokenRow, EvmIndexerCursorRow, EvmPaymentIntentRow,
+    EvmReceiverAddressRow, EvmRpcNodeRow, EvmTransferLedgerRow, IdempotencyRow, InvoiceRow,
+    PaymentRailSettingRow, PortalRecordSet, ProjectRow, SubscriptionRow, WebhookDeliveryAttemptRow,
+    WebhookDeliveryRow, WebhookEndpointRow, WebhookEndpointSecretRow, WebhookEventRow,
+    WithdrawalRow, encode_enum, i32_from_u8, i32_from_u16, i32_from_u32, i64_from_u64, owner_key,
 };
 use super::schema;
 
@@ -77,18 +82,25 @@ pub(crate) async fn save_payment_project_bundle_to(
     db: &DatabaseConnection,
     state_key: &str,
     project: &PaymentProject,
+    payment_rails: &[ProjectPaymentRailSetting],
     environment: &PaymentProjectEnvironment,
     authority: &ProjectInvoiceAuthority,
     webhook_endpoint: Option<&ProjectWebhookEndpoint>,
+    webhook_secret: Option<&WebhookEndpointSecretRecord>,
 ) {
     for attempt in 1..=WRITE_RETRY_ATTEMPTS {
         let result = async {
             let tx = db.begin().await?;
             insert_projects(&tx, state_key, std::iter::once(project)).await?;
+            insert_project_payment_rails(&tx, state_key, payment_rails.iter()).await?;
             insert_environments(&tx, state_key, std::iter::once(environment)).await?;
             insert_authorities(&tx, state_key, std::iter::once(authority)).await?;
             if let Some(webhook_endpoint) = webhook_endpoint {
                 insert_webhook_endpoints(&tx, state_key, std::iter::once(webhook_endpoint)).await?;
+            }
+            if let Some(webhook_secret) = webhook_secret {
+                insert_webhook_endpoint_secrets(&tx, state_key, std::iter::once(webhook_secret))
+                    .await?;
             }
             tx.commit().await
         }
@@ -235,10 +247,12 @@ async fn read_portal_rows(
     let (
         counters,
         project_rows,
+        payment_rail_rows,
         environment_rows,
         authority_rows,
         api_key_rows,
         endpoint_rows,
+        endpoint_secret_rows,
         subscription_rows,
         billing_payment_rows,
         invoice_rows,
@@ -260,6 +274,11 @@ async fn read_portal_rows(
             "select * from zamapay_payment_projects where state_key = $1",
             state_key,
         ),
+        select::<PaymentRailSettingRow>(
+            db,
+            "select * from zamapay_project_payment_rails where state_key = $1",
+            state_key,
+        ),
         select::<EnvironmentRow>(
             db,
             "select * from zamapay_project_environments where state_key = $1",
@@ -278,6 +297,11 @@ async fn read_portal_rows(
         select::<WebhookEndpointRow>(
             db,
             "select * from zamapay_webhook_endpoints where state_key = $1",
+            state_key,
+        ),
+        select::<WebhookEndpointSecretRow>(
+            db,
+            "select * from zamapay_webhook_endpoint_secrets where state_key = $1",
             state_key,
         ),
         select::<SubscriptionRow>(
@@ -303,6 +327,7 @@ async fn read_portal_rows(
         idempotency_rows,
         event_rows,
         delivery_rows,
+        attempt_rows,
         withdrawal_rows,
     ) = tokio::try_join!(
         checkout_metadata_by_session(db, state_key),
@@ -326,6 +351,11 @@ async fn read_portal_rows(
             "select * from zamapay_webhook_deliveries where state_key = $1",
             state_key,
         ),
+        select::<WebhookDeliveryAttemptRow>(
+            db,
+            "select * from zamapay_webhook_delivery_attempts where state_key = $1",
+            state_key,
+        ),
         select::<WithdrawalRow>(
             db,
             "select * from zamapay_project_withdrawals where state_key = $1",
@@ -343,6 +373,13 @@ async fn read_portal_rows(
     for row in project_rows {
         let project = row.into_domain();
         records.projects.insert(project.project_id.clone(), project);
+    }
+    for row in payment_rail_rows {
+        let setting = row.into_domain();
+        records.payment_rail_settings.insert(
+            payment_rail_setting_key(&setting.project_id, setting.payment_rail),
+            setting,
+        );
     }
     for row in environment_rows {
         let environment = row.into_domain();
@@ -366,6 +403,12 @@ async fn read_portal_rows(
             .webhook_endpoints
             .insert(endpoint.endpoint_id.clone(), endpoint);
     }
+    for row in endpoint_secret_rows {
+        let secret = row.into_domain();
+        records
+            .webhook_endpoint_secrets
+            .insert(secret.secret_id.clone(), secret);
+    }
     for row in subscription_rows {
         let (key, subscription) = row.into_domain();
         records.subscriptions.insert(key, subscription);
@@ -381,6 +424,93 @@ async fn read_portal_rows(
     for row in invoice_rows {
         let invoice = row.into_domain();
         records.invoices.insert(invoice.invoice_id.clone(), invoice);
+    }
+
+    let (
+        evm_chain_rows,
+        evm_token_rows,
+        evm_rpc_rows,
+        evm_receiver_rows,
+        evm_intent_rows,
+        evm_transfer_rows,
+        evm_cursor_rows,
+    ) = tokio::try_join!(
+        select::<EvmChainRow>(
+            db,
+            "select * from zamapay_evm_chains where state_key = $1",
+            state_key,
+        ),
+        select::<EvmChainTokenRow>(
+            db,
+            "select * from zamapay_evm_chain_tokens where state_key = $1",
+            state_key,
+        ),
+        select::<EvmRpcNodeRow>(
+            db,
+            "select * from zamapay_evm_rpc_nodes where state_key = $1",
+            state_key,
+        ),
+        select::<EvmReceiverAddressRow>(
+            db,
+            "select * from zamapay_evm_receiver_addresses where state_key = $1",
+            state_key,
+        ),
+        select::<EvmPaymentIntentRow>(
+            db,
+            "select * from zamapay_evm_payment_intents where state_key = $1",
+            state_key,
+        ),
+        select::<EvmTransferLedgerRow>(
+            db,
+            "select * from zamapay_evm_transfer_ledger where state_key = $1",
+            state_key,
+        ),
+        select::<EvmIndexerCursorRow>(
+            db,
+            "select * from zamapay_evm_indexer_cursors where state_key = $1",
+            state_key,
+        ),
+    )?;
+
+    for row in evm_chain_rows {
+        let chain = row.into_domain();
+        records.evm_chains.insert(chain.chain_id, chain);
+    }
+    for row in evm_token_rows {
+        let token = row.into_domain();
+        records
+            .evm_chain_tokens
+            .insert(token.token_id.clone(), token);
+    }
+    for row in evm_rpc_rows {
+        let rpc_node = row.into_domain();
+        records
+            .evm_rpc_nodes
+            .insert(rpc_node.rpc_node_id.clone(), rpc_node);
+    }
+    for row in evm_receiver_rows {
+        let receiver = row.into_domain();
+        records
+            .evm_receiver_addresses
+            .insert(receiver.receiver_id.clone(), receiver);
+    }
+    for row in evm_intent_rows {
+        let intent = row.into_domain();
+        records
+            .evm_payment_intents
+            .insert(intent.intent_id.clone(), intent);
+    }
+    for row in evm_transfer_rows {
+        let transfer = row.into_domain();
+        records
+            .evm_transfer_ledger
+            .insert(transfer.transfer_id.clone(), transfer);
+    }
+    for row in evm_cursor_rows {
+        let cursor = row.into_domain();
+        records
+            .evm_indexer_cursors
+            .insert(cursor.cursor_id.clone(), cursor);
     }
 
     for row in checkout_rows {
@@ -409,6 +539,12 @@ async fn read_portal_rows(
         records
             .webhook_deliveries
             .insert(delivery.delivery_id.clone(), delivery);
+    }
+    for row in attempt_rows {
+        let attempt = row.into_domain();
+        records
+            .webhook_delivery_attempts
+            .insert(attempt.attempt_id.clone(), attempt);
     }
     for row in withdrawal_rows {
         let withdrawal = row.into_domain();
@@ -454,17 +590,29 @@ async fn replace_portal_rows(
     .await?;
     insert_counters(&tx, state_key, records).await?;
     insert_projects(&tx, state_key, records.projects.values()).await?;
+    insert_project_payment_rails(&tx, state_key, records.payment_rail_settings.values()).await?;
     insert_environments(&tx, state_key, records.environments.values()).await?;
     insert_authorities(&tx, state_key, records.invoice_authorities.values()).await?;
     insert_api_keys(&tx, state_key, records.api_keys.values()).await?;
     insert_webhook_endpoints(&tx, state_key, records.webhook_endpoints.values()).await?;
+    insert_webhook_endpoint_secrets(&tx, state_key, records.webhook_endpoint_secrets.values())
+        .await?;
     insert_subscriptions(&tx, state_key, records.subscriptions.values()).await?;
     insert_billing_payments(&tx, state_key, &records.billing_payments).await?;
+    insert_evm_chains(&tx, state_key, records.evm_chains.values()).await?;
+    insert_evm_chain_tokens(&tx, state_key, records.evm_chain_tokens.values()).await?;
+    insert_evm_rpc_nodes(&tx, state_key, records.evm_rpc_nodes.values()).await?;
+    insert_evm_receiver_addresses(&tx, state_key, records.evm_receiver_addresses.values()).await?;
+    insert_evm_payment_intents(&tx, state_key, records.evm_payment_intents.values()).await?;
+    insert_evm_transfer_ledger(&tx, state_key, records.evm_transfer_ledger.values()).await?;
+    insert_evm_indexer_cursors(&tx, state_key, records.evm_indexer_cursors.values()).await?;
     insert_invoices(&tx, state_key, records.invoices.values()).await?;
     insert_checkout_sessions(&tx, state_key, records.checkout_sessions.values()).await?;
     insert_idempotency(&tx, state_key, &records.idempotency_keys).await?;
     insert_webhook_events(&tx, state_key, records.webhook_events.values()).await?;
     insert_webhook_deliveries(&tx, state_key, records.webhook_deliveries.values()).await?;
+    insert_webhook_delivery_attempts(&tx, state_key, records.webhook_delivery_attempts.values())
+        .await?;
     insert_withdrawals(&tx, state_key, records.project_withdrawals.values()).await?;
     tx.commit().await
 }
@@ -505,6 +653,33 @@ async fn insert_projects<'a>(
                 encode_enum(&project.billing_plan).into(), encode_enum(&project.status).into(),
                 project.created_at.into(), project.updated_at.into(),
             ]).await?;
+    }
+    Ok(())
+}
+
+async fn insert_project_payment_rails<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    payment_rails: impl Iterator<Item = &'a ProjectPaymentRailSetting>,
+) -> Result<(), DbErr> {
+    for setting in payment_rails {
+        exec(
+            tx,
+            r#"
+            insert into zamapay_project_payment_rails
+                (state_key, project_id, payment_rail, enabled, created_at, updated_at)
+            values ($1,$2,$3,$4,$5,$6)
+            "#,
+            vec![
+                state_key.into(),
+                setting.project_id.clone().into(),
+                encode_enum(&setting.payment_rail).into(),
+                setting.enabled.into(),
+                setting.created_at.into(),
+                setting.updated_at.into(),
+            ],
+        )
+        .await?;
     }
     Ok(())
 }
@@ -589,6 +764,27 @@ async fn insert_webhook_endpoints<'a>(
     Ok(())
 }
 
+async fn insert_webhook_endpoint_secrets<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    secrets: impl Iterator<Item = &'a WebhookEndpointSecretRecord>,
+) -> Result<(), DbErr> {
+    for secret in secrets {
+        exec(tx, r#"
+            insert into zamapay_webhook_endpoint_secrets
+                (state_key, secret_id, endpoint_id, project_id, status, secret_ciphertext, secret_preview, migrated_from_deterministic, created_at, revealed_at, retired_at, expires_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            "#, vec![
+                state_key.into(), secret.secret_id.clone().into(), secret.endpoint_id.clone().into(),
+                secret.project_id.clone().into(), encode_enum(&secret.status).into(),
+                secret.secret_ciphertext.clone().into(), secret.secret_preview.clone().into(),
+                secret.migrated_from_deterministic.into(), secret.created_at.into(),
+                secret.revealed_at.into(), secret.retired_at.into(), secret.expires_at.into(),
+            ]).await?;
+    }
+    Ok(())
+}
+
 async fn insert_subscriptions<'a>(
     tx: &DatabaseTransaction,
     state_key: &str,
@@ -638,6 +834,191 @@ async fn insert_billing_payments(
     Ok(())
 }
 
+async fn insert_evm_chains<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    chains: impl Iterator<Item = &'a EvmChain>,
+) -> Result<(), DbErr> {
+    for chain in chains {
+        exec(
+            tx,
+            r#"
+            insert into zamapay_evm_chains
+                (state_key, chain_id, network, name, native_symbol, finality_threshold, enabled)
+            values ($1,$2,$3,$4,$5,$6,$7)
+            "#,
+            vec![
+                state_key.into(),
+                i64_from_u64(chain.chain_id, "evm_chain.chain_id").into(),
+                chain.network.clone().into(),
+                chain.name.clone().into(),
+                chain.native_symbol.clone().into(),
+                i64_from_u64(chain.finality_threshold, "evm_chain.finality_threshold").into(),
+                chain.enabled.into(),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn insert_evm_chain_tokens<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    tokens: impl Iterator<Item = &'a EvmChainToken>,
+) -> Result<(), DbErr> {
+    for token in tokens {
+        exec(tx, r#"
+            insert into zamapay_evm_chain_tokens
+                (state_key, token_id, chain_id, network, symbol, contract_address, decimals, min_amount_minor_units, enabled)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            "#, vec![
+                state_key.into(), token.token_id.clone().into(),
+                i64_from_u64(token.chain_id, "evm_chain_token.chain_id").into(),
+                token.network.clone().into(), token.symbol.clone().into(), token.contract_address.clone().into(),
+                i32_from_u8(token.decimals).into(),
+                i64_from_u64(token.min_amount_minor_units, "evm_chain_token.min_amount_minor_units").into(),
+                token.enabled.into(),
+            ]).await?;
+    }
+    Ok(())
+}
+
+async fn insert_evm_rpc_nodes<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    nodes: impl Iterator<Item = &'a EvmRpcNode>,
+) -> Result<(), DbErr> {
+    for node in nodes {
+        exec(
+            tx,
+            r#"
+            insert into zamapay_evm_rpc_nodes
+                (state_key, rpc_node_id, chain_id, network, url, kind, enabled)
+            values ($1,$2,$3,$4,$5,$6,$7)
+            "#,
+            vec![
+                state_key.into(),
+                node.rpc_node_id.clone().into(),
+                i64_from_u64(node.chain_id, "evm_rpc_node.chain_id").into(),
+                node.network.clone().into(),
+                node.url.clone().into(),
+                encode_enum(&node.kind).into(),
+                node.enabled.into(),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn insert_evm_receiver_addresses<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    addresses: impl Iterator<Item = &'a EvmReceiverAddress>,
+) -> Result<(), DbErr> {
+    for address in addresses {
+        exec(
+            tx,
+            r#"
+            insert into zamapay_evm_receiver_addresses
+                (state_key, receiver_id, chain_id, network, address, status, lease_intent_id, leased_until, available_after)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            "#,
+            vec![
+                state_key.into(),
+                address.receiver_id.clone().into(),
+                i64_from_u64(address.chain_id, "evm_receiver.chain_id").into(),
+                address.network.clone().into(),
+                address.address.clone().into(),
+                encode_enum(&address.status).into(),
+                address.lease_intent_id.clone().into(),
+                address.leased_until.into(),
+                address.available_after.into(),
+            ],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+async fn insert_evm_payment_intents<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    intents: impl Iterator<Item = &'a EvmPaymentIntent>,
+) -> Result<(), DbErr> {
+    for intent in intents {
+        exec(tx, r#"
+            insert into zamapay_evm_payment_intents
+                (state_key, intent_id, checkout_session_id, project_id, chain_id, network, token_symbol, token_contract, token_decimals, receiver_id, receiver_address, expected_amount_minor_units, matched_amount_minor_units, status, detected_tx_hash, payer_address, confirmations, finality_threshold, created_at, updated_at, expires_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+            "#, vec![
+                state_key.into(), intent.intent_id.clone().into(), intent.checkout_session_id.clone().into(),
+                intent.project_id.clone().into(), i64_from_u64(intent.chain_id, "evm_payment_intent.chain_id").into(),
+                intent.network.clone().into(), intent.token_symbol.clone().into(), intent.token_contract.clone().into(),
+                i32_from_u8(intent.token_decimals).into(), intent.receiver_id.clone().into(), intent.receiver_address.clone().into(),
+                i64_from_u64(intent.expected_amount_minor_units, "evm_payment_intent.expected_amount_minor_units").into(),
+                i64_from_u64(intent.matched_amount_minor_units, "evm_payment_intent.matched_amount_minor_units").into(),
+                encode_enum(&intent.status).into(), intent.detected_tx_hash.clone().into(), intent.payer_address.clone().into(),
+                i64_from_u64(intent.confirmations, "evm_payment_intent.confirmations").into(),
+                i64_from_u64(intent.finality_threshold, "evm_payment_intent.finality_threshold").into(),
+                intent.created_at.into(), intent.updated_at.into(), intent.expires_at.into(),
+            ]).await?;
+    }
+    Ok(())
+}
+
+async fn insert_evm_transfer_ledger<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    transfers: impl Iterator<Item = &'a EvmTransferLedgerEntry>,
+) -> Result<(), DbErr> {
+    for transfer in transfers {
+        exec(tx, r#"
+            insert into zamapay_evm_transfer_ledger
+                (state_key, transfer_id, chain_id, token_contract, tx_hash, log_index, block_number, block_hash, from_address, to_address, amount_minor_units, matched_intent_id, confirmations, status, observed_at, updated_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            "#, vec![
+                state_key.into(), transfer.transfer_id.clone().into(),
+                i64_from_u64(transfer.chain_id, "evm_transfer.chain_id").into(),
+                transfer.token_contract.clone().into(), transfer.tx_hash.clone().into(),
+                i64_from_u64(transfer.log_index, "evm_transfer.log_index").into(),
+                i64_from_u64(transfer.block_number, "evm_transfer.block_number").into(),
+                transfer.block_hash.clone().into(),
+                transfer.from_address.clone().into(), transfer.to_address.clone().into(),
+                i64_from_u64(transfer.amount_minor_units, "evm_transfer.amount_minor_units").into(),
+                transfer.matched_intent_id.clone().into(),
+                i64_from_u64(transfer.confirmations, "evm_transfer.confirmations").into(),
+                encode_enum(&transfer.status).into(), transfer.observed_at.into(), transfer.updated_at.into(),
+            ]).await?;
+    }
+    Ok(())
+}
+
+async fn insert_evm_indexer_cursors<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    cursors: impl Iterator<Item = &'a EvmIndexerCursor>,
+) -> Result<(), DbErr> {
+    for cursor in cursors {
+        exec(tx, r#"
+            insert into zamapay_evm_indexer_cursors
+                (state_key, cursor_id, chain_id, token_contract, receiver_address, last_scanned_block, last_finalized_block, updated_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8)
+            "#, vec![
+                state_key.into(),
+                cursor.cursor_id.clone().into(),
+                i64_from_u64(cursor.chain_id, "evm_indexer_cursor.chain_id").into(),
+                cursor.token_contract.clone().into(),
+                cursor.receiver_address.clone().into(),
+                i64_from_u64(cursor.last_scanned_block, "evm_indexer_cursor.last_scanned_block").into(),
+                i64_from_u64(cursor.last_finalized_block, "evm_indexer_cursor.last_finalized_block").into(),
+                cursor.updated_at.into(),
+            ]).await?;
+    }
+    Ok(())
+}
+
 async fn insert_invoices<'a>(
     tx: &DatabaseTransaction,
     state_key: &str,
@@ -647,8 +1028,8 @@ async fn insert_invoices<'a>(
         let billing = invoice.billing.clone();
         exec(tx, r#"
             insert into zamapay_invoices
-                (state_key, invoice_id, project_id, checkout_session_id, environment, external_ref, title, merchant_name, amount_label, amount_minor_units, note, chain_invoice_id, chain_tx_hash, payment_tx_hash, payer_address, finality_confirmations, finality_threshold, webhook_status, webhook_attempt_count, webhook_next_retry_after_seconds, fulfillment_job_id, fulfillment_released_at, fulfillment_artifact_count, decrypt_request_id, decrypt_requested_at, decrypt_completed_at, decrypt_callback_sender, decrypt_replayed_callback_count, decrypt_pending_guard_trips, settlement_invoice_id, payment_truth, finality_status, decrypt_job_status, fulfillment_status, billing_plan, billing_fee_bps, billing_gross_amount_minor_units, billing_platform_fee_minor_units, billing_merchant_net_minor_units)
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39)
+                (state_key, invoice_id, project_id, checkout_session_id, environment, external_ref, title, merchant_name, amount_label, amount_minor_units, note, chain_invoice_id, chain_tx_hash, payment_tx_hash, payer_address, finality_confirmations, finality_threshold, webhook_status, webhook_attempt_count, webhook_next_retry_after_seconds, fulfillment_job_id, fulfillment_released_at, fulfillment_artifact_count, decrypt_request_id, decrypt_requested_at, decrypt_completed_at, decrypt_callback_sender, decrypt_replayed_callback_count, decrypt_pending_guard_trips, settlement_invoice_id, payment_truth, finality_status, decrypt_job_status, fulfillment_status, billing_plan, billing_fee_bps, billing_gross_amount_minor_units, billing_platform_fee_minor_units, billing_merchant_net_minor_units, payment_rail, payment_intent_id)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41)
             "#, vec![
                 state_key.into(), invoice.invoice_id.clone().into(), invoice.project_id.clone().into(),
                 invoice.checkout_session_id.clone().into(), invoice.environment.clone().into(), invoice.external_ref.clone().into(),
@@ -677,6 +1058,7 @@ async fn insert_invoices<'a>(
                 billing.as_ref().map(|value| i64_from_u64(value.gross_amount_minor_units, "invoice.billing_gross_amount")).into(),
                 billing.as_ref().map(|value| i64_from_u64(value.platform_fee_minor_units, "invoice.billing_platform_fee")).into(),
                 billing.as_ref().map(|value| i64_from_u64(value.merchant_net_minor_units, "invoice.billing_merchant_net")).into(),
+                encode_enum(&invoice.payment_rail).into(), invoice.payment_intent_id.clone().into(),
             ]).await?;
     }
     Ok(())
@@ -690,14 +1072,14 @@ async fn insert_checkout_sessions<'a>(
     for session in sessions {
         exec(tx, r#"
             insert into zamapay_checkout_sessions
-                (state_key, checkout_session_id, project_id, environment, merchant_order_id, idempotency_key, invoice_id, chain_invoice_id, chain_tx_hash, checkout_url, title, amount_label, amount_minor_units, billing_plan, billing_fee_bps, billing_gross_amount_minor_units, billing_platform_fee_minor_units, billing_merchant_net_minor_units, note, success_url, cancel_url, status, created_at, updated_at, expires_at)
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+                (state_key, checkout_session_id, project_id, environment, payment_rail, merchant_order_id, idempotency_key, invoice_id, chain_invoice_id, chain_tx_hash, payment_intent_id, checkout_url, title, amount_label, amount_minor_units, billing_plan, billing_fee_bps, billing_gross_amount_minor_units, billing_platform_fee_minor_units, billing_merchant_net_minor_units, note, success_url, cancel_url, status, created_at, updated_at, expires_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
             "#, vec![
                 state_key.into(), session.checkout_session_id.clone().into(), session.project_id.clone().into(),
-                encode_enum(&session.environment).into(), session.merchant_order_id.clone().into(),
+                encode_enum(&session.environment).into(), encode_enum(&session.payment_rail).into(), session.merchant_order_id.clone().into(),
                 session.idempotency_key.clone().into(), session.invoice_id.clone().into(),
-                i64_from_u64(session.chain_invoice_id, "checkout.chain_invoice_id").into(), session.chain_tx_hash.clone().into(),
-                session.checkout_url.clone().into(), session.title.clone().into(), session.amount_label.clone().into(),
+                session.chain_invoice_id.map(|value| i64_from_u64(value, "checkout.chain_invoice_id")).into(), session.chain_tx_hash.clone().into(),
+                session.payment_intent_id.clone().into(), session.checkout_url.clone().into(), session.title.clone().into(), session.amount_label.clone().into(),
                 i64_from_u64(session.amount_minor_units, "checkout.amount_minor_units").into(),
                 encode_enum(&session.billing.plan).into(), i32_from_u16(session.billing.fee_bps).into(),
                 i64_from_u64(session.billing.gross_amount_minor_units, "checkout.billing_gross_amount").into(),
@@ -758,13 +1140,13 @@ async fn insert_webhook_events<'a>(
     for event in events {
         exec(tx, r#"
             insert into zamapay_webhook_events
-                (state_key, event_id, project_id, environment, event_type, subject_type, subject_id, payload_text, created_at)
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                (state_key, event_id, project_id, environment, event_type, subject_type, subject_id, payload_text, raw_payload, raw_payload_sha256, created_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             "#, vec![
                 state_key.into(), event.event_id.clone().into(), event.project_id.clone().into(),
                 encode_enum(&event.environment).into(), event.event_type.clone().into(), event.subject_type.clone().into(),
                 event.subject_id.clone().into(), serde_json::to_string(&event.payload).expect("webhook payload should serialize").into(),
-                event.created_at.into(),
+                event.raw_payload.clone().into(), event.raw_payload_sha256.clone().into(), event.created_at.into(),
             ]).await?;
     }
     Ok(())
@@ -792,6 +1174,28 @@ async fn insert_webhook_deliveries<'a>(
     Ok(())
 }
 
+async fn insert_webhook_delivery_attempts<'a>(
+    tx: &DatabaseTransaction,
+    state_key: &str,
+    attempts: impl Iterator<Item = &'a WebhookDeliveryAttemptRecord>,
+) -> Result<(), DbErr> {
+    for attempt in attempts {
+        exec(tx, r#"
+            insert into zamapay_webhook_delivery_attempts
+                (state_key, attempt_id, delivery_id, event_id, endpoint_id, project_id, request_headers_text, response_headers_text, http_status, response_body, error, attempted_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            "#, vec![
+                state_key.into(), attempt.attempt_id.clone().into(), attempt.delivery_id.clone().into(),
+                attempt.event_id.clone().into(), attempt.endpoint_id.clone().into(), attempt.project_id.clone().into(),
+                serde_json::to_string(&attempt.request_headers).expect("webhook attempt request headers should serialize").into(),
+                attempt.response_headers.as_ref().map(|headers| serde_json::to_string(headers).expect("webhook attempt response headers should serialize")).into(),
+                attempt.http_status.map(i32::from).into(), attempt.response_body.clone().into(),
+                attempt.error.clone().into(), attempt.attempted_at.into(),
+            ]).await?;
+    }
+    Ok(())
+}
+
 async fn insert_withdrawals<'a>(
     tx: &DatabaseTransaction,
     state_key: &str,
@@ -800,12 +1204,14 @@ async fn insert_withdrawals<'a>(
     for withdrawal in withdrawals {
         exec(tx, r#"
             insert into zamapay_project_withdrawals
-                (state_key, withdrawal_id, project_id, amount_minor_units, status, receipt, created_at, completed_at)
-            values ($1,$2,$3,$4,$5,$6,$7,$8)
+                (state_key, withdrawal_id, project_id, amount_minor_units, chain_id, token_contract, receiver_address, recipient_address, status, receipt, created_at, completed_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             "#, vec![
                 state_key.into(), withdrawal.withdrawal_id.clone().into(), withdrawal.project_id.clone().into(),
                 i64_from_u64(withdrawal.amount_minor_units, "withdrawal.amount_minor_units").into(),
-                encode_enum(&withdrawal.status).into(), withdrawal.receipt.clone().into(),
+                withdrawal.chain_id.map(|value| i64_from_u64(value, "withdrawal.chain_id")).into(),
+                withdrawal.token_contract.clone().into(), withdrawal.receiver_address.clone().into(),
+                withdrawal.recipient_address.clone().into(), encode_enum(&withdrawal.status).into(), withdrawal.receipt.clone().into(),
                 withdrawal.created_at.into(), withdrawal.completed_at.into(),
             ]).await?;
     }
@@ -827,4 +1233,8 @@ async fn exec(tx: &DatabaseTransaction, sql: &str, values: Vec<Value>) -> Result
 
 fn stmt(sql: &str, values: Vec<Value>) -> Statement {
     Statement::from_sql_and_values(BACKEND, sql, values)
+}
+
+fn payment_rail_setting_key(project_id: &str, payment_rail: PaymentRail) -> String {
+    format!("{project_id}:{}", payment_rail.as_str())
 }

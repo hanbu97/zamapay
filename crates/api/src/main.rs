@@ -25,5 +25,5 @@ fn bind_addr() -> String {
 
     std::env::var("PORT")
         .map(|port| format!("0.0.0.0:{port}"))
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_string())
+        .unwrap_or_else(|_| "127.0.0.1:18080".to_string())
 }

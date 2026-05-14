@@ -27,9 +27,8 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import { createPaymentProject, createProjectApiKey, type PaymentProject } from '@/lib/api'
+import { createPaymentProject, createProjectSecret, type PaymentProject } from '@/lib/api'
 import { contractEnvironmentConfig, publicContractEnvironment } from '@/lib/contract-environment'
-import { runtimeApiBaseUrl } from '@/lib/runtime-profile'
 import { OneTimeSecretDialog, buildIntegrationBundle, formatEnvironment, type OneTimeSecret } from './PaymentProjectConsoleParts'
 
 type MerchantProjectsOverviewProps = {
@@ -65,12 +64,11 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
   const [createOpen, setCreateOpen] = useState(false)
   const [projectName, setProjectName] = useState('Online store')
   const [webhookUrl, setWebhookUrl] = useState(defaultProjectWebhookUrl)
-  const [apiKeyLabel, setApiKeyLabel] = useState('Merchant backend')
+  const [secretLabel, setSecretLabel] = useState('Merchant backend')
   const [oneTimeSecret, setOneTimeSecret] = useState<OneTimeSecret | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
-  const apiBaseUrl = runtimeApiBaseUrl()
 
   const visibleProjects = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -134,22 +132,19 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
         name: projectName,
         webhookUrl: webhookUrl.trim() ? webhookUrl : undefined,
       })
-      const apiKey = await createProjectApiKey(created.project.projectId, {
+      const projectSecret = await createProjectSecret(created.project.projectId, {
         environment: created.project.defaultEnvironment,
-        label: apiKeyLabel,
+        label: secretLabel,
       })
       setProjects((current) => [created.project, ...current.filter((project) => project.projectId !== created.project.projectId)])
       setCreateOpen(false)
-      setStatus('Project created. Copy the shell exports, then open the project.')
+      setStatus('Project created. Copy the project secret key, then open the project.')
       revealOneTimeSecret({
-        copyLabel: 'Shell exports',
-        description: 'This bundle is shown once. Paste these export lines into the CardForge backend terminal before cargo run.',
-        title: 'Copy CardForge backend exports',
+        copyLabel: 'Shell export',
+        description: 'This secret key is shown once. Use it only on the merchant backend; CardForge will bootstrap project and webhook context from ZamaPay.',
+        title: 'Copy project secret key',
         value: buildIntegrationBundle({
-          apiBaseUrl,
-          apiKey: apiKey.apiKey,
-          projectId: created.project.projectId,
-          webhookSecret: created.webhookSecret,
+          secretKey: projectSecret.secretKey,
         }),
       })
       router.refresh()
@@ -232,12 +227,12 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
               </Button>
             </div>
             <CreateProjectDialog
-              apiKeyLabel={apiKeyLabel}
+              secretLabel={secretLabel}
               busy={busyAction === 'create-project'}
               createOpen={createOpen}
-              onApiKeyLabelChange={setApiKeyLabel}
               onCreateOpenChange={setCreateOpen}
               onProjectNameChange={setProjectName}
+              onSecretLabelChange={setSecretLabel}
               onSubmit={handleCreateProject}
               onWebhookUrlChange={setWebhookUrl}
               projectName={projectName}
@@ -269,26 +264,26 @@ export function MerchantProjectsOverview({ initialProjects }: MerchantProjectsOv
 }
 
 function CreateProjectDialog({
-  apiKeyLabel,
   busy,
   createOpen,
-  onApiKeyLabelChange,
   onCreateOpenChange,
   onProjectNameChange,
+  onSecretLabelChange,
   onSubmit,
   onWebhookUrlChange,
   projectName,
+  secretLabel,
   webhookUrl,
 }: {
-  apiKeyLabel: string
   busy: boolean
   createOpen: boolean
-  onApiKeyLabelChange: (value: string) => void
   onCreateOpenChange: (open: boolean) => void
   onProjectNameChange: (value: string) => void
+  onSecretLabelChange: (value: string) => void
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void
   onWebhookUrlChange: (value: string) => void
   projectName: string
+  secretLabel: string
   webhookUrl: string
 }) {
   return (
@@ -300,7 +295,7 @@ function CreateProjectDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create payment project</DialogTitle>
-          <DialogDescription>Projects isolate API keys, webhook outboxes, and checkout sessions.</DialogDescription>
+          <DialogDescription>Projects isolate server secrets, webhook outboxes, and checkout sessions.</DialogDescription>
         </DialogHeader>
         <form className="flex flex-col gap-4" onSubmit={onSubmit}>
           <FieldGroup>
@@ -323,12 +318,12 @@ function CreateProjectDialog({
               </InputGroup>
             </Field>
             <Field>
-              <FieldLabel htmlFor="project-key-label">API key label</FieldLabel>
+              <FieldLabel htmlFor="project-key-label">Secret key label</FieldLabel>
               <InputGroup>
                 <InputGroupAddon>
                   <KeyRoundIcon />
                 </InputGroupAddon>
-                <InputGroupInput id="project-key-label" onChange={(event) => onApiKeyLabelChange(event.target.value)} value={apiKeyLabel} />
+                <InputGroupInput id="project-key-label" onChange={(event) => onSecretLabelChange(event.target.value)} value={secretLabel} />
               </InputGroup>
             </Field>
           </FieldGroup>

@@ -2,10 +2,19 @@ use chrono::{TimeDelta, Utc};
 use domain::{FinalityStatus, FulfillmentStatus, PaymentTruth};
 use shared::{
     BillingCycle, BillingEntitlementStatus, BillingPlan, CreateCheckoutSessionRequest,
-    ProjectEnvironmentKind, SubscriptionEntitlementProjectionRequest,
+    EvmIndexerCursorProjectionRequest, EvmPaymentIntent, EvmPaymentIntentStatus,
+    EvmTransferProjectionRequest, EvmTransferStatus, PaymentRail, ProjectEnvironmentKind,
+    SubscriptionEntitlementProjectionRequest, WEBHOOK_RETIRED_SECRET_LIMIT,
+    WEBHOOK_RETIRED_SECRET_TTL_HOURS, webhook_payload_sha256,
 };
-use storage::PortalStore;
+use storage::{CheckoutSessionError, PortalStore, ProjectWithdrawalScope};
 use uuid::Uuid;
+
+fn checkout_chain_invoice_id(session: &shared::CheckoutSession) -> u64 {
+    session
+        .chain_invoice_id
+        .expect("Zama private checkout should have a chain invoice id")
+}
 
 fn checkout_payload(order_id: &str, amount_minor_units: u64) -> CreateCheckoutSessionRequest {
     let chain_invoice_id = chain_invoice_id_for(order_id);
@@ -17,9 +26,44 @@ fn checkout_payload(order_id: &str, amount_minor_units: u64) -> CreateCheckoutSe
         note: "Standalone merchant checkout".to_string(),
         success_url: Some("http://127.0.0.1:4101/success".to_string()),
         cancel_url: Some("http://127.0.0.1:4101/cancel".to_string()),
+        payment_rail: None,
+        evm_chain_id: None,
+        evm_token_symbol: None,
         chain_invoice_id: Some(chain_invoice_id),
         chain_tx_hash: Some(format!("0x{chain_invoice_id:064x}")),
         metadata: std::collections::BTreeMap::new(),
+    }
+}
+
+fn evm_checkout_payload(order_id: &str, amount_minor_units: u64) -> CreateCheckoutSessionRequest {
+    let mut payload = checkout_payload(order_id, amount_minor_units);
+    payload.payment_rail = Some(PaymentRail::EvmErc20);
+    payload.evm_chain_id = Some(31_337);
+    payload.evm_token_symbol = Some("USDT".to_string());
+    payload.chain_invoice_id = None;
+    payload.chain_tx_hash = None;
+    payload
+}
+
+fn evm_transfer_request(
+    intent: &EvmPaymentIntent,
+    tx_hash: &str,
+    amount_minor_units: u64,
+    confirmations: u64,
+) -> EvmTransferProjectionRequest {
+    EvmTransferProjectionRequest {
+        chain_id: intent.chain_id,
+        token_contract: intent.token_contract.clone(),
+        tx_hash: tx_hash.to_string(),
+        log_index: 0,
+        block_number: 10,
+        block_hash: Some(
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
+        ),
+        from_address: "0x00000000000000000000000000000000000000bb".to_string(),
+        to_address: intent.receiver_address.clone(),
+        amount_minor_units,
+        confirmations,
     }
 }
 
@@ -115,7 +159,7 @@ async fn postgres_store_reloads_project_state() {
             now,
         )
         .await
-        .expect("persisted API key should create checkout after reload");
+        .expect("persisted project secret should create checkout after reload");
 
     let reloaded_again =
         PortalStore::connect_with_state_key(database_url.clone(), state_key.clone()).await;
@@ -123,6 +167,19 @@ async fn postgres_store_reloads_project_state() {
         .project_overview(&project_id)
         .await
         .expect("checkout should reload");
+    assert_eq!(overview.payment_rails.len(), 2);
+    assert!(
+        overview
+            .payment_rails
+            .iter()
+            .any(|setting| setting.payment_rail == PaymentRail::ZamaPrivate && setting.enabled)
+    );
+    assert!(
+        overview
+            .payment_rails
+            .iter()
+            .any(|setting| setting.payment_rail == PaymentRail::EvmErc20 && setting.enabled)
+    );
     assert_eq!(overview.summary.total_checkouts, 1);
     assert_eq!(
         overview.checkout_sessions[0].checkout_session_id,
@@ -375,7 +432,7 @@ async fn project_api_key_checkout_and_outbox_are_project_scoped() {
             now,
         )
         .await
-        .expect("api key should create checkout");
+        .expect("project secret should create checkout");
 
     assert_eq!(checkout.project_id, project_id);
     assert_eq!(checkout.invoice_id, checkout.checkout_session_id);
@@ -389,7 +446,7 @@ async fn project_api_key_checkout_and_outbox_are_project_scoped() {
             .checkout_url
             .ends_with(&checkout.checkout_session_id)
     );
-    assert!(checkout.chain_invoice_id > 0);
+    assert!(checkout_chain_invoice_id(&checkout) > 0);
 
     let idempotent = store
         .create_checkout_session(
@@ -409,7 +466,7 @@ async fn project_api_key_checkout_and_outbox_are_project_scoped() {
 
     let projected = store
         .project_chain_invoice_paid(
-            checkout.chain_invoice_id,
+            checkout_chain_invoice_id(&checkout),
             "0xpayment",
             "0x00000000000000000000000000000000000000bb",
         )
@@ -419,7 +476,12 @@ async fn project_api_key_checkout_and_outbox_are_project_scoped() {
     snapshot.finality_status = FinalityStatus::FinalitySafe;
     snapshot.fulfillment_status = FulfillmentStatus::Ready;
     store
-        .project_chain_invoice_finality_snapshot(checkout.chain_invoice_id, snapshot, 2, 2)
+        .project_chain_invoice_finality_snapshot(
+            checkout_chain_invoice_id(&checkout),
+            snapshot,
+            2,
+            2,
+        )
         .await
         .expect("finality-safe checkout should enqueue project event");
 
@@ -439,6 +501,455 @@ async fn project_api_key_checkout_and_outbox_are_project_scoped() {
         overview.webhook_events[0].event_type,
         "invoice.fulfillment_ready"
     );
+    assert!(!overview.webhook_events[0].raw_payload.is_empty());
+    assert_eq!(
+        overview.webhook_events[0].raw_payload_sha256,
+        webhook_payload_sha256(&overview.webhook_events[0].raw_payload)
+    );
+    let public_event = serde_json::to_value(&overview.webhook_events[0]).unwrap();
+    assert!(public_event.get("rawPayload").is_none());
+    assert_eq!(
+        public_event["rawPayloadSha256"],
+        overview.webhook_events[0].raw_payload_sha256
+    );
+}
+
+#[tokio::test]
+async fn webhook_endpoint_secret_rotation_keeps_current_and_retired_truth() {
+    let store = test_store().await;
+    let now = Utc::now();
+    let created = store
+        .create_project(
+            "0x00000000000000000000000000000000000000aa",
+            "Webhook merchant",
+            ProjectEnvironmentKind::LocalDev,
+            Some("http://127.0.0.1:8092/api/zamapay/webhook"),
+            now,
+        )
+        .await;
+    let project_id = created.project.project_id;
+    let endpoint = created
+        .webhook_endpoint
+        .expect("project should create a webhook endpoint");
+    let first_secret = created
+        .webhook_secret
+        .expect("project should reveal the first endpoint secret");
+
+    assert!(first_secret.starts_with("whsec_"));
+    assert_ne!(endpoint.secret_preview, first_secret);
+    assert_eq!(
+        store
+            .active_webhook_secrets_for_endpoint(&endpoint.endpoint_id, now)
+            .await,
+        vec![first_secret.clone()]
+    );
+
+    let rotated = store
+        .rotate_webhook_endpoint_secret(&project_id, &endpoint.endpoint_id, now)
+        .await
+        .expect("endpoint secret should rotate");
+    assert_ne!(rotated.webhook_secret, first_secret);
+    assert!(rotated.webhook_secret.starts_with("whsec_"));
+    assert_ne!(rotated.endpoint.secret_preview, rotated.webhook_secret);
+
+    let active = store
+        .active_webhook_secrets_for_endpoint(&endpoint.endpoint_id, now)
+        .await;
+    assert_eq!(active.first(), Some(&rotated.webhook_secret));
+    assert!(active.contains(&first_secret));
+
+    let expired_window = now + TimeDelta::hours(WEBHOOK_RETIRED_SECRET_TTL_HOURS + 1);
+    assert_eq!(
+        store
+            .active_webhook_secrets_for_endpoint(&endpoint.endpoint_id, expired_window)
+            .await,
+        vec![rotated.webhook_secret.clone()]
+    );
+
+    let mut latest = rotated.webhook_secret;
+    for index in 0..(WEBHOOK_RETIRED_SECRET_LIMIT + 2) {
+        let next = store
+            .rotate_webhook_endpoint_secret(
+                &project_id,
+                &endpoint.endpoint_id,
+                now + TimeDelta::minutes(index as i64 + 1),
+            )
+            .await
+            .expect("endpoint secret should rotate repeatedly");
+        latest = next.webhook_secret;
+    }
+    let active = store
+        .active_webhook_secrets_for_endpoint(
+            &endpoint.endpoint_id,
+            now + TimeDelta::minutes((WEBHOOK_RETIRED_SECRET_LIMIT + 3) as i64),
+        )
+        .await;
+    assert_eq!(active.first(), Some(&latest));
+    assert!(active.len() <= WEBHOOK_RETIRED_SECRET_LIMIT + 1);
+}
+
+#[tokio::test]
+async fn evm_checkout_uses_payment_intent_and_transfer_ledger_truth() {
+    let store = test_store().await;
+    let now = Utc::now();
+    let created = store
+        .create_project(
+            "0x00000000000000000000000000000000000000aa",
+            "ERC20 merchant",
+            ProjectEnvironmentKind::LocalDev,
+            Some("http://127.0.0.1:8092/api/zamapay/webhook"),
+            now,
+        )
+        .await;
+    let project_id = created.project.project_id;
+    let api_key = store
+        .create_project_api_key(&project_id, ProjectEnvironmentKind::LocalDev, "ERC20", now)
+        .await
+        .expect("project key should be issued")
+        .api_key;
+
+    let payload = evm_checkout_payload("erc20-order-1", 120_000_000);
+    let checkout = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "erc20-order-1",
+            payload,
+            "http://127.0.0.1:3001",
+            now,
+        )
+        .await
+        .expect("ERC20 checkout should not require private chain evidence");
+
+    assert_eq!(checkout.payment_rail, PaymentRail::EvmErc20);
+    assert_eq!(checkout.chain_invoice_id, None);
+    assert_eq!(checkout.chain_tx_hash, None);
+    let intent_id = checkout
+        .payment_intent_id
+        .as_deref()
+        .expect("ERC20 checkout should create a payment intent");
+    let intent = store
+        .evm_payment_intent_by_id(intent_id)
+        .await
+        .expect("payment intent should be stored");
+    assert_eq!(
+        intent.receiver_address,
+        "0x00000000000000000000000000000000000000f1"
+    );
+    assert_eq!(intent.expected_amount_minor_units, 120_000_000);
+
+    let public_open_checkout = store
+        .public_checkout_by_id(&checkout.checkout_session_id)
+        .await
+        .expect("public checkout should load while receiver is leased");
+    assert!(public_open_checkout.evm_payment_intent.is_some());
+    assert_eq!(
+        public_open_checkout
+            .evm_asset
+            .expect("leased checkout should still expose its payable EVM asset")
+            .receiver_address,
+        intent.receiver_address
+    );
+
+    let projected = store
+        .project_evm_transfer(
+            evm_transfer_request(
+                &intent,
+                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                intent.expected_amount_minor_units,
+                1,
+            ),
+            now + TimeDelta::seconds(5),
+        )
+        .await;
+
+    let matched = projected
+        .matched_intent
+        .expect("transfer should match the open payment intent");
+    assert_eq!(matched.intent_id, intent_id);
+    let invoice = projected
+        .invoice
+        .expect("matched transfer should pay invoice");
+    assert_eq!(invoice.payment_rail, PaymentRail::EvmErc20);
+    assert_eq!(
+        invoice.payment_tx_hash.as_deref(),
+        Some("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+    assert_eq!(invoice.snapshot.payment_truth, PaymentTruth::Paid);
+    assert_eq!(
+        invoice.snapshot.finality_status,
+        FinalityStatus::FinalitySafe
+    );
+
+    let public_checkout = store
+        .public_checkout_by_id(&checkout.checkout_session_id)
+        .await
+        .expect("public checkout should load by checkout id");
+    assert!(public_checkout.evm_payment_intent.is_some());
+    assert!(public_checkout.evm_asset.is_some());
+
+    let overview = store
+        .project_overview(&project_id)
+        .await
+        .expect("project overview should exist");
+    assert_eq!(overview.summary.paid_checkouts, 1);
+    assert_eq!(overview.evm_payment_intents.len(), 1);
+    assert_eq!(overview.evm_transfer_ledger.len(), 1);
+    assert_eq!(overview.evm_asset_balances.len(), 1);
+    assert_eq!(
+        overview.evm_asset_balances[0].confirmed_minor_units,
+        120_000_000
+    );
+    assert_eq!(
+        overview.evm_asset_balances[0].withdrawable_minor_units,
+        119_400_000
+    );
+    assert_eq!(overview.webhook_events.len(), 1);
+
+    store
+        .create_project_withdrawal(
+            &project_id,
+            119_400_000,
+            "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            ProjectWithdrawalScope {
+                chain_id: Some(intent.chain_id),
+                token_contract: Some(intent.token_contract.clone()),
+                receiver_address: Some(intent.receiver_address.clone()),
+                recipient_address: Some("0x00000000000000000000000000000000000000aa".to_string()),
+            },
+            now + TimeDelta::seconds(10),
+        )
+        .await
+        .expect("token-scoped withdraw should record");
+
+    let after_withdraw = store
+        .project_overview(&project_id)
+        .await
+        .expect("project overview should exist after withdraw");
+    assert_eq!(
+        after_withdraw.evm_asset_balances[0].confirmed_minor_units,
+        120_000_000
+    );
+    assert_eq!(
+        after_withdraw.evm_asset_balances[0].withdrawable_minor_units,
+        0
+    );
+}
+
+#[tokio::test]
+async fn project_payment_rail_settings_gate_checkout_creation() {
+    let store = test_store().await;
+    let now = Utc::now();
+    let created = store
+        .create_project(
+            "0x00000000000000000000000000000000000000aa",
+            "Rail-managed merchant",
+            ProjectEnvironmentKind::LocalDev,
+            None,
+            now,
+        )
+        .await;
+    let project_id = created.project.project_id;
+    let api_key = store
+        .create_project_api_key(&project_id, ProjectEnvironmentKind::LocalDev, "ERC20", now)
+        .await
+        .expect("project key should be issued")
+        .api_key;
+
+    store
+        .update_project_payment_rail(&project_id, PaymentRail::ZamaPrivate, false, now)
+        .await
+        .expect("private rail setting should exist");
+
+    let erc20_checkout = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "rail-order-erc20",
+            evm_checkout_payload("rail-order-erc20", 120_000_000),
+            "http://127.0.0.1:3001",
+            now,
+        )
+        .await
+        .expect("disabled private rail must not block ERC20 checkout");
+    assert_eq!(erc20_checkout.payment_rail, PaymentRail::EvmErc20);
+
+    store
+        .update_project_payment_rail(&project_id, PaymentRail::EvmErc20, false, now)
+        .await
+        .expect("ERC20 rail setting should exist");
+
+    let rejected = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "rail-order-disabled",
+            evm_checkout_payload("rail-order-disabled", 120_000_000),
+            "http://127.0.0.1:3001",
+            now,
+        )
+        .await;
+    assert!(matches!(rejected, Err(CheckoutSessionError::RailDisabled)));
+}
+
+#[tokio::test]
+async fn evm_receiver_pool_locks_addresses_for_open_intents() {
+    let store = test_store().await;
+    let now = Utc::now();
+    let created = store
+        .create_project(
+            "0x00000000000000000000000000000000000000aa",
+            "Pool merchant",
+            ProjectEnvironmentKind::LocalDev,
+            None,
+            now,
+        )
+        .await;
+    let project_id = created.project.project_id;
+    let api_key = store
+        .create_project_api_key(
+            &project_id,
+            ProjectEnvironmentKind::LocalDev,
+            "CardForge",
+            now,
+        )
+        .await
+        .expect("project key should be issued")
+        .api_key;
+
+    let first = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "pool-order-1",
+            evm_checkout_payload("pool-order-1", 120_000_000),
+            "http://127.0.0.1:3001",
+            now,
+        )
+        .await
+        .expect("first ERC20 checkout should reserve a receiver");
+    let second = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "pool-order-2",
+            evm_checkout_payload("pool-order-2", 120_000_000),
+            "http://127.0.0.1:3001",
+            now,
+        )
+        .await
+        .expect("second ERC20 checkout should reserve another receiver");
+
+    let first_intent = store
+        .evm_payment_intent_by_id(first.payment_intent_id.as_deref().unwrap())
+        .await
+        .unwrap();
+    let second_intent = store
+        .evm_payment_intent_by_id(second.payment_intent_id.as_deref().unwrap())
+        .await
+        .unwrap();
+
+    assert_ne!(first_intent.receiver_id, second_intent.receiver_id);
+    assert_ne!(
+        first_intent.receiver_address,
+        second_intent.receiver_address
+    );
+    let watchlist = store.evm_indexer_watchlist(now).await;
+    assert_eq!(watchlist.assets.len(), 2);
+}
+
+#[tokio::test]
+async fn evm_underpaid_transfer_records_exception_without_paying_invoice() {
+    let store = test_store().await;
+    let now = Utc::now();
+    let created = store
+        .create_project(
+            "0x00000000000000000000000000000000000000aa",
+            "Exception merchant",
+            ProjectEnvironmentKind::LocalDev,
+            None,
+            now,
+        )
+        .await;
+    let project_id = created.project.project_id;
+    let api_key = store
+        .create_project_api_key(
+            &project_id,
+            ProjectEnvironmentKind::LocalDev,
+            "CardForge",
+            now,
+        )
+        .await
+        .expect("project key should be issued")
+        .api_key;
+    let checkout = store
+        .create_checkout_session(
+            &project_id,
+            &api_key,
+            "underpaid-order",
+            evm_checkout_payload("underpaid-order", 120_000_000),
+            "http://127.0.0.1:3001",
+            now,
+        )
+        .await
+        .expect("ERC20 checkout should be created");
+    let intent = store
+        .evm_payment_intent_by_id(checkout.payment_intent_id.as_deref().unwrap())
+        .await
+        .unwrap();
+
+    let projected = store
+        .project_evm_transfer(
+            evm_transfer_request(
+                &intent,
+                "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                intent.expected_amount_minor_units - 1,
+                1,
+            ),
+            now + TimeDelta::seconds(5),
+        )
+        .await;
+
+    assert_eq!(projected.transfer.status, EvmTransferStatus::Underpaid);
+    let matched = projected
+        .matched_intent
+        .expect("underpay should link intent");
+    assert_eq!(matched.status, EvmPaymentIntentStatus::Underpaid);
+    assert_eq!(matched.matched_amount_minor_units, 119_999_999);
+    let invoice = projected
+        .invoice
+        .expect("underpay should update invoice state");
+    assert_eq!(invoice.snapshot.payment_truth, PaymentTruth::PendingPayment);
+    assert_eq!(invoice.snapshot.finality_status, FinalityStatus::NotPaid);
+
+    let overview = store.project_overview(&project_id).await.unwrap();
+    assert_eq!(overview.summary.paid_checkouts, 0);
+    assert_eq!(
+        overview.evm_asset_balances[0].exception_minor_units,
+        119_999_999
+    );
+    assert_eq!(overview.evm_asset_balances[0].withdrawable_minor_units, 0);
+}
+
+#[tokio::test]
+async fn evm_indexer_cursor_is_projected_per_asset_receiver() {
+    let store = test_store().await;
+    let now = Utc::now();
+    let cursor = store
+        .project_evm_indexer_cursor(
+            EvmIndexerCursorProjectionRequest {
+                chain_id: 31_337,
+                token_contract: "0x0000000000000000000000000000000000001001".to_string(),
+                receiver_address: "0x00000000000000000000000000000000000000f1".to_string(),
+                last_scanned_block: 42,
+                last_finalized_block: 40,
+            },
+            now,
+        )
+        .await;
+
+    assert_eq!(cursor.last_scanned_block, 42);
+    assert_eq!(cursor.last_finalized_block, 40);
 }
 
 #[tokio::test]
@@ -568,7 +1079,7 @@ async fn project_overview_sorts_checkout_sessions_by_latest_activity() {
         .await
         .expect("newer checkout should be created");
 
-    finalize_checkout(&store, older.chain_invoice_id, "0xactivity").await;
+    finalize_checkout(&store, checkout_chain_invoice_id(&older), "0xactivity").await;
 
     let overview = store
         .project_overview(&project_id)
@@ -746,8 +1257,18 @@ async fn chain_subscription_projection_reprices_only_new_checkout_sessions() {
     assert_eq!(old_checkout.billing.plan, BillingPlan::Free);
     assert_eq!(old_checkout.billing.platform_fee_minor_units, 600_000);
 
-    finalize_checkout(&store, free_checkout.chain_invoice_id, "0xpaid-free").await;
-    finalize_checkout(&store, second_checkout.chain_invoice_id, "0xpaid-growth").await;
+    finalize_checkout(
+        &store,
+        checkout_chain_invoice_id(&free_checkout),
+        "0xpaid-free",
+    )
+    .await;
+    finalize_checkout(
+        &store,
+        checkout_chain_invoice_id(&second_checkout),
+        "0xpaid-growth",
+    )
+    .await;
 
     let overview = store
         .project_overview(&project_id)
@@ -795,7 +1316,12 @@ async fn project_withdrawal_reduces_withdrawable_balance() {
         )
         .await
         .expect("checkout should be created");
-    finalize_checkout(&store, checkout.chain_invoice_id, "0xpaid-withdraw").await;
+    finalize_checkout(
+        &store,
+        checkout_chain_invoice_id(&checkout),
+        "0xpaid-withdraw",
+    )
+    .await;
 
     let before = store
         .project_overview(&project_id)
@@ -809,6 +1335,7 @@ async fn project_withdrawal_reduces_withdrawable_balance() {
             &project_id,
             119_400_000,
             "0x1111111111111111111111111111111111111111111111111111111111111111",
+            ProjectWithdrawalScope::default(),
             now,
         )
         .await

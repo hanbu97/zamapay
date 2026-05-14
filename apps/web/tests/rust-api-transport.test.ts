@@ -4,7 +4,7 @@ import { encodedRustPath, rustApiUrl } from '../lib/rust-api-transport.ts'
 
 test('rust transport encodes forwarded route path segments once', () => {
   assert.equal(encodedRustPath('/api/projects', []), '/api/projects')
-  assert.equal(encodedRustPath('/api/projects/', ['proj 1', 'api-keys']), '/api/projects/proj%201/api-keys')
+  assert.equal(encodedRustPath('/api/projects/', ['proj 1', 'project-secrets']), '/api/projects/proj%201/project-secrets')
   assert.equal(encodedRustPath('/api/billing', ['subscription']), '/api/billing/subscription')
 })
 

@@ -7,17 +7,19 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use axum_extra::extract::cookie::CookieJar;
 use chrono::Utc;
-use domain::{WebhookDeliveryStatus, ensure_not_expired};
+use domain::ensure_not_expired;
 use ethers_core::types::{Address, Signature};
-use ethers_core::utils::{hash_message, keccak256};
+use ethers_core::utils::hash_message;
 use fulfillment::{FulfillmentDecision, decide};
 use indexer::ProjectionState;
 use shared::{
     AddressManifest, CreateInvoiceRequest, DEFAULT_FINALITY_THRESHOLD, DashboardOverview,
-    DecryptCallbackRequest, FulfillmentResponse, InvoiceRecord, NonceRequest, NonceResponse,
-    OperatorDiagnostics, OperatorSettlementEventRequest, PaymentConfirmationsRequest,
-    PaymentProjectionRequest, SessionResponse, VerifyRequest, WebhookDeliveryRequest,
-    WebhookDispatchResponse, WebhookEventPayload, WebhookSignatureHeaders, contract_manifest,
+    DecryptCallbackRequest, EvmIndexerCursor, EvmIndexerCursorProjectionRequest,
+    EvmIndexerWatchlist, EvmTransferProjectionRequest, EvmTransferProjectionResponse,
+    FulfillmentResponse, InvoiceRecord, NonceRequest, NonceResponse, OperatorDiagnostics,
+    OperatorSettlementEventRequest, PaymentConfirmationsRequest, PaymentProjectionRequest,
+    PublicCheckoutResponse, SessionResponse, SupportedEvmAsset, VerifyRequest,
+    WebhookDeliveryRequest, contract_manifest,
 };
 use storage::{AuthStore, DecryptRequestProjection, PortalStore, StoredSession};
 use tokio::sync::RwLock;
@@ -34,8 +36,6 @@ const OPERATOR_KEY_HEADER: &str = "x-operator-key";
 const GATEWAY_KEY_HEADER: &str = "x-zama-gateway-key";
 const DEFAULT_OPERATOR_KEY: &str = "local-operator-dev-key";
 const DEFAULT_GATEWAY_CALLBACK_KEY: &str = "local-zama-gateway-dev-key";
-const DEFAULT_WEBHOOK_SECRET: &str = "local-webhook-dev-secret";
-const DEFAULT_WEBHOOK_ENDPOINT: &str = "https://merchant.example/webhooks/zamapay";
 const DEFAULT_WEBHOOK_MAX_ATTEMPTS: u32 = 3;
 
 #[derive(Clone)]
@@ -85,6 +85,8 @@ pub fn app(state: AppState) -> Router {
             "/api/contracts/{environment}",
             get(contract_environment_manifest),
         )
+        .route("/api/supported-assets", get(supported_assets))
+        .route("/api/checkout/{checkout_id}", get(public_checkout))
         .route("/api/dashboard/overview", get(dashboard_overview))
         .route("/api/invoices", post(create_invoice))
         .route(
@@ -97,6 +99,12 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/api/invoices/{invoice_id}", get(invoice_detail))
         .route("/api/operator/diagnostics", get(operator_diagnostics))
+        .route("/api/operator/evm/watchlist", get(evm_indexer_watchlist))
+        .route("/api/operator/evm/transfers", post(project_evm_transfer))
+        .route(
+            "/api/operator/evm/cursors",
+            post(project_evm_indexer_cursor),
+        )
         .route(
             "/api/operator/invoices/{invoice_id}/payment-projection",
             post(project_invoice_payment),
@@ -240,6 +248,24 @@ async fn contract_environment_manifest(
     Ok(Json(manifest))
 }
 
+async fn supported_assets(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<SupportedEvmAsset>>, ApiError> {
+    Ok(Json(state.portal.supported_evm_assets().await))
+}
+
+async fn public_checkout(
+    State(state): State<AppState>,
+    Path(checkout_id): Path<String>,
+) -> Result<Json<PublicCheckoutResponse>, ApiError> {
+    state
+        .portal
+        .public_checkout_by_id(&checkout_id)
+        .await
+        .map(Json)
+        .ok_or(ApiError::not_found("checkout not found"))
+}
+
 async fn create_invoice(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -349,6 +375,47 @@ async fn operator_diagnostics(
         state
             .portal
             .operator_diagnostics(state.operator_auth_rejections().await)
+            .await,
+    ))
+}
+
+async fn evm_indexer_watchlist(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<EvmIndexerWatchlist>, ApiError> {
+    require_operator_key(&state, &headers).await?;
+    Ok(Json(state.portal.evm_indexer_watchlist(Utc::now()).await))
+}
+
+async fn project_evm_transfer(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<EvmTransferProjectionRequest>,
+) -> Result<Json<EvmTransferProjectionResponse>, ApiError> {
+    require_operator_key(&state, &headers).await?;
+    validate_evm_transfer_projection(&payload)?;
+    let projected = state.portal.project_evm_transfer(payload, Utc::now()).await;
+    if let Some(invoice) = projected.invoice.as_ref() {
+        if invoice.snapshot.is_fulfillment_ready() {
+            if let Some(project_id) = invoice.project_id.as_deref() {
+                projects::dispatch_project_deliveries(&state, project_id).await?;
+            }
+        }
+    }
+    Ok(Json(projected))
+}
+
+async fn project_evm_indexer_cursor(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(payload): Json<EvmIndexerCursorProjectionRequest>,
+) -> Result<Json<EvmIndexerCursor>, ApiError> {
+    require_operator_key(&state, &headers).await?;
+    validate_evm_cursor_projection(&payload)?;
+    Ok(Json(
+        state
+            .portal
+            .project_evm_indexer_cursor(payload, Utc::now())
             .await,
     ))
 }
@@ -486,23 +553,19 @@ async fn chain_invoice_webhook_dispatch(
     State(state): State<AppState>,
     Path(chain_invoice_id): Path<u64>,
     headers: axum::http::HeaderMap,
-) -> Result<Json<WebhookDispatchResponse>, ApiError> {
+) -> Result<(StatusCode, &'static str), ApiError> {
     require_operator_key(&state, &headers).await?;
 
-    let invoice = state
+    let _ = state
         .portal
         .invoice_by_chain_invoice_id(chain_invoice_id)
         .await
         .ok_or(ApiError::not_found("invoice not found"))?;
 
-    let secret = webhook_secret()?;
-    Ok(Json(signed_webhook_dispatch(
-        &invoice,
-        chain_invoice_id,
-        &webhook_endpoint(),
-        &secret,
-        Utc::now(),
-    )?))
+    Ok((
+        StatusCode::GONE,
+        "operator webhook dispatch was retired; use project webhook delivery outbox",
+    ))
 }
 
 async fn project_decrypt_callback(
@@ -542,6 +605,79 @@ fn validated_payment_projection(
     Ok((payment_tx_hash, payer_address))
 }
 
+fn validate_evm_transfer_projection(
+    payload: &EvmTransferProjectionRequest,
+) -> Result<(), ApiError> {
+    if payload.chain_id == 0 {
+        return Err(ApiError::bad_request("chainId must be greater than zero"));
+    }
+    if payload.amount_minor_units == 0 {
+        return Err(ApiError::bad_request(
+            "amountMinorUnits must be greater than zero",
+        ));
+    }
+    for (label, value) in [
+        ("tokenContract", payload.token_contract.as_str()),
+        ("txHash", payload.tx_hash.as_str()),
+        ("fromAddress", payload.from_address.as_str()),
+        ("toAddress", payload.to_address.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(ApiError::bad_request(format!("{label} is required")));
+        }
+    }
+    validate_evm_hash("txHash", &payload.tx_hash)?;
+    if let Some(block_hash) = payload.block_hash.as_deref() {
+        validate_evm_hash("blockHash", block_hash)?;
+    }
+    validate_evm_address("tokenContract", &payload.token_contract)?;
+    validate_evm_address("fromAddress", &payload.from_address)?;
+    validate_evm_address("toAddress", &payload.to_address)?;
+    Ok(())
+}
+
+fn validate_evm_cursor_projection(
+    payload: &EvmIndexerCursorProjectionRequest,
+) -> Result<(), ApiError> {
+    if payload.chain_id == 0 {
+        return Err(ApiError::bad_request("chainId must be greater than zero"));
+    }
+    if payload.last_finalized_block > payload.last_scanned_block {
+        return Err(ApiError::bad_request(
+            "lastFinalizedBlock cannot exceed lastScannedBlock",
+        ));
+    }
+    validate_evm_address("tokenContract", &payload.token_contract)?;
+    validate_evm_address("receiverAddress", &payload.receiver_address)?;
+    Ok(())
+}
+
+fn validate_evm_address(label: &str, value: &str) -> Result<(), ApiError> {
+    let value = value.trim();
+    if value.len() != 42
+        || !value.starts_with("0x")
+        || !value[2..].chars().all(|ch| ch.is_ascii_hexdigit())
+    {
+        return Err(ApiError::bad_request(format!(
+            "{label} must be a 20-byte hex address"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_evm_hash(label: &str, value: &str) -> Result<(), ApiError> {
+    let value = value.trim();
+    if value.len() != 66
+        || !value.starts_with("0x")
+        || !value[2..].chars().all(|ch| ch.is_ascii_hexdigit())
+    {
+        return Err(ApiError::bad_request(format!(
+            "{label} must be a 32-byte hex hash"
+        )));
+    }
+    Ok(())
+}
+
 fn validated_webhook_max_attempts(max_attempts: Option<u32>) -> Result<u32, ApiError> {
     let max_attempts = max_attempts.unwrap_or(DEFAULT_WEBHOOK_MAX_ATTEMPTS);
 
@@ -552,90 +688,6 @@ fn validated_webhook_max_attempts(max_attempts: Option<u32>) -> Result<u32, ApiE
     }
 
     Ok(max_attempts)
-}
-
-fn signed_webhook_dispatch(
-    invoice: &InvoiceRecord,
-    chain_invoice_id: u64,
-    endpoint: &str,
-    secret: &str,
-    now: chrono::DateTime<Utc>,
-) -> Result<WebhookDispatchResponse, ApiError> {
-    if !invoice.snapshot.is_fulfillment_ready() {
-        return Err(ApiError::conflict(
-            "webhook dispatch requires finality-safe paid invoice",
-        ));
-    }
-
-    if invoice.webhook.status == WebhookDeliveryStatus::Delivered {
-        return Err(ApiError::conflict("webhook already delivered"));
-    }
-
-    let payload = WebhookEventPayload {
-        event: "invoice.fulfillment_ready".to_string(),
-        invoice_id: invoice.invoice_id.clone(),
-        chain_invoice_id,
-        payment_tx_hash: invoice.payment_tx_hash.clone(),
-        payer_address: invoice.payer_address.clone(),
-        amount_minor_units: invoice.amount_minor_units,
-        amount_label: invoice.amount_label.clone(),
-        payment_truth: invoice.snapshot.payment_truth,
-        finality_status: invoice.snapshot.finality_status,
-        fulfillment_status: invoice.snapshot.fulfillment_status,
-        webhook_attempt_count: invoice.webhook.attempt_count,
-    };
-    let canonical_body = serde_json::to_string(&payload)
-        .map_err(|_| ApiError::internal("failed to serialize webhook payload"))?;
-    let webhook_id = format!("wh_{}", Uuid::new_v4().simple());
-    let timestamp = now.to_rfc3339();
-    let signature_base = format!("{webhook_id}.{timestamp}.{canonical_body}");
-    let signature = format!("v1={}", keyed_digest(secret, &signature_base));
-
-    Ok(WebhookDispatchResponse {
-        endpoint: endpoint.to_string(),
-        headers: WebhookSignatureHeaders {
-            x_zamapay_webhook_id: webhook_id,
-            x_zamapay_webhook_timestamp: timestamp,
-            x_zamapay_webhook_signature: signature,
-            x_zamapay_webhook_algorithm: "keccak256.secret_prefix.v1".to_string(),
-        },
-        payload,
-        canonical_body,
-        signature_base,
-    })
-}
-
-fn webhook_endpoint() -> String {
-    std::env::var("ZAMAPAY_WEBHOOK_ENDPOINT")
-        .ok()
-        .filter(|endpoint| !endpoint.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_WEBHOOK_ENDPOINT.to_string())
-}
-
-fn webhook_secret() -> Result<String, ApiError> {
-    let secret = std::env::var("ZAMAPAY_WEBHOOK_SECRET")
-        .ok()
-        .filter(|secret| !secret.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_WEBHOOK_SECRET.to_string());
-
-    Ok(secret)
-}
-
-fn keyed_digest(secret: &str, message: &str) -> String {
-    let digest = keccak256(format!("{secret}.{message}").as_bytes());
-    format!("0x{}", lower_hex(&digest))
-}
-
-fn lower_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-
-    for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-
-    output
 }
 
 fn fulfillment_response(invoice: &InvoiceRecord) -> FulfillmentResponse {

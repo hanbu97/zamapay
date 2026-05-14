@@ -24,4 +24,4 @@ apps/web/components
 - `ui/` and `reui/` are generated registry infrastructure. They own appearance and accessibility defaults, never merchant payment state.
 - `commerce/StatusBadge.tsx` and `commerce/StatusStepper.tsx` are the shared status and step-progress policies.
 - `layout/TopBar.tsx` owns the compact account menu; it shows the current plan/avatar and sends logout through the Rust session boundary.
-- `merchant/PaymentProjectConsole.tsx` is the project control plane: API keys, webhook endpoints, delivery retries, checkout read model, merchant-signed withdraw action, and overview-owned settlement activity live there without CardForge-specific state.
+- `merchant/PaymentProjectConsole.tsx` is the project control plane: project secrets, webhook endpoints, delivery retries, checkout read model, merchant-signed withdraw action, and overview-owned settlement activity live there without CardForge-specific state.

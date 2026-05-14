@@ -9,8 +9,13 @@ use serde_json::json;
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 use uuid::Uuid;
+use webhook_verifier::{WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS, sign_webhook_payload_with_timestamp};
 
 use super::*;
+
+static TEST_STATE_INIT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+const TEST_WEBHOOK_SECRET: &str = "whsec_dGVzdA";
+const RETIRED_WEBHOOK_SECRET: &str = "whsec_cmV0aXJlZF9zZWNyZXQ";
 
 #[test]
 fn detects_only_the_cardforge_demo_backend_listener() {
@@ -33,16 +38,15 @@ fn parses_lsof_listener_pids_without_trusting_noise() {
 }
 
 #[tokio::test]
-async fn checkout_uses_project_api_key_and_drops_browser_cookie() {
+async fn checkout_uses_project_secret_key_and_drops_browser_cookie() {
     let captured = Arc::new(Mutex::new(None::<(String, HeaderMap)>));
     let fake_zamapay = fake_zamapay_api(captured.clone()).await;
-    let state = AppState::new(test_config(
+    let state = test_state(test_config(
         &fake_zamapay,
         "proj_cardforge",
-        "zmp_test_secret",
+        "zms_test_secret",
     ))
-    .await
-    .unwrap();
+    .await;
     let response = app(state)
         .oneshot(
             Request::builder()
@@ -75,7 +79,7 @@ async fn checkout_uses_project_api_key_and_drops_browser_cookie() {
         headers
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok()),
-        Some("Bearer zmp_test_secret")
+        Some("Bearer zms_test_secret")
     );
     assert!(headers.get(header::COOKIE).is_none());
     assert!(
@@ -90,9 +94,9 @@ async fn checkout_uses_project_api_key_and_drops_browser_cookie() {
 async fn checkout_can_forward_zero_based_local_chain_invoice() {
     let captured = Arc::new(Mutex::new(None::<Value>));
     let fake_zamapay = fake_zamapay_api_with_local_chain(captured.clone()).await;
-    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zmp_test_secret");
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zms_test_secret");
     config.local_chain_invoice_api_url = fake_zamapay;
-    let state = AppState::new(config).await.unwrap();
+    let state = test_state(config).await;
     let response = app(state)
         .oneshot(
             Request::builder()
@@ -127,9 +131,9 @@ async fn checkout_consumes_prepared_chain_invoice() {
     let fake_zamapay =
         fake_zamapay_api_with_local_chain_counter(captured.clone(), chain_invoice_calls.clone())
             .await;
-    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zmp_test_secret");
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zms_test_secret");
     config.local_chain_invoice_api_url = fake_zamapay;
-    let service = app(AppState::new(config).await.unwrap());
+    let service = app(test_state(config).await);
 
     let prepare = service
         .clone()
@@ -173,8 +177,8 @@ async fn checkout_consumes_prepared_chain_invoice() {
 }
 
 #[tokio::test]
-async fn chain_invoice_bridge_uses_project_api_key() {
-    let config = test_config("http://127.0.0.1:3001", "proj_cardforge", "zmp_test_secret");
+async fn chain_invoice_bridge_uses_project_secret_key() {
+    let config = test_config("http://127.0.0.1:3001", "proj_cardforge", "zms_test_secret");
     let request = chain_invoice_request(
         &Client::new(),
         &config,
@@ -208,7 +212,7 @@ async fn chain_invoice_bridge_uses_project_api_key() {
             .headers()
             .get(header::AUTHORIZATION)
             .and_then(|value| value.to_str().ok()),
-        Some("Bearer zmp_test_secret")
+        Some("Bearer zms_test_secret")
     );
 }
 
@@ -216,9 +220,9 @@ async fn chain_invoice_bridge_uses_project_api_key() {
 async fn checkout_uses_server_catalog_product_amounts() {
     let captured = Arc::new(Mutex::new(None::<Value>));
     let fake_zamapay = fake_zamapay_api_with_local_chain(captured.clone()).await;
-    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zmp_test_secret");
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zms_test_secret");
     config.local_chain_invoice_api_url = fake_zamapay;
-    let state = AppState::new(config).await.unwrap();
+    let state = test_state(config).await;
     let response = app(state)
         .oneshot(
             Request::builder()
@@ -256,14 +260,13 @@ async fn checkout_uses_server_catalog_product_amounts() {
 }
 
 #[tokio::test]
-async fn webhook_receiver_requires_zamapay_signature() {
-    let state = AppState::new(test_config(
+async fn webhook_receiver_accepts_valid_svix_signature() {
+    let state = test_state(test_config(
         "http://127.0.0.1:1",
         "proj_cardforge",
-        "zmp_test_secret",
+        "zms_test_secret",
     ))
-    .await
-    .unwrap();
+    .await;
     let service = app(state);
     let payload = json!({
         "event": "invoice.fulfillment_ready",
@@ -274,8 +277,9 @@ async fn webhook_receiver_requires_zamapay_signature() {
         "amountLabel": "120 cUSDT",
     });
     let webhook_id = "del_cardforge";
-    let timestamp = "2026-05-07T04:00:00Z";
-    let signature = signed_header("whsec_test", webhook_id, timestamp, &payload);
+    let timestamp = current_svix_timestamp();
+    let body = payload.to_string();
+    let signature = signed_header(TEST_WEBHOOK_SECRET, webhook_id, &timestamp, &body);
 
     let accepted = service
         .clone()
@@ -284,11 +288,10 @@ async fn webhook_receiver_requires_zamapay_signature() {
                 .method(Method::POST)
                 .uri("/api/zamapay/webhook")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header("x-zamapay-webhook-id", webhook_id)
-                .header("x-zamapay-webhook-timestamp", timestamp)
-                .header("x-zamapay-webhook-signature", signature)
-                .header("x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1")
-                .body(Body::from(payload.to_string()))
+                .header("svix-id", webhook_id)
+                .header("svix-timestamp", &timestamp)
+                .header("svix-signature", signature)
+                .body(Body::from(body))
                 .unwrap(),
         )
         .await
@@ -326,10 +329,9 @@ async fn webhook_receiver_requires_zamapay_signature() {
                 .method(Method::POST)
                 .uri("/api/zamapay/webhook")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header("x-zamapay-webhook-id", webhook_id)
-                .header("x-zamapay-webhook-timestamp", timestamp)
-                .header("x-zamapay-webhook-signature", "v1=bad")
-                .header("x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1")
+                .header("svix-id", webhook_id)
+                .header("svix-timestamp", &timestamp)
+                .header("svix-signature", "v1,bad")
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -339,14 +341,174 @@ async fn webhook_receiver_requires_zamapay_signature() {
 }
 
 #[tokio::test]
-async fn fulfillment_snapshot_uses_release_order() {
-    let state = AppState::new(test_config(
+async fn webhook_receiver_rejects_tampered_raw_body() {
+    let state = test_state(test_config(
         "http://127.0.0.1:1",
         "proj_cardforge",
-        "zmp_test_secret",
+        "zms_test_secret",
     ))
-    .await
-    .unwrap();
+    .await;
+    let service = app(state);
+    let signed_body = r#"{"event":"invoice.fulfillment_ready","checkoutSessionId":"cs_cardforge","paymentTruth":"paid","finalityStatus":"finality_safe"}"#;
+    let reordered_body = r#"{"finalityStatus":"finality_safe","paymentTruth":"paid","checkoutSessionId":"cs_cardforge","event":"invoice.fulfillment_ready"}"#;
+    let webhook_id = "del_cardforge_tampered";
+    let timestamp = current_svix_timestamp();
+    let signature = signed_header(TEST_WEBHOOK_SECRET, webhook_id, &timestamp, signed_body);
+
+    let rejected = service
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/zamapay/webhook")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("svix-id", webhook_id)
+                .header("svix-timestamp", &timestamp)
+                .header("svix-signature", signature)
+                .body(Body::from(reordered_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn webhook_receiver_rejects_expired_svix_timestamp() {
+    let state = test_state(test_config(
+        "http://127.0.0.1:1",
+        "proj_cardforge",
+        "zms_test_secret",
+    ))
+    .await;
+    let service = app(state);
+    let body = json!({ "event": "invoice.fulfillment_ready" }).to_string();
+    let webhook_id = "del_cardforge_expired";
+    let timestamp = expired_svix_timestamp();
+    let signature = signed_header(TEST_WEBHOOK_SECRET, webhook_id, &timestamp, &body);
+
+    let rejected = service
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/zamapay/webhook")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("svix-id", webhook_id)
+                .header("svix-timestamp", &timestamp)
+                .header("svix-signature", signature)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn webhook_receiver_rejects_future_svix_timestamp() {
+    let state = test_state(test_config(
+        "http://127.0.0.1:1",
+        "proj_cardforge",
+        "zms_test_secret",
+    ))
+    .await;
+    let service = app(state);
+    let body = json!({ "event": "invoice.fulfillment_ready" }).to_string();
+    let webhook_id = "del_cardforge_future";
+    let timestamp = future_svix_timestamp();
+    let signature = signed_header(TEST_WEBHOOK_SECRET, webhook_id, &timestamp, &body);
+
+    let rejected = service
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/zamapay/webhook")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("svix-id", webhook_id)
+                .header("svix-timestamp", &timestamp)
+                .header("svix-signature", signature)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn webhook_receiver_rejects_invalid_whsec_config() {
+    let mut config = test_config("http://127.0.0.1:1", "proj_cardforge", "zms_test_secret");
+    config.webhook_secret = "whsec_not-base64".to_string();
+    let state = test_state(config).await;
+    let service = app(state);
+    let body = json!({ "event": "invoice.fulfillment_ready" }).to_string();
+    let webhook_id = "del_cardforge_bad_secret";
+    let timestamp = current_svix_timestamp();
+    let signature = signed_header(TEST_WEBHOOK_SECRET, webhook_id, &timestamp, &body);
+
+    let rejected = service
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/zamapay/webhook")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("svix-id", webhook_id)
+                .header("svix-timestamp", &timestamp)
+                .header("svix-signature", signature)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn webhook_receiver_accepts_one_valid_rotated_signature() {
+    let state = test_state(test_config(
+        "http://127.0.0.1:1",
+        "proj_cardforge",
+        "zms_test_secret",
+    ))
+    .await;
+    let service = app(state);
+    let body = json!({
+        "event": "invoice.fulfillment_ready",
+        "checkoutSessionId": "cs_cardforge_rotated",
+        "paymentTruth": "paid",
+        "finalityStatus": "finality_safe"
+    })
+    .to_string();
+    let webhook_id = "del_cardforge_rotated";
+    let timestamp = current_svix_timestamp();
+    let retired = signed_header(RETIRED_WEBHOOK_SECRET, webhook_id, &timestamp, &body);
+    let current = signed_header(TEST_WEBHOOK_SECRET, webhook_id, &timestamp, &body);
+    let signatures = format!("{retired} {current}");
+
+    let accepted = service
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/zamapay/webhook")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header("svix-id", webhook_id)
+                .header("svix-timestamp", &timestamp)
+                .header("svix-signature", signatures)
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn fulfillment_snapshot_uses_release_order() {
+    let state = test_state(test_config(
+        "http://127.0.0.1:1",
+        "proj_cardforge",
+        "zms_test_secret",
+    ))
+    .await;
 
     assert!(
         release_from_webhook(
@@ -391,9 +553,9 @@ async fn fulfillment_snapshot_uses_release_order() {
 #[tokio::test]
 async fn wallet_activity_records_owned_cards_after_paid_webhook() {
     let fake_zamapay = fake_zamapay_api_with_local_chain(Arc::new(Mutex::new(None))).await;
-    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zmp_test_secret");
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zms_test_secret");
     config.local_chain_invoice_api_url = fake_zamapay;
-    let state = AppState::new(config).await.unwrap();
+    let state = test_state(config).await;
     let service = app(state);
     let wallet = "0xC431773Fbc13B36384077847B884dE5D8dB91618";
 
@@ -429,8 +591,9 @@ async fn wallet_activity_records_owned_cards_after_paid_webhook() {
         "createdAt": "2026-05-09T05:00:00Z"
     });
     let webhook_id = "del_cardforge_owned";
-    let timestamp = "2026-05-09T05:00:00Z";
-    let signature = signed_header("whsec_test", webhook_id, timestamp, &payload);
+    let timestamp = current_svix_timestamp();
+    let body = payload.to_string();
+    let signature = signed_header(TEST_WEBHOOK_SECRET, webhook_id, &timestamp, &body);
     let accepted = service
         .clone()
         .oneshot(
@@ -438,11 +601,10 @@ async fn wallet_activity_records_owned_cards_after_paid_webhook() {
                 .method(Method::POST)
                 .uri("/api/zamapay/webhook")
                 .header(header::CONTENT_TYPE, "application/json")
-                .header("x-zamapay-webhook-id", webhook_id)
-                .header("x-zamapay-webhook-timestamp", timestamp)
-                .header("x-zamapay-webhook-signature", signature)
-                .header("x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1")
-                .body(Body::from(payload.to_string()))
+                .header("svix-id", webhook_id)
+                .header("svix-timestamp", &timestamp)
+                .header("svix-signature", signature)
+                .body(Body::from(body))
                 .unwrap(),
         )
         .await
@@ -643,7 +805,7 @@ async fn fake_zamapay_api_with_local_chain_counter(
     format!("http://{addr}")
 }
 
-fn test_config(api_url: &str, project_id: &str, api_key: &str) -> Config {
+fn test_config(api_url: &str, project_id: &str, secret_key: &str) -> Config {
     Config {
         allowed_origins: Vec::new(),
         bind_addr: "127.0.0.1:0".parse().unwrap(),
@@ -652,13 +814,19 @@ fn test_config(api_url: &str, project_id: &str, api_key: &str) -> Config {
         local_chain_invoice_api_url: api_url.to_string(),
         zamapay_api_url: api_url.to_string(),
         zamapay_console_url: "http://127.0.0.1:3001/merchant".to_string(),
-        project_api_key: api_key.to_string(),
+        project_secret_key: secret_key.to_string(),
         merchant_label: "CardForge Demo Store".to_string(),
         project_id: project_id.to_string(),
         store_key: format!("test-{}", Uuid::new_v4().simple()),
         webhook_endpoint: "http://127.0.0.1:8092/api/zamapay/webhook".to_string(),
-        webhook_secret: "whsec_test".to_string(),
+        webhook_endpoint_id: "whend_test".to_string(),
+        webhook_secret: TEST_WEBHOOK_SECRET.to_string(),
     }
+}
+
+async fn test_state(config: Config) -> AppState {
+    let _guard = TEST_STATE_INIT.lock().await;
+    AppState::new(config).await.unwrap()
 }
 
 fn test_database_url() -> String {
@@ -667,8 +835,34 @@ fn test_database_url() -> String {
         .unwrap_or_else(|_| "postgres://zamapay:zamapay@127.0.0.1:5432/cardforge".to_string())
 }
 
-fn signed_header(secret: &str, webhook_id: &str, timestamp: &str, payload: &Value) -> String {
-    let canonical_body = serde_json::to_string(payload).unwrap();
-    let base = format!("{webhook_id}.{timestamp}.{canonical_body}");
-    format!("v1={}", keyed_digest(secret, &base))
+fn current_svix_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        .to_string()
+}
+
+fn expired_svix_timestamp() -> String {
+    (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS as u64
+        - 1)
+    .to_string()
+}
+
+fn future_svix_timestamp() -> String {
+    (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS as u64
+        + 1)
+    .to_string()
+}
+
+fn signed_header(secret: &str, webhook_id: &str, timestamp: &str, body: &str) -> String {
+    sign_webhook_payload_with_timestamp(secret, webhook_id, timestamp, body)
 }

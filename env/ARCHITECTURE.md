@@ -24,8 +24,10 @@ env
 - Service env files stay split by process because each process has a different trust boundary.
 - `*.env.example` files are safe documentation; same-name `*.env` files hold local secrets and are ignored by git.
 - `Justfile` is the supported way to compose these files for normal local, Supabase, Sepolia local-UI, and preview checks; manual shell sourcing is only a debugging escape hatch.
-- Browser variables must use `NEXT_PUBLIC_*` and must not contain database URLs, project API keys, webhook secrets, or private keys; backend CORS origins are explicit server variables.
+- Browser variables must use `NEXT_PUBLIC_*` and must not contain database URLs, project secrets, webhook endpoint secrets, encryption keys, or private keys; backend CORS origins are explicit server variables.
+- ZamaPay API env owns the webhook secret-encryption key; CardForge env owns only the `ZAMAPAY_SECRET_KEY` copied from the console and bootstraps project/webhook context from the API.
 - ZamaPay and CardForge use separate Postgres databases; sharing one database would blur platform truth and merchant-demo truth.
 - Runtime profiles are the single source for chain id, contract environment, project environment, URL defaults, RPC env names, bridge policy, and finality defaults.
+- Local API defaults use `127.0.0.1:18080`; `Justfile` recipes override sourced env files through `ZAMAPAY_LOCAL_API_PORT` so one port value feeds API, web, merchant demo, workers, and verification gates.
 - Supabase files are database overrides only. Chain selection flows only through `ZAMAPAY_RUNTIME_PROFILE` / `NEXT_PUBLIC_RUNTIME_PROFILE`.
 - Sepolia files select deployed public-testnet contracts; the web server may hold the checkout-creator key for local demo invoice creation, while browser FHE proofs still come from Zama's official test relayer via SDK `SepoliaConfig`.

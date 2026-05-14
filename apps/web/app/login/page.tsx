@@ -48,7 +48,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             <div className="flex flex-col gap-4">
               <h1 className="text-3xl font-semibold tracking-normal">One private rail for merchant payments</h1>
               <p className="max-w-md text-base leading-7 text-muted-foreground">
-                ZamaPay gives merchants a project API key, hosted checkout, signed webhooks, and Zama-backed
+                ZamaPay gives merchants a project secret key, hosted checkout, signed webhooks, and Zama-backed
                 settlement proof without exposing buyer payment details to the operator.
               </p>
             </div>

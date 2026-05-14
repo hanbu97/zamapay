@@ -57,8 +57,10 @@ export type InvoiceRecord = {
   amountMinorUnits: number
   billing?: CheckoutBillingSnapshot | null
   note: string
+  paymentRail: PaymentRail
   chainInvoiceId: number | null
   chainTxHash: string | null
+  paymentIntentId?: string | null
   paymentTxHash: string | null
   payerAddress: string | null
   finalityConfirmations: number
@@ -126,11 +128,18 @@ export type ContractManifest = {
       selfServe: boolean
     }>
   }
+  standardErc20Tokens?: Array<{
+    symbol: string | null
+    contract: string | null
+    decimals: number | null
+    faucetFunctionName: string | null
+  }>
 }
 
 export type ProjectEnvironmentKind = 'local_dev' | 'sepolia'
 export type ProjectStatus = 'active' | 'disabled'
 export type CheckoutSessionStatus = 'created' | 'open' | 'paid' | 'expired' | 'cancelled' | 'failed'
+export type PaymentRail = 'zama_private' | 'evm_erc20'
 export type BillingPlan = 'free' | 'growth' | 'enterprise'
 export type BillingCycle = 'monthly' | 'annual'
 export type BillingSubscriptionStatus = 'active' | 'past_due' | 'cancelled'
@@ -247,6 +256,102 @@ export type PaymentProjectEnvironment = {
   status: ProjectStatus
 }
 
+export type ProjectPaymentRailSetting = {
+  projectId: string
+  paymentRail: PaymentRail
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export type SupportedEvmAsset = {
+  receiverId: string
+  chainId: number
+  network: string
+  chainName: string
+  nativeSymbol: string
+  tokenSymbol: string
+  tokenContract: string
+  tokenDecimals: number
+  minAmountMinorUnits: number
+  finalityThreshold: number
+  rpcUrl: string
+  receiverAddress: string
+}
+
+export type EvmPaymentIntentStatus =
+  | 'requires_payment'
+  | 'detected'
+  | 'confirmed'
+  | 'underpaid'
+  | 'overpaid'
+  | 'expired'
+  | 'failed'
+
+export type EvmPaymentIntent = {
+  intentId: string
+  projectId: string
+  checkoutSessionId: string
+  chainId: number
+  network: string
+  tokenSymbol: string
+  tokenContract: string
+  tokenDecimals: number
+  receiverId: string
+  expectedAmountMinorUnits: number
+  matchedAmountMinorUnits: number
+  receiverAddress: string
+  finalityThreshold: number
+  status: EvmPaymentIntentStatus
+  detectedTxHash: string | null
+  payerAddress: string | null
+  confirmations: number
+  createdAt: string
+  expiresAt: string
+  updatedAt: string
+}
+
+export type EvmTransferStatus =
+  | 'detected'
+  | 'confirmed'
+  | 'underpaid'
+  | 'overpaid'
+  | 'duplicate'
+  | 'expired'
+  | 'reorged'
+  | 'ignored'
+
+export type EvmTransferLedgerEntry = {
+  transferId: string
+  chainId: number
+  tokenContract: string
+  fromAddress: string
+  toAddress: string
+  amountMinorUnits: number
+  txHash: string
+  logIndex: number
+  blockNumber: number
+  blockHash: string | null
+  confirmations: number
+  matchedIntentId: string | null
+  status: EvmTransferStatus
+  observedAt: string
+  updatedAt: string
+}
+
+export type EvmAssetBalance = {
+  projectId: string
+  chainId: number
+  network: string
+  tokenSymbol: string
+  tokenContract: string
+  tokenDecimals: number
+  confirmedMinorUnits: number
+  pendingMinorUnits: number
+  exceptionMinorUnits: number
+  withdrawableMinorUnits: number
+}
+
 export type ProjectInvoiceAuthority = {
   authorityId: string
   projectId: string
@@ -258,7 +363,7 @@ export type ProjectInvoiceAuthority = {
   createdAt: string
 }
 
-export type ProjectApiKey = {
+export type ProjectSecret = {
   keyId: string
   projectId: string
   environment: ProjectEnvironmentKind
@@ -284,11 +389,13 @@ export type CheckoutSession = {
   checkoutSessionId: string
   projectId: string
   environment: ProjectEnvironmentKind
+  paymentRail: PaymentRail
   merchantOrderId: string
   idempotencyKey: string
   invoiceId: string
-  chainInvoiceId: number
-  chainTxHash: string
+  chainInvoiceId: number | null
+  chainTxHash: string | null
+  paymentIntentId: string | null
   checkoutUrl: string
   title: string
   amountLabel: string
@@ -323,7 +430,7 @@ export type WebhookDeliveryRecord = {
   environment: ProjectEnvironmentKind
   attemptCount: number
   status: WebhookDeliverySnapshot['status']
-  signatureHeader: string | null
+  signatureHeader?: string | null
   httpStatus: number | null
   responseBody: string | null
   error: string | null
@@ -336,6 +443,10 @@ export type ProjectWithdrawalRecord = {
   withdrawalId: string
   projectId: string
   amountMinorUnits: number
+  chainId: number | null
+  tokenContract: string | null
+  receiverAddress: string | null
+  recipientAddress: string | null
   status: 'completed'
   receipt: string
   createdAt: string
@@ -347,28 +458,35 @@ export type CreatePaymentProjectResponse = {
   environment: PaymentProjectEnvironment
   invoiceAuthority: ProjectInvoiceAuthority
   webhookEndpoint: ProjectWebhookEndpoint | null
-  webhookSecret: string | null
 }
 
-export type CreateProjectApiKeyResponse = {
-  apiKey: string
-  keyRecord: ProjectApiKey
+export type CreateProjectSecretResponse = {
+  secretKey: string
+  keyRecord: ProjectSecret
 }
 
 export type ConfigureWebhookEndpointResponse = {
   endpoint: ProjectWebhookEndpoint
-  webhookSecret: string | null
+}
+
+export type RotateWebhookEndpointSecretResponse = {
+  endpoint: ProjectWebhookEndpoint
 }
 
 export type ProjectDashboardOverview = {
   project: PaymentProject
   environments: PaymentProjectEnvironment[]
-  apiKeys: ProjectApiKey[]
+  paymentRails: ProjectPaymentRailSetting[]
+  projectSecrets: ProjectSecret[]
   webhookEndpoints: ProjectWebhookEndpoint[]
   checkoutSessions: CheckoutSession[]
   webhookEvents: WebhookEventRecord[]
   webhookDeliveries: WebhookDeliveryRecord[]
   withdrawals: ProjectWithdrawalRecord[]
+  supportedEvmAssets: SupportedEvmAsset[]
+  evmAssetBalances: EvmAssetBalance[]
+  evmPaymentIntents: EvmPaymentIntent[]
+  evmTransferLedger: EvmTransferLedgerEntry[]
   summary: {
     totalCheckouts: number
     openCheckouts: number
@@ -384,13 +502,20 @@ export type ProjectDashboardOverview = {
   }
 }
 
+export type PublicCheckoutResponse = {
+  invoice: InvoiceRecord
+  session: CheckoutSession | null
+  evmPaymentIntent: EvmPaymentIntent | null
+  evmAsset: SupportedEvmAsset | null
+}
+
 export type CreatePaymentProjectPayload = {
   name: string
   environment?: ProjectEnvironmentKind
   webhookUrl?: string
 }
 
-export type CreateProjectApiKeyPayload = {
+export type CreateProjectSecretPayload = {
   label?: string
   environment?: ProjectEnvironmentKind
 }
@@ -401,9 +526,16 @@ export type ConfigureWebhookEndpointPayload = {
   enabled?: boolean
 }
 
+export type UpdateProjectPaymentRailPayload = {
+  enabled: boolean
+}
+
 export type CreateProjectWithdrawalPayload = {
   amountMinorUnits: number
   chainTxHash: string
+  chainId?: number
+  tokenContract?: string
+  receiverAddress?: string
   recipientAddress?: string
   settlementBucketCommitment?: string
   withdrawalNonce?: string
@@ -584,6 +716,20 @@ export async function getInvoiceRecord(invoiceId: string): Promise<InvoiceRecord
   })
 }
 
+export async function getPublicCheckout(checkoutId: string): Promise<PublicCheckoutResponse | null> {
+  return fetchOptionalApiJson(platformApiUrl(`/api/checkout/${checkoutId}`), {
+    cache: 'no-store',
+    fallback: 'Checkout lookup failed.',
+  })
+}
+
+export async function getSupportedEvmAssets(): Promise<SupportedEvmAsset[]> {
+  return fetchApiJson(platformApiUrl('/api/supported-assets'), {
+    cache: 'no-store',
+    fallback: 'Supported asset lookup failed.',
+  })
+}
+
 export async function getFulfillment(invoiceId: string): Promise<FulfillmentResponse | null> {
   return fetchOptionalApiJson(platformApiUrl(`/api/invoices/${invoiceId}/fulfillment`), {
     cache: 'no-store',
@@ -646,14 +792,14 @@ export async function createPaymentProject(payload: CreatePaymentProjectPayload)
   })
 }
 
-export async function createProjectApiKey(
+export async function createProjectSecret(
   projectId: string,
-  payload: CreateProjectApiKeyPayload,
-): Promise<CreateProjectApiKeyResponse> {
-  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/api-keys`), {
+  payload: CreateProjectSecretPayload,
+): Promise<CreateProjectSecretResponse> {
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/project-secrets`), {
     body: payload,
     credentials: 'include',
-    fallback: 'API key creation failed.',
+    fallback: 'Project secret creation failed.',
   })
 }
 
@@ -665,6 +811,30 @@ export async function configureProjectWebhook(
     body: payload,
     credentials: 'include',
     fallback: 'Webhook configuration failed.',
+  })
+}
+
+export async function rotateProjectWebhookSecret(
+  projectId: string,
+  endpointId: string,
+): Promise<RotateWebhookEndpointSecretResponse> {
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/webhook-endpoints/${endpointId}/rotate-secret`), {
+    method: 'POST',
+    credentials: 'include',
+    fallback: 'Webhook secret rotation failed.',
+  })
+}
+
+export async function updateProjectPaymentRail(
+  projectId: string,
+  paymentRail: PaymentRail,
+  payload: UpdateProjectPaymentRailPayload,
+): Promise<ProjectDashboardOverview> {
+  return fetchApiJson(rustApiUrl(`/api/projects/${projectId}/payment-rails/${paymentRail}`), {
+    body: payload,
+    credentials: 'include',
+    method: 'PATCH',
+    fallback: 'Payment method update failed.',
   })
 }
 

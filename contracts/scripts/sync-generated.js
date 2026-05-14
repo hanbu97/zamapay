@@ -51,6 +51,7 @@ function defaultManifest() {
       annualPeriodSeconds: null,
       plans: [],
     },
+    standardErc20Tokens: [],
     generatedAt: new Date().toISOString(),
   }
 }
@@ -112,6 +113,14 @@ function normalizeManifestContracts(manifest) {
       annualPeriodSeconds: manifest.billing?.annualPeriodSeconds ?? null,
       plans: Array.isArray(manifest.billing?.plans) ? manifest.billing.plans : [],
     },
+    standardErc20Tokens: Array.isArray(manifest.standardErc20Tokens)
+      ? manifest.standardErc20Tokens.map((token) => ({
+          symbol: token.symbol ?? null,
+          contract: token.contract ?? null,
+          decimals: token.decimals ?? null,
+          faucetFunctionName: token.faucetFunctionName ?? null,
+        }))
+      : [],
   }
 }
 
@@ -196,6 +205,12 @@ export type AddressManifest = {
     claimAmountMinorUnits: string
     functionName: string
   }
+  standardErc20Tokens?: Array<{
+    symbol: string | null
+    contract: \`0x\${string}\` | null
+    decimals: number | null
+    faucetFunctionName: string | null
+  }>
 }
 
 export const merchantRegistryAbi = ${JSON.stringify(artifacts.MerchantRegistry.abi, null, 2)} as const

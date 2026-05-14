@@ -1,6 +1,5 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
-use ethers_core::utils::keccak256;
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -49,58 +48,19 @@ async fn operator_webhook_delivery_retries_dead_letters_and_recovers() {
         .unwrap();
     assert_eq!(unsigned_dispatch.status(), StatusCode::UNAUTHORIZED);
 
-    let signed_dispatch = request_json(
-        &app,
-        Request::builder()
-            .method(Method::GET)
-            .uri("/api/operator/chain-invoices/11/webhook-dispatch")
-            .header("x-operator-key", "local-operator-dev-key")
-            .body(Body::empty())
-            .unwrap(),
-        StatusCode::OK,
-    )
-    .await;
-    assert_eq!(
-        signed_dispatch["endpoint"],
-        "https://merchant.example/webhooks/zamapay"
-    );
-    assert_eq!(
-        signed_dispatch["payload"]["event"],
-        "invoice.fulfillment_ready"
-    );
-    assert_eq!(signed_dispatch["payload"]["invoiceId"], "webhook-ref-0011");
-    assert_eq!(signed_dispatch["payload"]["chainInvoiceId"], 11);
-    assert_eq!(
-        signed_dispatch["payload"]["paymentTxHash"],
-        "0xpaid-webhook"
-    );
-    assert_eq!(signed_dispatch["payload"]["paymentTruth"], "paid");
-    assert_eq!(
-        signed_dispatch["payload"]["finalityStatus"],
-        "finality_safe"
-    );
-    assert_eq!(signed_dispatch["payload"]["webhookAttemptCount"], 0);
-
-    let webhook_id = signed_dispatch["headers"]["x-zamapay-webhook-id"]
-        .as_str()
-        .expect("webhook id should be present");
-    let timestamp = signed_dispatch["headers"]["x-zamapay-webhook-timestamp"]
-        .as_str()
-        .expect("webhook timestamp should be present");
-    let canonical_body = signed_dispatch["canonicalBody"]
-        .as_str()
-        .expect("canonical body should be present");
-    let signature_base = signed_dispatch["signatureBase"]
-        .as_str()
-        .expect("signature base should be present");
-    assert_eq!(
-        signature_base,
-        format!("{webhook_id}.{timestamp}.{canonical_body}")
-    );
-    assert_eq!(
-        signed_dispatch["headers"]["x-zamapay-webhook-signature"],
-        expected_webhook_signature(signature_base)
-    );
+    let retired_dispatch = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/operator/chain-invoices/11/webhook-dispatch")
+                .header("x-operator-key", "local-operator-dev-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(retired_dispatch.status(), StatusCode::GONE);
 
     let invalid_max_attempts = app
         .clone()
@@ -155,7 +115,7 @@ async fn operator_webhook_delivery_retries_dead_letters_and_recovers() {
         )
         .await
         .unwrap();
-    assert_eq!(delivered_dispatch.status(), StatusCode::CONFLICT);
+    assert_eq!(delivered_dispatch.status(), StatusCode::GONE);
 }
 
 #[tokio::test]
@@ -410,27 +370,4 @@ async fn request_json(
         .await
         .unwrap();
     serde_json::from_slice(&body).unwrap()
-}
-
-fn expected_webhook_signature(signature_base: &str) -> String {
-    let secret = std::env::var("ZAMAPAY_WEBHOOK_SECRET")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "local-webhook-dev-secret".to_string());
-    format!(
-        "v1=0x{}",
-        lower_hex(&keccak256(format!("{secret}.{signature_base}").as_bytes()))
-    )
-}
-
-fn lower_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-
-    for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-
-    output
 }

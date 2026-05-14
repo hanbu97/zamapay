@@ -1,11 +1,12 @@
 pub mod contracts;
+pub mod webhook;
 
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use domain::{
-    FinalityStatus, FulfillmentStatus, OperatorSettlementEvent, PaymentTruth, SettlementSnapshot,
-    WebhookDeliveryOutcome, WebhookDeliverySnapshot, WebhookDeliveryStatus,
+    OperatorSettlementEvent, SettlementSnapshot, WebhookDeliveryOutcome, WebhookDeliverySnapshot,
+    WebhookDeliveryStatus,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -14,6 +15,7 @@ pub use contracts::{
     AddressManifest, BillingPlanProtocolTerms, BillingProtocolManifest, ContractAddresses,
     contract_manifest, local_dev_contract_manifest, normalize_contract_environment,
 };
+pub use webhook::*;
 
 pub const DEFAULT_FINALITY_THRESHOLD: u64 = 2;
 
@@ -96,6 +98,27 @@ pub enum CheckoutSessionStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, Default, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaymentRail {
+    #[default]
+    ZamaPrivate,
+    EvmErc20,
+}
+
+impl PaymentRail {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ZamaPrivate => "zama_private",
+            Self::EvmErc20 => "evm_erc20",
+        }
+    }
+}
+
+fn default_payment_rail() -> PaymentRail {
+    PaymentRail::ZamaPrivate
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BillingPlan {
@@ -132,7 +155,7 @@ impl BillingPlan {
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::Free => "Start with hosted checkout and project API keys.",
+            Self::Free => "Start with hosted checkout and project secret keys.",
             Self::Growth => "Reduce checkout fees for active merchants.",
             Self::Enterprise => "Custom rate and settlement policy for larger teams.",
         }
@@ -369,6 +392,233 @@ pub struct PaymentProjectEnvironment {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectPaymentRailSetting {
+    pub project_id: String,
+    pub payment_rail: PaymentRail,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmChain {
+    pub chain_id: u64,
+    pub network: String,
+    pub name: String,
+    pub native_symbol: String,
+    pub finality_threshold: u64,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmChainToken {
+    pub token_id: String,
+    pub chain_id: u64,
+    pub network: String,
+    pub symbol: String,
+    pub contract_address: String,
+    pub decimals: u8,
+    pub min_amount_minor_units: u64,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvmRpcNodeKind {
+    Http,
+    WebSocket,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmRpcNode {
+    pub rpc_node_id: String,
+    pub chain_id: u64,
+    pub network: String,
+    pub url: String,
+    pub kind: EvmRpcNodeKind,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiverAddressStatus {
+    #[default]
+    Active,
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmReceiverAddress {
+    pub receiver_id: String,
+    pub chain_id: u64,
+    pub network: String,
+    pub address: String,
+    pub status: ReceiverAddressStatus,
+    #[serde(default)]
+    pub lease_intent_id: Option<String>,
+    #[serde(default)]
+    pub leased_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub available_after: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvmPaymentIntentStatus {
+    #[default]
+    RequiresPayment,
+    Detected,
+    Confirmed,
+    Underpaid,
+    Overpaid,
+    Expired,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmPaymentIntent {
+    pub intent_id: String,
+    pub checkout_session_id: String,
+    pub project_id: String,
+    pub chain_id: u64,
+    pub network: String,
+    pub token_symbol: String,
+    pub token_contract: String,
+    pub token_decimals: u8,
+    pub receiver_id: String,
+    pub receiver_address: String,
+    pub expected_amount_minor_units: u64,
+    pub matched_amount_minor_units: u64,
+    pub status: EvmPaymentIntentStatus,
+    pub detected_tx_hash: Option<String>,
+    pub payer_address: Option<String>,
+    pub confirmations: u64,
+    pub finality_threshold: u64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvmTransferStatus {
+    #[default]
+    Detected,
+    Confirmed,
+    Underpaid,
+    Overpaid,
+    Duplicate,
+    Expired,
+    Reorged,
+    Ignored,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmTransferLedgerEntry {
+    pub transfer_id: String,
+    pub chain_id: u64,
+    pub token_contract: String,
+    pub tx_hash: String,
+    pub log_index: u64,
+    pub block_number: u64,
+    #[serde(default)]
+    pub block_hash: Option<String>,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount_minor_units: u64,
+    pub matched_intent_id: Option<String>,
+    pub confirmations: u64,
+    pub status: EvmTransferStatus,
+    pub observed_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SupportedEvmAsset {
+    pub receiver_id: String,
+    pub chain_id: u64,
+    pub network: String,
+    pub chain_name: String,
+    pub native_symbol: String,
+    pub token_symbol: String,
+    pub token_contract: String,
+    pub token_decimals: u8,
+    pub min_amount_minor_units: u64,
+    pub finality_threshold: u64,
+    pub rpc_url: String,
+    pub receiver_address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmTransferProjectionRequest {
+    pub chain_id: u64,
+    pub token_contract: String,
+    pub tx_hash: String,
+    pub log_index: u64,
+    pub block_number: u64,
+    #[serde(default)]
+    pub block_hash: Option<String>,
+    pub from_address: String,
+    pub to_address: String,
+    pub amount_minor_units: u64,
+    pub confirmations: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmTransferProjectionResponse {
+    pub transfer: EvmTransferLedgerEntry,
+    pub matched_intent: Option<EvmPaymentIntent>,
+    pub invoice: Option<InvoiceRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmIndexerCursor {
+    pub cursor_id: String,
+    pub chain_id: u64,
+    pub token_contract: String,
+    pub receiver_address: String,
+    pub last_scanned_block: u64,
+    pub last_finalized_block: u64,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmIndexerCursorProjectionRequest {
+    pub chain_id: u64,
+    pub token_contract: String,
+    pub receiver_address: String,
+    pub last_scanned_block: u64,
+    pub last_finalized_block: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmIndexerWatchAsset {
+    #[serde(flatten)]
+    pub asset: SupportedEvmAsset,
+    pub open_intent_ids: Vec<String>,
+    pub cursor: Option<EvmIndexerCursor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmIndexerWatchlist {
+    pub assets: Vec<EvmIndexerWatchAsset>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectInvoiceAuthority {
     pub authority_id: String,
     pub project_id: String,
@@ -412,11 +662,15 @@ pub struct CheckoutSession {
     pub checkout_session_id: String,
     pub project_id: String,
     pub environment: ProjectEnvironmentKind,
+    #[serde(default = "default_payment_rail")]
+    pub payment_rail: PaymentRail,
     pub merchant_order_id: String,
     pub idempotency_key: String,
     pub invoice_id: String,
-    pub chain_invoice_id: u64,
-    pub chain_tx_hash: String,
+    pub chain_invoice_id: Option<u64>,
+    pub chain_tx_hash: Option<String>,
+    #[serde(default)]
+    pub payment_intent_id: Option<String>,
     pub checkout_url: String,
     pub title: String,
     pub amount_label: String,
@@ -439,6 +693,8 @@ pub struct CheckoutSessionResponse {
     #[serde(flatten)]
     pub session: CheckoutSession,
     pub merchant_owner_wallet: String,
+    #[serde(default)]
+    pub evm_payment_intent: Option<EvmPaymentIntent>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -451,6 +707,10 @@ pub struct WebhookEventRecord {
     pub subject_type: String,
     pub subject_id: String,
     pub payload: serde_json::Value,
+    #[serde(default)]
+    pub raw_payload_sha256: String,
+    #[serde(default, skip_serializing)]
+    pub raw_payload: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -464,6 +724,7 @@ pub struct WebhookDeliveryRecord {
     pub environment: ProjectEnvironmentKind,
     pub attempt_count: u32,
     pub status: WebhookDeliveryStatus,
+    #[serde(skip_serializing)]
     pub signature_header: Option<String>,
     pub http_status: Option<u16>,
     pub response_body: Option<String>,
@@ -485,6 +746,14 @@ pub struct ProjectWithdrawalRecord {
     pub withdrawal_id: String,
     pub project_id: String,
     pub amount_minor_units: u64,
+    #[serde(default)]
+    pub chain_id: Option<u64>,
+    #[serde(default)]
+    pub token_contract: Option<String>,
+    #[serde(default)]
+    pub receiver_address: Option<String>,
+    #[serde(default)]
+    pub recipient_address: Option<String>,
     pub status: ProjectWithdrawalStatus,
     pub receipt: String,
     pub created_at: DateTime<Utc>,
@@ -496,6 +765,12 @@ pub struct ProjectWithdrawalRecord {
 pub struct CreateProjectWithdrawalRequest {
     pub amount_minor_units: u64,
     pub chain_tx_hash: String,
+    #[serde(default)]
+    pub chain_id: Option<u64>,
+    #[serde(default)]
+    pub token_contract: Option<String>,
+    #[serde(default)]
+    pub receiver_address: Option<String>,
     #[serde(default)]
     pub recipient_address: Option<String>,
     #[serde(default)]
@@ -522,6 +797,7 @@ pub struct CreatePaymentProjectResponse {
     pub environment: PaymentProjectEnvironment,
     pub invoice_authority: ProjectInvoiceAuthority,
     pub webhook_endpoint: Option<ProjectWebhookEndpoint>,
+    #[serde(default, skip_serializing)]
     pub webhook_secret: Option<String>,
 }
 
@@ -535,8 +811,19 @@ pub struct CreateProjectApiKeyRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateProjectApiKeyResponse {
+    #[serde(rename = "secretKey")]
     pub api_key: String,
     pub key_record: ProjectApiKey,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSecretBootstrapResponse {
+    pub project_id: String,
+    pub environment: ProjectEnvironmentKind,
+    pub webhook_endpoint_id: Option<String>,
+    pub webhook_endpoint_url: Option<String>,
+    pub webhook_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -549,8 +836,15 @@ pub struct ConfigureWebhookEndpointRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateProjectPaymentRailRequest {
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConfigureWebhookEndpointResponse {
     pub endpoint: ProjectWebhookEndpoint,
+    #[serde(default, skip_serializing)]
     pub webhook_secret: Option<String>,
 }
 
@@ -564,6 +858,12 @@ pub struct CreateCheckoutSessionRequest {
     pub note: String,
     pub success_url: Option<String>,
     pub cancel_url: Option<String>,
+    #[serde(default)]
+    pub payment_rail: Option<PaymentRail>,
+    #[serde(default)]
+    pub evm_chain_id: Option<u64>,
+    #[serde(default)]
+    pub evm_token_symbol: Option<String>,
     pub chain_invoice_id: Option<u64>,
     pub chain_tx_hash: Option<String>,
     #[serde(default)]
@@ -604,6 +904,17 @@ pub struct ProjectDashboardSummary {
 pub struct ProjectDashboardOverview {
     pub project: PaymentProject,
     pub environments: Vec<PaymentProjectEnvironment>,
+    #[serde(default)]
+    pub payment_rails: Vec<ProjectPaymentRailSetting>,
+    #[serde(default)]
+    pub supported_evm_assets: Vec<SupportedEvmAsset>,
+    #[serde(default)]
+    pub evm_asset_balances: Vec<EvmAssetBalance>,
+    #[serde(default)]
+    pub evm_payment_intents: Vec<EvmPaymentIntent>,
+    #[serde(default)]
+    pub evm_transfer_ledger: Vec<EvmTransferLedgerEntry>,
+    #[serde(rename = "projectSecrets")]
     pub api_keys: Vec<ProjectApiKey>,
     pub webhook_endpoints: Vec<ProjectWebhookEndpoint>,
     pub checkout_sessions: Vec<CheckoutSession>,
@@ -615,10 +926,39 @@ pub struct ProjectDashboardOverview {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct EvmAssetBalance {
+    pub project_id: String,
+    pub chain_id: u64,
+    pub network: String,
+    pub token_symbol: String,
+    pub token_contract: String,
+    pub token_decimals: u8,
+    pub confirmed_minor_units: u64,
+    pub pending_minor_units: u64,
+    pub exception_minor_units: u64,
+    pub withdrawable_minor_units: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PaymentProjectionRequest {
     pub chain_invoice_id: Option<u64>,
     pub payment_tx_hash: String,
     pub payer_address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicCheckoutResponse {
+    pub invoice: InvoiceRecord,
+    #[serde(default)]
+    pub session: Option<CheckoutSession>,
+    #[serde(default)]
+    pub evm_payment_intent: Option<EvmPaymentIntent>,
+    #[serde(default)]
+    pub evm_asset: Option<SupportedEvmAsset>,
+    #[serde(default)]
+    pub merchant_owner_wallet: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -664,45 +1004,6 @@ pub struct DecryptRequestSnapshot {
 pub struct WebhookDeliveryRequest {
     pub outcome: WebhookDeliveryOutcome,
     pub max_attempts: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WebhookEventPayload {
-    pub event: String,
-    pub invoice_id: String,
-    pub chain_invoice_id: u64,
-    pub payment_tx_hash: Option<String>,
-    pub payer_address: Option<String>,
-    pub amount_minor_units: u64,
-    pub amount_label: String,
-    pub payment_truth: PaymentTruth,
-    pub finality_status: FinalityStatus,
-    pub fulfillment_status: FulfillmentStatus,
-    pub webhook_attempt_count: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WebhookSignatureHeaders {
-    #[serde(rename = "x-zamapay-webhook-id")]
-    pub x_zamapay_webhook_id: String,
-    #[serde(rename = "x-zamapay-webhook-timestamp")]
-    pub x_zamapay_webhook_timestamp: String,
-    #[serde(rename = "x-zamapay-webhook-signature")]
-    pub x_zamapay_webhook_signature: String,
-    #[serde(rename = "x-zamapay-webhook-algorithm")]
-    pub x_zamapay_webhook_algorithm: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WebhookDispatchResponse {
-    pub endpoint: String,
-    pub headers: WebhookSignatureHeaders,
-    pub payload: WebhookEventPayload,
-    pub canonical_body: String,
-    pub signature_base: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -764,6 +1065,10 @@ pub struct InvoiceRecord {
     #[serde(default)]
     pub billing: Option<CheckoutBillingSnapshot>,
     pub note: String,
+    #[serde(default = "default_payment_rail")]
+    pub payment_rail: PaymentRail,
+    #[serde(default)]
+    pub payment_intent_id: Option<String>,
     pub chain_invoice_id: Option<u64>,
     pub chain_tx_hash: Option<String>,
     pub payment_tx_hash: Option<String>,

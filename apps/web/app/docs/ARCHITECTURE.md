@@ -8,7 +8,7 @@ apps/web/app/docs
 |-- page.tsx         # Docs index with first-viewport guide map and primary article entries
 |-- DocsArticle.tsx  # Server-rendered article renderer, guide figures, tables, flow diagrams, and code blocks
 |-- MermaidDiagram.tsx # Client renderer that dynamically loads Mermaid for docs diagrams
-|-- docs-content.ts  # Static documentation truth for quickstart, API, webhooks, CardForge, privacy checkout, and environments
+|-- docs-content.ts  # Static documentation truth for quickstart, API, Svix-style webhooks, CardForge, privacy checkout, and environments
 `-- [slug]/
     |-- page.tsx         # Static docs article route selected by slug
     `-- ARCHITECTURE.md  # Dynamic article route note
@@ -25,3 +25,4 @@ apps/web/app/docs
 - Mermaid is isolated in a client component and loaded dynamically; docs articles remain server-rendered and typed.
 - Guide figures render only when a section declares one; text/table-only sections stay single-column and do not receive placeholder cards.
 - API examples document the project/API-key checkout boundary and deliberately exclude browser cookie checkout creation.
+- Webhook docs use the public Svix-style HMAC contract only; retired operator dispatch headers and replayable signing material stay out of browser docs.

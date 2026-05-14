@@ -305,7 +305,7 @@ export function LoginCard({ redirectTo = '/dashboard' }: LoginCardProps) {
         </FieldGroup>
       </CardContent>
       <CardFooter className="justify-center rounded-b-3xl bg-muted/30 px-7 py-4 text-center text-xs leading-5 text-muted-foreground">
-        By logging in, you agree to protect project API keys and only sign requests for merchants you control.
+        By logging in, you agree to protect project secret keys and only sign requests for merchants you control.
       </CardFooter>
     </Card>
   )

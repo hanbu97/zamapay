@@ -24,6 +24,8 @@ pub struct AddressManifest {
     pub platform_fee_wallet: Option<String>,
     #[serde(default)]
     pub billing: BillingProtocolManifest,
+    #[serde(default)]
+    pub standard_erc20_tokens: Vec<StandardErc20TokenManifest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +43,16 @@ pub struct ContractAddresses {
     #[serde(rename = "PrivateCheckoutSettlement")]
     #[serde(default)]
     pub private_checkout_settlement: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StandardErc20TokenManifest {
+    pub symbol: Option<String>,
+    pub contract: Option<String>,
+    pub decimals: Option<u8>,
+    #[serde(default)]
+    pub faucet_function_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -201,6 +213,12 @@ mod tests {
             Some(25)
         );
         assert_eq!(manifest.billing.plan_code(BillingPlan::Growth), Some(2));
+        assert!(manifest.standard_erc20_tokens.iter().all(|token| {
+            token
+                .contract
+                .as_deref()
+                .is_none_or(|address| address.starts_with("0x"))
+        }));
     }
 
     #[test]

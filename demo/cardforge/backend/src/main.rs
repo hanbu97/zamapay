@@ -5,16 +5,20 @@ use std::{
 
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     routing::{get, post},
 };
-use ethers_core::utils::keccak256;
 use reqwest::Client;
 use sea_orm::DbErr;
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tower_http::{cors::AllowOrigin, cors::CorsLayer, trace::TraceLayer};
+use webhook_verifier::{
+    SVIX_ID_HEADER, SVIX_SIGNATURE_HEADER, SVIX_TIMESTAMP_HEADER, WebhookVerificationError,
+    verify_webhook_payload_result,
+};
 
 mod catalog;
 mod config;
@@ -61,7 +65,7 @@ struct PreparedCheckout {
 
 #[tokio::main]
 async fn main() -> Result<(), DynError> {
-    let config = Config::from_env()?;
+    let config = Config::from_env().await?;
     let bind_addr = config.bind_addr;
     let state = AppState::new(config).await?;
     let listener = bind_demo_listener(bind_addr).await?;
@@ -117,6 +121,7 @@ async fn storefront(State(state): State<AppState>) -> Json<StorefrontResponse> {
         products: products().collect(),
         project_id: state.config.project_id.clone(),
         webhook_endpoint: state.config.webhook_endpoint.clone(),
+        webhook_endpoint_id: state.config.webhook_endpoint_id.clone(),
     })
 }
 
@@ -193,13 +198,19 @@ async fn wallet_activity(
 async fn receive_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(payload): Json<Value>,
+    body: Bytes,
 ) -> Result<Json<WebhookAck>, ApiError> {
-    verify_webhook_signature(&state.config, &headers, &payload)?;
+    verify_webhook_signature(&state.config, &headers, &body)?;
+    let payload: Value = serde_json::from_slice(&body).map_err(|_| {
+        ApiError::bad_request(
+            "invalid_webhook_payload",
+            "ZamaPay webhook payload must be valid JSON.",
+        )
+    })?;
     let release_status = release_from_webhook(&state, &payload).await?;
     let receipt = WebhookReceipt {
-        id: header_text(&headers, "x-zamapay-webhook-id"),
-        signature: header_text(&headers, "x-zamapay-webhook-signature"),
+        id: header_text(&headers, SVIX_ID_HEADER),
+        signature: header_text(&headers, SVIX_SIGNATURE_HEADER),
         payload,
     };
     let received_event_count = state
@@ -247,7 +258,7 @@ async fn create_zamapay_checkout_session(
             "{}/api/projects/{}/checkout-sessions",
             state.config.zamapay_api_url, state.config.project_id
         ))
-        .bearer_auth(&state.config.project_api_key)
+        .bearer_auth(&state.config.project_secret_key)
         .header("idempotency-key", &payload.merchant_order_id)
         .json(&payload)
         .send()
@@ -351,7 +362,7 @@ async fn create_zamapay_checkout_quote(
             "{}/api/projects/{}/checkout-quote",
             state.config.zamapay_api_url, state.config.project_id
         ))
-        .bearer_auth(&state.config.project_api_key)
+        .bearer_auth(&state.config.project_secret_key)
         .json(&CheckoutQuoteRequest { amount_minor_units })
         .send()
         .await
@@ -408,7 +419,7 @@ fn chain_invoice_request(
             "{}/api/dev/local-chain-invoice",
             config.local_chain_invoice_api_url
         ))
-        .bearer_auth(&config.project_api_key)
+        .bearer_auth(&config.project_secret_key)
         .json(&serde_json::json!({
             "amountMinorUnits": payload.amount_minor_units,
             "externalRef": payload.merchant_order_id,
@@ -490,34 +501,23 @@ fn release_from_payload(payload: &Value) -> Option<ReleasedOrder> {
 fn verify_webhook_signature(
     config: &Config,
     headers: &HeaderMap,
-    payload: &Value,
+    raw_body: &[u8],
 ) -> Result<(), ApiError> {
-    let webhook_id = required_header(headers, "x-zamapay-webhook-id")?;
-    let timestamp = required_header(headers, "x-zamapay-webhook-timestamp")?;
-    let provided = required_header(headers, "x-zamapay-webhook-signature")?;
-    let algorithm = required_header(headers, "x-zamapay-webhook-algorithm")?;
+    let webhook_id = required_header(headers, SVIX_ID_HEADER)?;
+    let timestamp = required_header(headers, SVIX_TIMESTAMP_HEADER)?;
+    let provided = required_header(headers, SVIX_SIGNATURE_HEADER)?;
+    let body = std::str::from_utf8(raw_body)
+        .map_err(|_| ApiError::invalid_webhook_signature("ZamaPay webhook body must be UTF-8."))?;
 
-    if algorithm != "keccak256.secret_prefix.v1" {
-        return Err(ApiError::invalid_webhook_signature(
-            "Unsupported ZamaPay webhook signature algorithm.",
-        ));
-    }
-
-    let canonical_body = serde_json::to_string(payload)
-        .map_err(|_| ApiError::internal("webhook payload cannot be canonicalized"))?;
-    let signature_base = format!("{webhook_id}.{timestamp}.{canonical_body}");
-    let expected = format!(
-        "v1={}",
-        keyed_digest(&config.webhook_secret, &signature_base)
-    );
-
-    if provided != expected {
-        return Err(ApiError::invalid_webhook_signature(
-            "ZamaPay webhook signature mismatch.",
-        ));
-    }
-
-    Ok(())
+    verify_webhook_payload_result(
+        &config.webhook_secret,
+        webhook_id,
+        timestamp,
+        provided,
+        body,
+        current_unix_timestamp()?,
+    )
+    .map_err(webhook_verification_error)
 }
 
 fn header_text(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -535,6 +535,29 @@ fn required_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, Ap
         .ok_or(ApiError::invalid_webhook_signature(
             "ZamaPay webhook signature headers are incomplete.",
         ))
+}
+
+fn current_unix_timestamp() -> Result<i64, ApiError> {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| ApiError::internal("system clock is before unix epoch"))?
+        .as_secs();
+    i64::try_from(seconds).map_err(|_| ApiError::internal("system clock is outside unix seconds"))
+}
+
+fn webhook_verification_error(error: WebhookVerificationError) -> ApiError {
+    match error {
+        WebhookVerificationError::InvalidTimestamp => {
+            ApiError::invalid_webhook_signature("ZamaPay webhook timestamp is invalid.")
+        }
+        WebhookVerificationError::TimestampTooOld
+        | WebhookVerificationError::TimestampTooFarInFuture => ApiError::invalid_webhook_signature(
+            "ZamaPay webhook timestamp is outside the allowed tolerance.",
+        ),
+        WebhookVerificationError::InvalidSecret | WebhookVerificationError::InvalidSignature => {
+            ApiError::invalid_webhook_signature("ZamaPay webhook signature mismatch.")
+        }
+    }
 }
 
 fn cors(allowed_origins: Vec<String>) -> CorsLayer {
@@ -572,21 +595,4 @@ fn normalize_wallet_address(value: &str) -> Result<String, ApiError> {
         "invalid_wallet_address",
         "CardForge buyer wallet address must be a 20-byte hex address.",
     ))
-}
-
-fn keyed_digest(secret: &str, message: &str) -> String {
-    let digest = keccak256(format!("{secret}.{message}").as_bytes());
-    format!("0x{}", lower_hex(&digest))
-}
-
-fn lower_hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-
-    for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-
-    output
 }

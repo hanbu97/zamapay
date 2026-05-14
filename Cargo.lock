@@ -3083,6 +3083,7 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+ "webhook-verifier",
 ]
 
 [[package]]
@@ -3372,8 +3373,10 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "storage"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "chrono",
  "domain",
+ "ring",
  "sea-orm",
  "serde",
  "serde_json",
@@ -4007,6 +4010,14 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webhook-verifier"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ring",
 ]
 
 [[package]]

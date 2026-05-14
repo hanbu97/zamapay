@@ -1,13 +1,15 @@
-import { CheckCircle2Icon, CopyIcon, CreditCardIcon } from 'lucide-react'
+import { CheckCircle2Icon, CopyIcon, CreditCardIcon, RadioTowerIcon } from 'lucide-react'
 import { StatusStepper, type StatusStepperItem } from '@/components/commerce/StatusStepper'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { TableCell, TableRow } from '@/components/ui/table'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { BillingPlan, BillingSubscriptionResponse, PaymentProject, ProjectDashboardOverview, ProjectEnvironmentKind } from '@/lib/api'
+import { formatMinorTokenUnits } from '@/lib/amount-format'
 import { labelForProjectEnvironment } from '@/lib/contract-environment'
-import { runtimeCheckoutBaseUrl } from '@/lib/runtime-profile'
+import { formatEvmAssetAmount } from '@/lib/project-amounts'
 import { formatMerchantTimestamp } from '@/lib/time-format'
 
 export type OneTimeSecret = {
@@ -17,8 +19,64 @@ export type OneTimeSecret = {
   title: string
   value: string
 }
-const chainInvoiceApiUrl =
-  process.env.NEXT_PUBLIC_ZAMAPAY_CHAIN_INVOICE_API_URL ?? runtimeCheckoutBaseUrl()
+export function EvmAssetBalancesCard({ overview }: { overview: ProjectDashboardOverview }) {
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardAction>
+          <Badge variant="secondary">{overview.evmAssetBalances.length}</Badge>
+        </CardAction>
+        <CardTitle>ERC20 balances</CardTitle>
+        <CardDescription>Confirmed, pending, and exception amounts by chain and token.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Asset</TableHead>
+              <TableHead className="text-right">Confirmed</TableHead>
+              <TableHead className="hidden text-right md:table-cell">Pending</TableHead>
+              <TableHead className="hidden text-right lg:table-cell">Exceptions</TableHead>
+              <TableHead className="text-right">Withdrawable</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {overview.evmAssetBalances.length > 0 ? (
+              overview.evmAssetBalances.map((balance) => (
+                <TableRow key={`${balance.chainId}-${balance.tokenContract}`}>
+                  <TableCell>
+                    <div className="flex max-w-[360px] flex-col gap-1">
+                      <span className="font-medium">{balance.network} / {balance.tokenSymbol}</span>
+                      <span className="truncate font-mono text-xs text-muted-foreground">{balance.tokenContract}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">{formatEvmAssetAmount(balance, balance.confirmedMinorUnits)}</TableCell>
+                  <TableCell className="hidden text-right md:table-cell">{formatEvmAssetAmount(balance, balance.pendingMinorUnits)}</TableCell>
+                  <TableCell className="hidden text-right lg:table-cell">{formatEvmAssetAmount(balance, balance.exceptionMinorUnits)}</TableCell>
+                  <TableCell className="text-right">{formatEvmAssetAmount(balance, balance.withdrawableMinorUnits)}</TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={5}>
+                  <Empty className="border">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <RadioTowerIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>No ERC20 balances</EmptyTitle>
+                      <EmptyDescription>Confirmed ERC20 Transfer logs will appear here.</EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
 
 export function OneTimeSecretDialog({
   onClose,
@@ -33,17 +91,14 @@ export function OneTimeSecretDialog({
 }) {
   return (
     <Dialog onOpenChange={onOpenChange} open={Boolean(secret)}>
-      <DialogContent className="[--zamapay-dialog-width:44rem]" showCloseButton={false}>
+      <DialogContent className="overflow-hidden [--zamapay-dialog-width:44rem]" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{secret?.title ?? 'Copy secret'}</DialogTitle>
           <DialogDescription>{secret?.description ?? 'Copy this value before continuing.'}</DialogDescription>
         </DialogHeader>
         {secret ? (
-          <div className="flex flex-col gap-3">
-            <Badge className="w-fit" variant="outline">
-              {secret.copyLabel}
-            </Badge>
-            <pre className="max-h-48 overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs leading-5 whitespace-pre">{secret.value}</pre>
+          <div className="flex min-w-0 flex-col gap-3">
+            <pre className="max-h-48 max-w-full overflow-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-all">{secret.value}</pre>
           </div>
         ) : null}
         <DialogFooter>
@@ -152,7 +207,7 @@ export function MerchantSetupFlow({
     <Card size="sm">
       <CardHeader>
         <CardTitle>Setup flow</CardTitle>
-        <CardDescription>Create once, copy once, then let the merchant backend create checkouts by API key.</CardDescription>
+        <CardDescription>Create once, copy once, then let the merchant backend create checkouts by project secret.</CardDescription>
       </CardHeader>
       <CardContent>
         <StatusStepper ariaLabel="Merchant project setup steps" steps={getMerchantSetupSteps({ overview, selectedProject })} />
@@ -242,38 +297,15 @@ function planButtonLabel({
 }
 
 export function formatMinorUnits(value: number) {
-  return `${(value / 1_000_000).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  })} cUSDT`
-}
-
-export function formatCheckoutFee(session: ProjectDashboardOverview['checkoutSessions'][number]) {
-  const fee = session.billing?.platformFeeMinorUnits
-
-  return typeof fee === 'number' ? formatMinorUnits(fee) : 'not quoted'
+  return formatMinorTokenUnits(value)
 }
 
 export function buildIntegrationBundle({
-  apiBaseUrl,
-  apiKey,
-  projectId,
-  webhookSecret,
+  secretKey,
 }: {
-  apiBaseUrl: string
-  apiKey: string
-  projectId: string
-  webhookSecret: string | null
+  secretKey: string
 }) {
-  return [
-    buildEnvExport('ZAMAPAY_PROJECT_ID', projectId),
-    buildEnvExport('ZAMAPAY_API_KEY', apiKey),
-    buildEnvExport('ZAMAPAY_API_URL', apiBaseUrl),
-    buildEnvExport('ZAMAPAY_CHAIN_INVOICE_API_URL', chainInvoiceApiUrl),
-    buildEnvExport('ZAMAPAY_WEBHOOK_SECRET', webhookSecret ?? '<create a webhook endpoint first>'),
-    buildEnvExport('CARDFORGE_DATABASE_URL', 'postgres://zamapay:zamapay@127.0.0.1:5432/cardforge'),
-    buildEnvExport('CARDFORGE_STORE_KEY', 'local-dev'),
-  ].join('\n')
+  return buildEnvExport('ZAMAPAY_SECRET_KEY', secretKey)
 }
 
 export function buildEnvExport(key: string, value: string) {
@@ -313,7 +345,7 @@ function getMerchantSetupSteps({
   selectedProject: PaymentProject | null
 }): StatusStepperItem[] {
   const hasProject = Boolean(selectedProject)
-  const hasApiKey = Boolean(overview?.apiKeys.length)
+  const hasProjectSecret = Boolean(overview?.projectSecrets.length)
   const hasWebhook = Boolean(overview?.webhookEndpoints.length)
   const hasWebhookDelivery = Boolean(
     overview?.summary.deliveredWebhooks || overview?.summary.pendingDeliveries || overview?.summary.failedWebhooks,
@@ -330,17 +362,17 @@ function getMerchantSetupSteps({
       title: 'Create project',
     },
     {
-      description: hasApiKey
-        ? 'Backend can authenticate with project/API-key auth; no dashboard cookie forwarding is needed.'
-        : 'Copy the one-time env bundle into the merchant backend.',
-      state: !hasProject ? 'pending' : hasApiKey ? 'complete' : 'active',
+      description: hasProjectSecret
+        ? 'Backend can authenticate with project secret auth; no dashboard cookie forwarding is needed.'
+        : 'Copy the one-time project secret key.',
+      state: !hasProject ? 'pending' : hasProjectSecret ? 'complete' : 'active',
       title: 'Copy backend config',
     },
     {
       description: hasWebhook
         ? 'Project outbox has an endpoint and signing secret.'
         : 'Configure a webhook endpoint so fulfillment can receive signed payment events.',
-      state: !hasApiKey ? 'pending' : hasWebhook ? 'complete' : 'active',
+      state: !hasProjectSecret ? 'pending' : hasWebhook ? 'complete' : 'active',
       title: 'Configure webhook',
     },
     {

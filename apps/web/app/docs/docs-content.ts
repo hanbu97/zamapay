@@ -47,7 +47,7 @@ export type DocsPage = {
 export const docsPages: DocsPage[] = [
   {
     badge: "Start here",
-    description: "Create a payment project, issue a project API key, and hand CardForge a hosted checkout contract.",
+    description: "Create a payment project, issue one project secret key, and hand CardForge a hosted checkout contract.",
     icon: BookOpenIcon,
     slug: "quickstart",
     title: "Quickstart",
@@ -69,8 +69,8 @@ export const docsPages: DocsPage[] = [
             title: "Create a payment project",
           },
           {
-            detail: "Generate a project API key and copy the one-time value into the merchant backend environment. Store the prefix for operations, not as an auth secret.",
-            title: "Generate a project API key",
+            detail: "Generate a project secret key and copy the one-time value into the merchant backend environment. Store only the prefix for operations.",
+            title: "Generate a project secret key",
           },
           {
             detail: "Call the project checkout endpoint from the merchant backend. The merchant frontend must never call this endpoint with a dashboard cookie.",
@@ -119,15 +119,15 @@ just cardforge-api-supabase-local`,
   },
   {
     badge: "API",
-    description: "Use project/API-key auth for external merchant checkout creation. Dashboard cookies are not part of this boundary.",
+    description: "Use project secret auth for external merchant checkout creation. Dashboard cookies are not part of this boundary.",
     icon: BracesIcon,
     slug: "api-reference",
     title: "API reference",
     sections: [
       {
         body: [
-          "Project management endpoints are dashboard authenticated with the `zamapay_session` cookie. Checkout creation is different: it is authenticated by a project API key and an idempotency key.",
-          "This split is the core safety boundary. A leaked dashboard cookie should not be needed by merchant infrastructure, and a project API key should not control the dashboard.",
+          "Project management endpoints are dashboard authenticated with the `zamapay_session` cookie. Checkout creation is different: it is authenticated by a project secret key and an idempotency key.",
+          "This split is the core safety boundary. A leaked dashboard cookie should not be needed by merchant infrastructure, and a project secret key should not control the dashboard.",
         ],
         figure: "api-handoff",
         id: "auth-model",
@@ -135,21 +135,23 @@ just cardforge-api-supabase-local`,
           headers: ["Endpoint", "Auth", "Purpose"],
           rows: [
             ["POST /api/projects", "zamapay_session cookie", "Create a merchant payment project."],
-            ["POST /api/projects/{projectId}/api-keys", "zamapay_session cookie", "Create a one-time project API key."],
-            ["POST /api/projects/{projectId}/webhook-endpoints", "zamapay_session cookie", "Register or rotate a webhook endpoint."],
-            ["POST /api/projects/{projectId}/checkout-sessions", "Bearer project API key", "Create a buyer-payable hosted checkout session."],
-            ["GET /api/projects/{projectId}/checkout-sessions/{checkoutSessionId}", "Bearer project API key", "Read one checkout session from merchant backend code."],
+            ["POST /api/projects/{projectId}/project-secrets", "zamapay_session cookie", "Create a one-time project secret key."],
+            ["GET /api/project-secret/bootstrap", "Bearer project secret key", "Fetch project id and current webhook verifier context from merchant backend code."],
+            ["POST /api/projects/{projectId}/webhook-endpoints", "zamapay_session cookie", "Register a webhook endpoint; receiver secrets stay behind project-secret bootstrap."],
+            ["POST /api/projects/{projectId}/webhook-endpoints/{endpointId}/rotate-secret", "zamapay_session cookie", "Rotate one endpoint secret; merchant backends refresh it through bootstrap."],
+            ["POST /api/projects/{projectId}/checkout-sessions", "Bearer project secret key", "Create a buyer-payable hosted checkout session."],
+            ["GET /api/projects/{projectId}/checkout-sessions/{checkoutSessionId}", "Bearer project secret key", "Read one checkout session from merchant backend code."],
           ],
         },
         title: "Authentication boundaries",
       },
       {
         body: [
-          "Send checkout creation from your merchant backend. The request must include `Authorization: Bearer <project API key>` and `idempotency-key`.",
+          "Send checkout creation from your merchant backend. The request must include `Authorization: Bearer <project secret key>` and `idempotency-key`.",
         ],
         code: `curl -X POST \\
-  http://127.0.0.1:8080/api/projects/proj_123/checkout-sessions \\
-  -H "authorization: Bearer zmp_test_..." \\
+  http://127.0.0.1:18080/api/projects/proj_123/checkout-sessions \\
+  -H "authorization: Bearer zms_test_..." \\
   -H "idempotency-key: order_1001" \\
   -H "content-type: application/json" \\
   -d '{
@@ -177,42 +179,51 @@ just cardforge-api-supabase-local`,
       {
         body: [
           "ZamaPay emits project-level webhook events after the payment read model and finality gate agree. Each delivery records attempt count, HTTP status, response body, error, retry state, and dead-letter state.",
-          "Webhook payloads are at-least-once. The merchant backend must use `x-zamapay-webhook-id` or the event id as an idempotency key.",
+          "Webhook payloads are at-least-once. The merchant backend must use `svix-id` or the event id as an idempotency key.",
         ],
         figure: "webhook-outbox",
         id: "delivery-model",
         table: {
           headers: ["Header", "Example", "Use"],
           rows: [
-            ["x-zamapay-webhook-id", "deliv_...", "Delivery id for idempotent processing."],
-            ["x-zamapay-event-id", "evt_...", "Immutable event id."],
-            ["x-zamapay-webhook-timestamp", "2026-05-07T05:00:00Z", "Signed timestamp."],
-            ["x-zamapay-webhook-signature", "v1=0x...", "Payload authenticity proof."],
-            ["x-zamapay-webhook-algorithm", "keccak256.secret_prefix.v1", "Signature algorithm version."],
+            ["svix-id", "del_...", "Delivery id for idempotent processing."],
+            ["svix-event-id", "evt_...", "Immutable event id."],
+            ["svix-timestamp", "1778767200", "Unix-second signed timestamp."],
+            ["svix-signature", "v1,base64...", "HMAC-SHA256 proof over the raw request body."],
           ],
         },
         title: "Delivery model",
       },
       {
         body: [
-          "Verification canonicalizes the JSON body, builds `deliveryId.timestamp.canonicalBody`, and checks the keyed digest with the webhook secret. Reject missing headers before reading business fields.",
+          "Verification uses the raw HTTP body bytes, builds `svixId.timestamp.rawBody`, and checks the HMAC-SHA256 proof with the endpoint secret. Reject missing or stale headers before reading business fields.",
         ],
-        code: `import { keccak256, toUtf8Bytes } from "ethers"
+        code: `import { createHmac, timingSafeEqual } from "node:crypto"
 
-export function verifyZamaPayWebhook(headers, body, secret) {
-  const deliveryId = headers["x-zamapay-webhook-id"]
-  const timestamp = headers["x-zamapay-webhook-timestamp"]
-  const signature = headers["x-zamapay-webhook-signature"]
-  const algorithm = headers["x-zamapay-webhook-algorithm"]
+export function verifyZamaPayWebhook(headers, rawBody, secret) {
+  const id = headers["svix-id"]
+  const timestamp = headers["svix-timestamp"]
+  const signature = headers["svix-signature"]
+  if (!id || !timestamp || !signature) throw new Error("missing signature headers")
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) throw new Error("stale webhook")
 
-  if (algorithm !== "keccak256.secret_prefix.v1") throw new Error("unsupported algorithm")
+  const base = \`\${id}.\${timestamp}.\${rawBody}\`
+  const expected = "v1," + createHmac("sha256", webhookKey(secret)).update(base).digest("base64")
+  const valid = signature.split(" ").some((part) => safeEqual(part, expected))
+  if (!valid) throw new Error("invalid signature")
 
-  const canonicalBody = JSON.stringify(body)
-  const base = \`\${deliveryId}.\${timestamp}.\${canonicalBody}\`
-  const expected = "v1=" + keccak256(toUtf8Bytes(\`\${secret}.\${base}\`))
-  if (signature !== expected) throw new Error("invalid signature")
+  return JSON.parse(rawBody)
+}
 
-  return body
+function webhookKey(secret) {
+  const body = secret.startsWith("whsec_") ? secret.slice(6) : secret
+  return Buffer.from(body, "base64")
+}
+
+function safeEqual(left, right) {
+  const a = Buffer.from(left)
+  const b = Buffer.from(right)
+  return a.length === b.length && timingSafeEqual(a, b)
 }`,
         id: "verify-signature",
         title: "Verify a webhook",
@@ -229,20 +240,18 @@ export function verifyZamaPayWebhook(headers, body, secret) {
       {
         body: [
           "CardForge is not part of the ZamaPay platform app. It is a standalone merchant template under `demo/cardforge` and receives only project configuration.",
-          "The browser talks to CardForge. CardForge talks to ZamaPay with its project API key. Browser cookies from ZamaPay must not be forwarded.",
+          "The browser talks to CardForge. CardForge talks to ZamaPay with its project secret key. Browser cookies from ZamaPay must not be forwarded.",
         ],
         figure: "cardforge",
         id: "standalone-boundary",
         table: {
           headers: ["Variable", "Required", "Meaning"],
           rows: [
-            ["ZAMAPAY_PROJECT_ID", "yes", "Project id from the merchant console."],
-            ["ZAMAPAY_API_KEY", "yes", "One-time revealed project API key."],
-            ["ZAMAPAY_WEBHOOK_SECRET", "yes", "Secret used to verify ZamaPay webhook signatures."],
-            ["ZAMAPAY_API_URL", "yes", "Rust API base URL, for example http://127.0.0.1:8080."],
-            ["ZAMAPAY_CHAIN_INVOICE_API_URL", "yes", "ZamaPay web URL used by the backend to create local-dev private chain invoices."],
-            ["CARDFORGE_DATABASE_URL", "yes", "Independent CardForge Postgres database URL."],
-            ["CARDFORGE_STORE_KEY", "optional", "Local namespace inside the CardForge database; defaults to local-dev."],
+            ["ZAMAPAY_SECRET_KEY", "project export", "`zms_test_...` server-side project secret used by CardForge to bootstrap project and webhook context."],
+            ["ZAMAPAY_API_URL", "deployment runtime", "Shared ZamaPay API base URL for this deployment, for example http://127.0.0.1:18080. It is not project-specific."],
+            ["ZAMAPAY_CHAIN_INVOICE_API_URL", "private local helper", "CardForge-only local-dev URL used to create Zama private chain invoices before hosted checkout creation."],
+            ["CARDFORGE_DATABASE_URL", "CardForge runtime", "Independent CardForge Postgres database URL from env templates, not a ZamaPay project credential."],
+            ["CARDFORGE_STORE_KEY", "CardForge runtime", "Local namespace inside the CardForge database; defaults to local-dev."],
             ["CARDFORGE_WEBHOOK_ENDPOINT", "optional", "Defaults to http://127.0.0.1:8092/api/zamapay/webhook."],
             ["NEXT_PUBLIC_CARDFORGE_API_URL", "frontend only", "Browser-safe CardForge backend URL."],
             ["NEXT_PUBLIC_ZAMAPAY_CONSOLE_URL", "frontend only", "Browser-safe link back to the ZamaPay merchant console."],
@@ -660,7 +669,7 @@ struct PrivateCheckout {
       {
         body: [
           "`local-dev` is the fast mock-encryption product loop. `sepolia` is the public-testnet target that uses the real Zama FHEVM stack and deployed manifests.",
-          "Keep environment explicit in projects, API keys, checkout sessions, webhook endpoints, events, and delivery records so the same read model can move from local-dev to Sepolia without hidden defaults.",
+          "Keep environment explicit in projects, project secrets, checkout sessions, webhook endpoints, events, and delivery records so the same read model can move from local-dev to Sepolia without hidden defaults.",
         ],
         id: "environment-policy",
         table: {
@@ -710,8 +719,8 @@ export const docsChecklist = [
   },
   {
     icon: KeyRoundIcon,
-    title: "API key boundary",
-    value: "Merchant backends create checkouts with project API keys, not session cookies.",
+    title: "Secret key boundary",
+    value: "Merchant backends create checkouts with project secret keys, not session cookies.",
   },
   {
     icon: WebhookIcon,

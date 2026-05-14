@@ -17,6 +17,6 @@ test('auth-login e2e mints a Rust session and guards dashboard access', async ()
   const dashboard = await readText(`${WEB_BASE_URL}/dashboard`, {
     headers: { cookie: login.cookie },
   })
-  assert.match(dashboard, /Payments/)
-  assert.match(dashboard, /No payment project|Checkout sessions/)
+  assert.match(dashboard, /Overview/)
+  assert.match(dashboard, /No payment project|Recent checkout sessions/)
 })

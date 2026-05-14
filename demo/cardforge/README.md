@@ -4,7 +4,7 @@ Standalone merchant template for proving a ZamaPay integration without mounting 
 
 ## Run
 
-Start ZamaPay API and web from the repository root first. In the ZamaPay console, create a project, create an API key, and add this webhook URL:
+Start ZamaPay API and web from the repository root first. In the ZamaPay console, create a project, create a project secret key, and add this webhook URL:
 
 ```text
 http://127.0.0.1:8092/api/zamapay/webhook
@@ -18,7 +18,7 @@ npm run reset:local-dev
 
 This recreates the separate `zamapay` and `cardforge` databases before redeploying local contracts.
 
-Copy the shell exports shown by the ZamaPay project dialog into the CardForge backend terminal. The bundle includes `ZAMAPAY_CHAIN_INVOICE_API_URL=http://127.0.0.1:3001`, so CardForge creates a local-dev private settlement invoice before it opens hosted checkout. Then run the template from its own directories.
+Copy the `ZAMAPAY_SECRET_KEY` shell export shown by the ZamaPay project dialog into the CardForge backend terminal. Shared deployment endpoints such as `ZAMAPAY_CHAIN_INVOICE_API_URL=http://127.0.0.1:3001` stay in the env template, so CardForge can bootstrap project/webhook context and create a local-dev private settlement invoice before it opens hosted checkout. Then run the template from its own directories.
 
 ```bash
 set -a
@@ -59,4 +59,4 @@ When no local explorer is running, CardForge still records and displays the conf
 - `backend/` owns server-side product amounts, ZamaPay checkout creation, local-dev private invoice creation, webhook receipt, release policy, and CardForge-owned Postgres state.
 - ZamaPay owns login, project configuration, hosted checkout, invoice truth, finality, and settlement.
 - The root ZamaPay workspace does not start, build, lint, or import this template.
-- CardForge uses `ZAMAPAY_PROJECT_ID` and `ZAMAPAY_API_KEY` only; it does not forward `zamapay_session` cookies to ZamaPay.
+- CardForge uses the server-side `ZAMAPAY_SECRET_KEY` only; it does not forward `zamapay_session` cookies to ZamaPay.

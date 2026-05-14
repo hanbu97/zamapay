@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CheckCircle2Icon, CreditCardIcon, LockKeyholeIcon, ShieldCheckIcon } from 'lucide-react'
+import { CheckCircle2Icon, CopyIcon, CreditCardIcon, LockKeyholeIcon, RefreshCcwIcon, ShieldCheckIcon } from 'lucide-react'
 import { bytesToHex, createPublicClient, createWalletClient, custom, getAddress, http } from 'viem'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -11,9 +11,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Spinner } from '@/components/ui/spinner'
 import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib/contract-environment'
 import { privateCheckoutSettlementAbi } from '@/lib/contracts'
-import { getInvoiceRecord } from '@/lib/api'
+import { getInvoiceRecord, type EvmPaymentIntent, type PaymentRail, type SupportedEvmAsset } from '@/lib/api'
 import { encryptLocalEuint64 } from '@/lib/local-fhevm-browser'
-import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
+import { ensureEthereumProvider, ensureWalletChain, type WalletChain } from '@/lib/wallet'
 import { encryptSepoliaEuint64, publicDecryptSepoliaBool } from '@/lib/zama-relayer-browser'
 
 type HexAddress = `0x${string}`
@@ -23,23 +23,33 @@ type CheckoutPaymentCardProps = {
   amountLabel: string
   amountMinorUnits: number
   chainInvoiceId: number | null
+  evmAsset: SupportedEvmAsset | null
+  evmPaymentIntent: EvmPaymentIntent | null
   finalityStatus: string
   invoiceId: string
   manifestChainId: number | null
   merchantName: string
+  paymentRail: PaymentRail
   paymentTruth: string
   settlementAddress: string | null
   title: string
   tokenAddress: string | null
 }
 
-const checkoutStatus = {
-  accepted: 3,
-  created: 1,
-  expired: 5,
-  rejected: 4,
-  submitted: 2,
-} as const
+const erc20TransferAbi = [
+  {
+    type: 'function',
+    name: 'transfer',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      { name: 'amount', type: 'uint256' },
+    ],
+    outputs: [{ name: '', type: 'bool' }],
+  },
+] as const
+
+const checkoutStatus = { accepted: 3, created: 1, expired: 5, rejected: 4, submitted: 2 } as const
 
 function ensureHexAddress(address: string | null, label: string): HexAddress {
   if (!address) {
@@ -54,7 +64,7 @@ function ensureHexAddress(address: string | null, label: string): HexAddress {
 }
 
 function readableError(caught: unknown): string {
-  const message = caught instanceof Error ? caught.message : 'Confidential payment failed.'
+  const message = caught instanceof Error ? caught.message : 'Payment failed.'
 
   if (message.includes('User rejected')) {
     return 'Wallet request was rejected. Confirm the next wallet prompt to continue.'
@@ -73,9 +83,13 @@ function isPaymentComplete(paymentTruth: string, finalityStatus: string) {
   return paymentTruth === 'paid' || finalityStatus === 'finality_safe'
 }
 
-function initialPaymentStatus(paymentTruth: string, finalityStatus: string) {
-  return isPaymentComplete(paymentTruth, finalityStatus)
-    ? 'Payment complete.'
+function initialPaymentStatus(paymentTruth: string, finalityStatus: string, paymentRail: PaymentRail) {
+  if (isPaymentComplete(paymentTruth, finalityStatus)) {
+    return 'Payment complete.'
+  }
+
+  return paymentRail === 'evm_erc20'
+    ? 'Send the exact ERC20 amount to the assigned address.'
     : 'Confirm the private payment with your wallet.'
 }
 
@@ -105,10 +119,13 @@ export function CheckoutPaymentCard({
   amountLabel,
   amountMinorUnits,
   chainInvoiceId,
+  evmAsset,
+  evmPaymentIntent,
   finalityStatus,
   invoiceId,
   manifestChainId,
   merchantName,
+  paymentRail,
   paymentTruth,
   settlementAddress,
   title,
@@ -120,15 +137,27 @@ export function CheckoutPaymentCard({
   const [isBusy, setIsBusy] = useState(false)
   const [optimisticPaid, setOptimisticPaid] = useState(false)
   const [preferredPayerAddress, setPreferredPayerAddress] = useState<HexAddress | null>(null)
-  const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus))
+  const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus, paymentRail))
 
+  const isEvmPayment = paymentRail === 'evm_erc20'
   const manifestEnvironment = contractEnvironmentForChainId(manifestChainId)
   const paymentEnvironment = manifestEnvironment ? contractEnvironmentConfigs[manifestEnvironment] : null
-  const supportsBrowserPayment = manifestEnvironment === 'local-dev' || manifestEnvironment === 'sepolia'
+  const supportsPrivatePayment = manifestEnvironment === 'local-dev' || manifestEnvironment === 'sepolia'
   const isPaid = optimisticPaid || isPaymentComplete(paymentTruth, finalityStatus)
-  const isPayable = paymentTruth === 'pending_payment' && chainInvoiceId !== null
-  const canPay = isPayable && supportsBrowserPayment && Boolean(settlementAddress) && Boolean(tokenAddress)
-  const paymentBadgeLabel = isPaid ? 'Success' : canPay ? `${paymentEnvironment?.label ?? 'Chain'} ready` : 'Awaiting private invoice'
+  const isPayable =
+    paymentTruth === 'pending_payment' && (isEvmPayment ? evmPaymentIntent !== null : chainInvoiceId !== null)
+  const canPay = isEvmPayment
+    ? isPayable && Boolean(evmAsset) && Boolean(evmPaymentIntent)
+    : isPayable && supportsPrivatePayment && Boolean(settlementAddress) && Boolean(tokenAddress)
+  const paymentBadgeLabel = isPaid
+    ? 'Success'
+    : canPay
+      ? isEvmPayment
+        ? `${evmPaymentIntent?.network ?? 'EVM'} ready`
+        : `${paymentEnvironment?.label ?? 'Chain'} ready`
+      : isEvmPayment
+        ? 'Awaiting ERC20 rail'
+        : 'Awaiting private invoice'
 
   useEffect(() => {
     if (!isPaymentComplete(paymentTruth, finalityStatus)) {
@@ -136,8 +165,8 @@ export function CheckoutPaymentCard({
     }
 
     setError(null)
-    setStatus(initialPaymentStatus(paymentTruth, finalityStatus))
-  }, [finalityStatus, paymentTruth])
+    setStatus(initialPaymentStatus(paymentTruth, finalityStatus, paymentRail))
+  }, [finalityStatus, paymentRail, paymentTruth])
 
   useEffect(() => {
     return () => {
@@ -160,6 +189,11 @@ export function CheckoutPaymentCard({
     setOptimisticPaid(false)
 
     try {
+      if (isEvmPayment) {
+        await handleEvmPayment()
+        return
+      }
+
       if (!canPay || chainInvoiceId === null) {
         throw new Error('This checkout is not ready for browser payment.')
       }
@@ -170,7 +204,7 @@ export function CheckoutPaymentCard({
 
       const provider = ensureEthereumProvider()
 
-      if (paymentEnvironment && supportsBrowserPayment) {
+      if (paymentEnvironment && supportsPrivatePayment) {
         const settlement = ensureHexAddress(settlementAddress, 'PrivateCheckoutSettlement')
         ensureHexAddress(tokenAddress, 'ConfidentialUSDMock')
         const rpcUrl = paymentEnvironment.walletChain.rpcUrls[0]
@@ -297,6 +331,53 @@ export function CheckoutPaymentCard({
     }
   }
 
+  async function handleEvmPayment() {
+    if (!canPay || !evmPaymentIntent || !evmAsset) {
+      throw new Error('This checkout has no supported ERC20 payment asset.')
+    }
+
+    if (amountMinorUnits <= 0) {
+      throw new Error('Invoice amount must be greater than zero.')
+    }
+
+    const token = ensureHexAddress(evmPaymentIntent.tokenContract, 'ERC20 token')
+    const receiver = ensureHexAddress(evmPaymentIntent.receiverAddress, 'receiver address')
+    const provider = ensureEthereumProvider()
+    const walletChain = evmAssetWalletChain(evmAsset)
+    const payerAddress = await resolvePayerAddress({
+      provider,
+      preferredPayerAddress,
+      setStatus,
+    })
+
+    setStatus(`Switching wallet to ${walletChain.name}...`)
+    await ensureWalletChain(provider, walletChain)
+
+    setStatus(`Confirm ${amountLabel} ${evmPaymentIntent.tokenSymbol} transfer.`)
+    const walletClient = createWalletClient({ transport: custom(provider) })
+    const publicClient = createPublicClient({ transport: http(evmAsset.rpcUrl) })
+    const txHash = await walletClient.writeContract({
+      account: payerAddress,
+      chain: null,
+      address: token,
+      abi: erc20TransferAbi,
+      functionName: 'transfer',
+      args: [receiver, BigInt(evmPaymentIntent.expectedAmountMinorUnits)],
+    })
+
+    await publicClient.waitForTransactionReceipt({ hash: txHash })
+    setStatus('Transfer submitted. Waiting for indexer confirmations...')
+
+    const projected = await waitForEvmPaymentProjection(invoiceId)
+    if (projected) {
+      completePayment()
+      return
+    }
+
+    setStatus('Transfer submitted. Refreshing while the indexer confirms it.')
+    router.refresh()
+  }
+
   function completePayment() {
     setOptimisticPaid(true)
     setStatus('Payment successful. Returning to CardForge...')
@@ -312,7 +393,7 @@ export function CheckoutPaymentCard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <Badge className="w-fit" variant="outline">
             <ShieldCheckIcon data-icon="inline-start" />
-            Secure hosted checkout
+            {isEvmPayment ? 'ERC20 hosted checkout' : 'Secure hosted checkout'}
           </Badge>
           <Badge
             className={isPaid ? 'border-emerald-200 bg-emerald-600 text-white hover:bg-emerald-600' : undefined}
@@ -341,6 +422,38 @@ export function CheckoutPaymentCard({
           </div>
         </div>
 
+        {isEvmPayment ? (
+          <div className="rounded-[8px] border bg-background/70 p-4">
+            <div className="grid gap-3 text-sm sm:grid-cols-2">
+              <CheckoutDetail label="Network" value={evmPaymentIntent?.network ?? 'Unavailable'} />
+              <CheckoutDetail label="Token" value={evmPaymentIntent?.tokenSymbol ?? 'Unavailable'} />
+              <CheckoutDetail
+                className="sm:col-span-2"
+                label="Receive address"
+                value={evmPaymentIntent?.receiverAddress ?? 'Unavailable'}
+              />
+              <CheckoutDetail label="Status" value={formatIntentStatus(evmPaymentIntent?.status)} />
+              <CheckoutDetail label="Expires" value={formatDateTime(evmPaymentIntent?.expiresAt)} />
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                disabled={!evmPaymentIntent}
+                onClick={() => void copyEvmAddress(evmPaymentIntent?.receiverAddress, setStatus)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <CopyIcon data-icon="inline-start" />
+                Copy address
+              </Button>
+              <Button onClick={() => router.refresh()} size="sm" type="button" variant="outline">
+                <RefreshCcwIcon data-icon="inline-start" />
+                Refresh status
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
         <div
           className={
             isPaid
@@ -359,7 +472,9 @@ export function CheckoutPaymentCard({
               {isPaid ? <CheckCircle2Icon className="size-4" /> : <LockKeyholeIcon className="size-4" />}
             </div>
             <div className="min-w-0">
-              <div className="text-sm font-medium">{isPaid ? 'Success' : 'Ready for private payment'}</div>
+              <div className="text-sm font-medium">
+                {isPaid ? 'Success' : isEvmPayment ? 'Ready for ERC20 transfer' : 'Ready for private payment'}
+              </div>
               <p className={isPaid ? 'mt-1 text-sm text-emerald-800' : 'mt-1 text-sm text-muted-foreground'}>
                 {status}
               </p>
@@ -390,11 +505,13 @@ export function CheckoutPaymentCard({
           </Alert>
         ) : null}
 
-        {!supportsBrowserPayment ? (
+        {!canPay && !isPaid ? (
           <Alert>
             <AlertTitle>Payment unavailable</AlertTitle>
             <AlertDescription>
-              No deployed private checkout manifest is available for this chain.
+              {isEvmPayment
+                ? 'No enabled receiver address is available for this ERC20 asset.'
+                : 'No deployed private checkout manifest is available for this chain.'}
             </AlertDescription>
           </Alert>
         ) : null}
@@ -403,7 +520,7 @@ export function CheckoutPaymentCard({
         <CardFooter className="flex-col items-stretch gap-3 px-5 pb-5 sm:px-7 sm:pb-7">
           <Button className="h-12 w-full text-base" disabled={!canPay || isBusy} onClick={handlePayment} type="button">
             {isBusy ? <Spinner data-icon="inline-start" /> : <CreditCardIcon data-icon="inline-start" />}
-            {paymentButtonLabel({ canPay, isBusy })}
+            {paymentButtonLabel({ canPay, isBusy, paymentRail })}
           </Button>
         </CardFooter>
       ) : null}
@@ -411,12 +528,33 @@ export function CheckoutPaymentCard({
   )
 }
 
-function paymentButtonLabel({ canPay, isBusy }: { canPay: boolean; isBusy: boolean }) {
+function CheckoutDetail({ className = '', label, value }: { className?: string; label: string; value: string }) {
+  return (
+    <div className={className}>
+      <div className="text-xs font-medium uppercase tracking-normal text-muted-foreground">{label}</div>
+      <div className="mt-1 break-all font-mono text-xs text-foreground">{value}</div>
+    </div>
+  )
+}
+
+function paymentButtonLabel({
+  canPay,
+  isBusy,
+  paymentRail,
+}: {
+  canPay: boolean
+  isBusy: boolean
+  paymentRail: PaymentRail
+}) {
   if (isBusy) {
     return 'Processing payment...'
   }
 
-  return canPay ? 'Pay confidentially' : 'Payment unavailable'
+  if (!canPay) {
+    return 'Payment unavailable'
+  }
+
+  return paymentRail === 'evm_erc20' ? 'Pay ERC20 transfer' : 'Pay confidentially'
 }
 
 async function waitForPaymentProjection(input: { invoiceId: string; projectPayment: Promise<void> }): Promise<boolean> {
@@ -435,6 +573,84 @@ async function waitForPaymentProjection(input: { invoiceId: string; projectPayme
 async function isProjectedPaid(invoiceId: string): Promise<boolean> {
   const invoice = await getInvoiceRecord(invoiceId).catch(() => null)
   return Boolean(invoice && isPaymentComplete(invoice.snapshot.paymentTruth, invoice.snapshot.finalityStatus))
+}
+
+async function waitForEvmPaymentProjection(invoiceId: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    await delay(2_500)
+    if (await isProjectedPaid(invoiceId)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+async function copyEvmAddress(address: string | null | undefined, setStatus: (status: string) => void) {
+  if (!address) {
+    setStatus('No receive address is available.')
+    return
+  }
+
+  try {
+    await navigator.clipboard.writeText(address)
+    setStatus('Receive address copied.')
+  } catch {
+    setStatus('Clipboard permission denied. Select the receive address and copy it manually.')
+  }
+}
+
+function evmAssetWalletChain(asset: SupportedEvmAsset): WalletChain {
+  return {
+    id: asset.chainId,
+    name: asset.network,
+    nativeCurrency: {
+      decimals: 18,
+      name: asset.nativeSymbol,
+      symbol: asset.nativeSymbol,
+    },
+    rpcUrls: [asset.rpcUrl],
+  }
+}
+
+function formatIntentStatus(status: EvmPaymentIntent['status'] | undefined) {
+  switch (status) {
+    case 'confirmed':
+      return 'Confirmed'
+    case 'detected':
+      return 'Detected'
+    case 'underpaid':
+      return 'Underpaid'
+    case 'overpaid':
+      return 'Overpaid'
+    case 'expired':
+      return 'Expired'
+    case 'failed':
+      return 'Failed'
+    case 'requires_payment':
+      return 'Awaiting transfer'
+    default:
+      return 'Unavailable'
+  }
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) {
+    return 'Unavailable'
+  }
+  return new Intl.DateTimeFormat('en-US', {
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    month: 'short',
+    timeZoneName: 'short',
+    timeZone: 'UTC',
+    year: 'numeric',
+  }).format(new Date(value))
 }
 
 function shortInvoiceId(invoiceId: string) {

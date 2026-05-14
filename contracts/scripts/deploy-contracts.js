@@ -41,6 +41,12 @@ async function main() {
   await (await token.setSettlement(await privateCheckout.getAddress())).wait()
   await (await subscriptionRegistry.setSettlement(await privateCheckout.getAddress())).wait()
 
+  const standardErc20Factory = await ethers.getContractFactory('StandardERC20Mock')
+  const standardUsdt = await standardErc20Factory.deploy('Local USDT', 'USDT', 6)
+  await standardUsdt.waitForDeployment()
+  const standardUsdc = await standardErc20Factory.deploy('Local USDC', 'USDC', 6)
+  await standardUsdc.waitForDeployment()
+
   const network = await ethers.provider.getNetwork()
   const billing = await readBillingProtocol({ subscriptionRegistry })
   const manifest = {
@@ -59,6 +65,20 @@ async function main() {
       claimAmountMinorUnits: '1000000000',
       functionName: 'claimTestTokens',
     },
+    standardErc20Tokens: [
+      {
+        symbol: 'USDT',
+        contract: await standardUsdt.getAddress(),
+        decimals: 6,
+        faucetFunctionName: 'claimTestTokens',
+      },
+      {
+        symbol: 'USDC',
+        contract: await standardUsdc.getAddress(),
+        decimals: 6,
+        faucetFunctionName: 'claimTestTokens',
+      },
+    ],
     generatedAt: new Date().toISOString(),
     deployer: deployer.address,
     platformFeeWallet,

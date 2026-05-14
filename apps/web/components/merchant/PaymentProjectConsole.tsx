@@ -9,9 +9,12 @@ import {
   CheckCircle2Icon,
   KeyRoundIcon,
   LandmarkIcon,
+  PowerIcon,
+  PowerOffIcon,
   RadioTowerIcon,
   ReceiptTextIcon,
   RotateCcwIcon,
+  ShieldCheckIcon,
 } from 'lucide-react'
 import { StatusBadge } from '@/components/commerce/StatusBadge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -26,28 +29,43 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import {
   configureProjectWebhook,
-  createProjectApiKey,
+  createProjectSecret,
   createProjectWithdrawal,
   getProjectOverview,
   resendProjectWebhookDelivery,
+  rotateProjectWebhookSecret,
   testProjectWebhook,
+  updateProjectPaymentRail,
   type BillingSubscriptionResponse,
+  type PaymentRail,
   type ProjectDashboardOverview,
+  type EvmTransferLedgerEntry,
   type WebhookDeliveryRecord,
 } from '@/lib/api'
-import { runtimeApiBaseUrl } from '@/lib/runtime-profile'
+import { formatTokenUnits } from '@/lib/amount-format'
+import {
+  formatCheckoutAmountForProject,
+  formatCheckoutFeeForProject,
+  formatProjectMinorUnits,
+  projectBalanceSymbol,
+} from '@/lib/project-amounts'
+import {
+  paymentRailDescriptors,
+  paymentRailLabel,
+  paymentRailTruthSource,
+  projectPaymentRailSetting,
+} from '@/lib/payment-rails'
 import {
   CodeBlock,
+  EvmAssetBalancesCard,
   FactRow,
   MerchantSetupFlow,
   MetricCard,
   OneTimeSecretDialog,
-  buildEnvExport,
   buildIntegrationBundle,
   compact,
   copyText,
   formatBps,
-  formatCheckoutFee,
   formatMinorUnits,
   formatTime,
   type OneTimeSecret,
@@ -64,6 +82,10 @@ import {
   runProjectWithdraw,
   verifiedPendingProjectWithdraws,
 } from './PaymentProjectWithdraw'
+import {
+  localProjectEvmWithdrawAsset,
+  runLocalProjectEvmWithdraw,
+} from './PaymentProjectEvmWithdraw'
 
 export type ProjectConsoleTab = 'overview' | 'integration' | 'webhooks' | 'payments'
 const defaultProjectWebhookUrl =
@@ -102,13 +124,12 @@ export function PaymentProjectConsole({
   const router = useRouter()
   const [overview, setOverview] = useState(initialOverview)
   const [webhookUrl, setWebhookUrl] = useState(overview.webhookEndpoints[0]?.url ?? defaultProjectWebhookUrl)
-  const [apiKeyLabel, setApiKeyLabel] = useState('Merchant backend')
+  const [secretLabel, setSecretLabel] = useState('Merchant backend')
   const [oneTimeSecret, setOneTimeSecret] = useState<OneTimeSecret | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [balanceRange, setBalanceRange] = useState<BalanceRangeKey>('7d')
-  const apiBaseUrl = runtimeApiBaseUrl()
   const project = overview.project
   const balanceActivities = useMemo(() => projectBalanceActivities(overview), [overview])
   const activeTab = normalizeTab(initialTab)
@@ -116,10 +137,7 @@ export function PaymentProjectConsole({
   const currentPlanCatalog = activeBillingPlan ? initialBilling?.plans.find((plan) => plan.plan === activeBillingPlan) : null
   const checkoutFeeBps = currentPlanCatalog?.checkoutFeeBps ?? projectedCheckoutFeeBps(overview)
   const integrationSnippet = buildIntegrationBundle({
-    apiBaseUrl,
-    apiKey: '<generated once>',
-    projectId: project.projectId,
-    webhookSecret: '<shown once when webhook is created>',
+    secretKey: '<generated once>',
   })
 
   function revealOneTimeSecret(secret: Omit<OneTimeSecret, 'copied'>) {
@@ -166,19 +184,19 @@ export function PaymentProjectConsole({
     }
   }
 
-  async function handleCreateApiKey(event: React.FormEvent<HTMLFormElement>) {
+  async function handleCreateProjectSecret(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     await runAction('create-key', async () => {
-      const created = await createProjectApiKey(project.projectId, {
+      const created = await createProjectSecret(project.projectId, {
         environment: project.defaultEnvironment,
-        label: apiKeyLabel,
+        label: secretLabel,
       })
-      setStatus('API key created. Paste the export line into the standalone merchant backend terminal.')
+      setStatus('Project secret key created. Paste the export line into the standalone merchant backend terminal.')
       revealOneTimeSecret({
         copyLabel: 'Shell export',
-        description: 'This project API key is shown once. Paste this export line into the merchant backend terminal as a server-side secret.',
-        title: 'Copy API key export',
-        value: buildEnvExport('ZAMAPAY_API_KEY', created.apiKey),
+        description: 'This project secret key is shown once. It authenticates checkout creation and bootstraps webhook verifier context on the merchant backend.',
+        title: 'Copy project secret key',
+        value: buildIntegrationBundle({ secretKey: created.secretKey }),
       })
       await refresh()
     })
@@ -191,15 +209,15 @@ export function PaymentProjectConsole({
         environment: project.defaultEnvironment,
         url: webhookUrl,
       })
-      setStatus('Webhook endpoint created. Paste the export line into the standalone merchant backend terminal.')
-      if (configured.webhookSecret) {
-        revealOneTimeSecret({
-          copyLabel: 'Shell export',
-          description: 'This webhook secret is shown once. Paste this export line into the merchant backend terminal so callbacks can be verified.',
-          title: 'Copy webhook secret export',
-          value: buildEnvExport('ZAMAPAY_WEBHOOK_SECRET', configured.webhookSecret),
-        })
-      }
+      setStatus(`Webhook endpoint ${configured.endpoint.endpointId} created. Merchant backends refresh verifier context through ZAMAPAY_SECRET_KEY.`)
+      await refresh()
+    })
+  }
+
+  async function handleRotateWebhookSecret(endpointId: string) {
+    await runAction(`rotate-${endpointId}`, async () => {
+      await rotateProjectWebhookSecret(project.projectId, endpointId)
+      setStatus('Webhook secret rotated. Restart the merchant backend so it bootstraps the current verifier secret before the retired secret expires.')
       await refresh()
     })
   }
@@ -220,6 +238,17 @@ export function PaymentProjectConsole({
     })
   }
 
+  async function handleTogglePaymentRail(paymentRail: PaymentRail) {
+    const current = projectPaymentRailSetting(overview, paymentRail)
+    const enabled = !current.enabled
+    await runAction(`rail-${paymentRail}`, async () => {
+      const updated = await updateProjectPaymentRail(project.projectId, paymentRail, { enabled })
+      setOverview(updated)
+      setStatus(`${paymentRailLabel(paymentRail)} payment method ${enabled ? 'enabled' : 'disabled'}.`)
+      router.refresh()
+    })
+  }
+
   async function handleWithdraw() {
     await runAction('withdraw', async () => {
       const latestOverview = await getProjectOverview(project.projectId, '')
@@ -227,6 +256,27 @@ export function PaymentProjectConsole({
       const amountMinorUnits = latestOverview.summary.withdrawableMinorUnits
       if (amountMinorUnits <= 0) {
         setStatus('Project balance is already fully withdrawn.')
+        router.refresh()
+        return
+      }
+
+      if (localProjectEvmWithdrawAsset(latestOverview, amountMinorUnits)) {
+        const submitted = await runLocalProjectEvmWithdraw({
+          amountMinorUnits,
+          overview: latestOverview,
+          recipientAddress: ownerAddress,
+          setStatus,
+        })
+        const projected = await createProjectWithdrawal(project.projectId, {
+          amountMinorUnits,
+          chainId: submitted.chainId,
+          chainTxHash: submitted.chainTxHash,
+          receiverAddress: submitted.receiverAddress,
+          recipientAddress: submitted.recipientAddress,
+          tokenContract: submitted.tokenContract,
+        })
+        setOverview(projected)
+        setStatus('Local ERC20 receiver withdraw completed and projected into the project balance.')
         router.refresh()
         return
       }
@@ -316,7 +366,7 @@ export function PaymentProjectConsole({
           <div className="flex flex-col gap-4">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <MetricCard label="Total checkouts" value={overview.summary.totalCheckouts} />
-              <MetricCard label="Paid gross" value={formatMinorUnits(overview.summary.grossVolumeMinorUnits)} />
+              <MetricCard label="Paid gross" value={formatProjectMinorUnits(overview.summary.grossVolumeMinorUnits, overview)} />
               <MetricCard label="Pending deliveries" value={overview.summary.pendingDeliveries} />
               <MetricCard label="Checkout fee" value={formatBps(checkoutFeeBps)} />
               <WithdrawMetricCard busyAction={busyAction} onWithdraw={handleWithdraw} overview={overview} readOnly={readOnly} />
@@ -339,7 +389,7 @@ export function PaymentProjectConsole({
                 </CardContent>
               </Card>
 
-              <BalanceTrendCard activities={balanceActivities} onRangeChange={setBalanceRange} range={balanceRange} />
+              <BalanceTrendCard activities={balanceActivities} onRangeChange={setBalanceRange} range={balanceRange} symbol={projectBalanceSymbol(overview)} />
             </div>
 
             <BalanceActivityCard activities={balanceActivities} onCopyReference={(value) => copyText(value, setStatus)} />
@@ -354,27 +404,27 @@ export function PaymentProjectConsole({
               <Card size="sm">
                 <CardHeader>
                   <CardAction>
-                    <Badge variant="outline">{overview.apiKeys.length}</Badge>
+                    <Badge variant="outline">{overview.projectSecrets.length}</Badge>
                   </CardAction>
-                  <CardTitle>API key</CardTitle>
-                  <CardDescription>Merchant backends use project API keys. Buyer browsers never forward merchant cookies.</CardDescription>
+                  <CardTitle>Project secret keys</CardTitle>
+                  <CardDescription>Merchant backends use project secrets. Buyer browsers never forward merchant cookies.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
                   {readOnly ? null : (
-                    <form onSubmit={handleCreateApiKey}>
+                    <form onSubmit={handleCreateProjectSecret}>
                       <FieldGroup>
                         <Field>
-                          <FieldLabel htmlFor="api-key-label">Key label</FieldLabel>
+                          <FieldLabel htmlFor="secret-label">Secret label</FieldLabel>
                           <InputGroup>
                             <InputGroupAddon>
                               <KeyRoundIcon />
                             </InputGroupAddon>
-                            <InputGroupInput id="api-key-label" onChange={(event) => setApiKeyLabel(event.target.value)} value={apiKeyLabel} />
+                            <InputGroupInput id="secret-label" onChange={(event) => setSecretLabel(event.target.value)} value={secretLabel} />
                           </InputGroup>
                         </Field>
                         <Button disabled={busyAction === 'create-key'} type="submit">
                           {busyAction === 'create-key' ? <Spinner data-icon="inline-start" /> : <KeyRoundIcon data-icon="inline-start" />}
-                          Generate API key
+                          Generate secret key
                         </Button>
                       </FieldGroup>
                     </form>
@@ -389,7 +439,7 @@ export function PaymentProjectConsole({
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {overview.apiKeys.map((key) => (
+                      {overview.projectSecrets.map((key) => (
                         <TableRow key={key.keyId}>
                           <TableCell className="font-mono text-xs">{key.prefix}</TableCell>
                           <TableCell>{key.label}</TableCell>
@@ -405,8 +455,8 @@ export function PaymentProjectConsole({
 
               <Card size="sm">
                 <CardHeader>
-                  <CardTitle>Backend environment</CardTitle>
-                  <CardDescription>Use these values in a standalone merchant backend.</CardDescription>
+                  <CardTitle>Merchant server environment</CardTitle>
+                  <CardDescription>One server-side project secret; rail-specific fields belong to each checkout request.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-4">
                   <CodeBlock actionLabel="Copy exports" onCopy={() => copyText(integrationSnippet, setStatus)} value={integrationSnippet} />
@@ -477,10 +527,16 @@ export function PaymentProjectConsole({
                         </TableCell>
                         {readOnly ? null : (
                           <TableCell className="text-right">
-                            <Button disabled={busyAction === `test-${endpoint.endpointId}`} onClick={() => handleTestWebhook(endpoint.endpointId)} size="sm" variant="outline">
-                              {busyAction === `test-${endpoint.endpointId}` ? <Spinner data-icon="inline-start" /> : <BellRingIcon data-icon="inline-start" />}
-                              Test
-                            </Button>
+                            <div className="flex justify-end gap-2">
+                              <Button disabled={busyAction === `test-${endpoint.endpointId}`} onClick={() => handleTestWebhook(endpoint.endpointId)} size="sm" variant="outline">
+                                {busyAction === `test-${endpoint.endpointId}` ? <Spinner data-icon="inline-start" /> : <BellRingIcon data-icon="inline-start" />}
+                                Test
+                              </Button>
+                              <Button disabled={busyAction === `rotate-${endpoint.endpointId}`} onClick={() => handleRotateWebhookSecret(endpoint.endpointId)} size="sm" variant="ghost">
+                                {busyAction === `rotate-${endpoint.endpointId}` ? <Spinner data-icon="inline-start" /> : <KeyRoundIcon data-icon="inline-start" />}
+                                Rotate
+                              </Button>
+                            </div>
                           </TableCell>
                         )}
                       </TableRow>
@@ -523,64 +579,186 @@ export function PaymentProjectConsole({
         </TabsContent>
 
         <TabsContent value="payments">
-          <Card size="sm">
-            <CardHeader>
-              <CardAction>
-                <Badge variant="secondary">{overview.summary.totalCheckouts}</Badge>
-              </CardAction>
-              <CardTitle>Checkout sessions</CardTitle>
-              <CardDescription>Project payments created through project API-key auth.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Checkout</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead className="hidden md:table-cell">Fee</TableHead>
-                    <TableHead className="hidden md:table-cell">Chain invoice</TableHead>
-                    <TableHead className="text-right">Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {overview.checkoutSessions.length > 0 ? (
-                    overview.checkoutSessions.map((session) => (
-                      <TableRow key={session.checkoutSessionId}>
-                        <TableCell>
-                          <div className="flex max-w-[360px] flex-col gap-1">
-                            <Link className="truncate font-medium hover:underline" href={`/checkout/${session.invoiceId}`}>
-                              {session.title}
-                            </Link>
-                            <span className="truncate font-mono text-xs text-muted-foreground">{session.checkoutSessionId}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>{session.amountLabel}</TableCell>
-                        <TableCell className="hidden md:table-cell">{formatCheckoutFee(session)}</TableCell>
-                        <TableCell className="hidden font-mono text-xs md:table-cell">{session.chainInvoiceId}</TableCell>
-                        <TableCell className="text-right">
-                          <StatusBadge value={session.status} />
+          <div className="grid gap-4">
+            <PaymentMethodsCard
+              busyAction={busyAction}
+              onToggle={handleTogglePaymentRail}
+              overview={overview}
+              readOnly={readOnly}
+            />
+
+            <Card size="sm">
+              <CardHeader>
+                <CardAction>
+                  <Badge variant="secondary">{overview.supportedEvmAssets.length}</Badge>
+                </CardAction>
+                <CardTitle>ERC20 rails</CardTitle>
+                <CardDescription>Enabled network, token, RPC, and receiver combinations.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Asset</TableHead>
+                      <TableHead className="hidden md:table-cell">Receiver</TableHead>
+                      <TableHead className="text-right">Finality</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {overview.supportedEvmAssets.length > 0 ? (
+                      overview.supportedEvmAssets.map((asset) => (
+                        <TableRow key={`${asset.chainId}-${asset.tokenContract}-${asset.receiverAddress}`}>
+                          <TableCell>
+                            <div className="flex max-w-[360px] flex-col gap-1">
+                              <span className="font-medium">{asset.network} / {asset.tokenSymbol}</span>
+                              <span className="truncate font-mono text-xs text-muted-foreground">{asset.tokenContract}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden font-mono text-xs md:table-cell">{compact(asset.receiverAddress)}</TableCell>
+                          <TableCell className="text-right">{asset.finalityThreshold}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={3}>
+                          <Empty className="border">
+                            <EmptyHeader>
+                              <EmptyMedia variant="icon">
+                                <RadioTowerIcon />
+                              </EmptyMedia>
+                              <EmptyTitle>No ERC20 rails</EmptyTitle>
+                              <EmptyDescription>Enable a chain, token, RPC node, and receiver address first.</EmptyDescription>
+                            </EmptyHeader>
+                          </Empty>
                         </TableCell>
                       </TableRow>
-                    ))
-                  ) : (
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <EvmAssetBalancesCard overview={overview} />
+
+            <Card size="sm">
+              <CardHeader>
+                <CardAction>
+                  <Badge variant="secondary">{overview.summary.totalCheckouts}</Badge>
+                </CardAction>
+                <CardTitle>Checkout sessions</CardTitle>
+                <CardDescription>Project payments created through project API-key auth.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
                     <TableRow>
-                      <TableCell colSpan={5}>
-                        <Empty className="border">
-                          <EmptyHeader>
-                            <EmptyMedia variant="icon">
-                              <ReceiptTextIcon />
-                            </EmptyMedia>
-                            <EmptyTitle>No checkouts yet</EmptyTitle>
-                            <EmptyDescription>Connect a merchant backend with this project's API key.</EmptyDescription>
-                          </EmptyHeader>
-                        </Empty>
-                      </TableCell>
+                      <TableHead>Checkout</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead className="hidden md:table-cell">Rail</TableHead>
+                      <TableHead className="hidden md:table-cell">Reference</TableHead>
+                      <TableHead className="hidden lg:table-cell">Fee</TableHead>
+                      <TableHead className="text-right">Status</TableHead>
                     </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+                  </TableHeader>
+                  <TableBody>
+                    {overview.checkoutSessions.length > 0 ? (
+                      overview.checkoutSessions.map((session) => (
+                        <TableRow key={session.checkoutSessionId}>
+                          <TableCell>
+                            <div className="flex max-w-[360px] flex-col gap-1">
+                              <Link className="truncate font-medium hover:underline" href={`/checkout/${session.invoiceId}`}>
+                                {session.title}
+                              </Link>
+                              <span className="truncate font-mono text-xs text-muted-foreground">{session.checkoutSessionId}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>{formatCheckoutAmountForProject(session, overview)}</TableCell>
+                          <TableCell className="hidden md:table-cell">
+                            <div className="flex max-w-[180px] flex-col gap-1">
+                              <span className="font-medium">{paymentRailLabel(session.paymentRail)}</span>
+                              <span className="truncate text-xs text-muted-foreground">{paymentRailTruthSource(session.paymentRail)}</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="hidden font-mono text-xs md:table-cell">{checkoutReference(session)}</TableCell>
+                          <TableCell className="hidden lg:table-cell">{formatCheckoutFeeForProject(session, overview)}</TableCell>
+                          <TableCell className="text-right">
+                            <StatusBadge value={session.status} />
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={6}>
+                          <Empty className="border">
+                            <EmptyHeader>
+                              <EmptyMedia variant="icon">
+                                <ReceiptTextIcon />
+                              </EmptyMedia>
+                              <EmptyTitle>No checkouts yet</EmptyTitle>
+                              <EmptyDescription>Connect a merchant backend with this project's secret key.</EmptyDescription>
+                            </EmptyHeader>
+                          </Empty>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+
+            <Card size="sm">
+              <CardHeader>
+                <CardAction>
+                  <Badge variant="secondary">{overview.evmTransferLedger.length}</Badge>
+                </CardAction>
+                <CardTitle>ERC20 transfer ledger</CardTitle>
+                <CardDescription>Observed Transfer logs matched to project payment intents.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Transfer</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead className="hidden md:table-cell">To</TableHead>
+                      <TableHead className="text-right">Confirmations</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {overview.evmTransferLedger.length > 0 ? (
+                      overview.evmTransferLedger.map((transfer) => (
+                        <TableRow key={transfer.transferId}>
+                          <TableCell>
+                            <div className="flex max-w-[360px] flex-col gap-1">
+                              <span className="font-mono text-xs">{compact(transfer.txHash)}</span>
+                              <StatusBadge value={transfer.status} />
+                            </div>
+                          </TableCell>
+                          <TableCell>{formatEvmTransferAmount(overview, transfer)}</TableCell>
+                          <TableCell className="hidden font-mono text-xs md:table-cell">{compact(transfer.toAddress)}</TableCell>
+                          <TableCell className="text-right">{transfer.confirmations}</TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={4}>
+                          <Empty className="border">
+                            <EmptyHeader>
+                              <EmptyMedia variant="icon">
+                                <RadioTowerIcon />
+                              </EmptyMedia>
+                              <EmptyTitle>No ERC20 transfers</EmptyTitle>
+                              <EmptyDescription>The indexer has not matched a Transfer log for this project.</EmptyDescription>
+                            </EmptyHeader>
+                          </Empty>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
       </Tabs>
@@ -615,7 +793,7 @@ function WithdrawMetricCard({
               disabled={busyAction === 'withdraw' || overview.summary.withdrawableMinorUnits <= 0}
               onClick={onWithdraw}
               size="sm"
-              title="Sign a withdraw authorization and submit it on the project chain."
+              title="Withdraw the currently available project balance."
               type="button"
             >
               {busyAction === 'withdraw' ? <Spinner data-icon="inline-start" /> : <ArrowDownToLineIcon data-icon="inline-start" />}
@@ -623,13 +801,123 @@ function WithdrawMetricCard({
             </Button>
           )}
         </div>
-        <div className="text-2xl leading-none font-semibold whitespace-nowrap md:text-3xl">{formatMinorUnits(overview.summary.withdrawableMinorUnits)}</div>
-        <CardDescription className="text-xs">{readOnly ? 'Projected chain balance' : 'Wallet-signed chain withdraw'}</CardDescription>
+        <div className="text-2xl leading-none font-semibold whitespace-nowrap md:text-3xl">{formatProjectMinorUnits(overview.summary.withdrawableMinorUnits, overview)}</div>
+        <CardDescription className="text-xs">{readOnly ? 'Projected chain balance' : 'Project settlement withdraw'}</CardDescription>
       </CardHeader>
     </Card>
   )
 }
 
+function PaymentMethodsCard({
+  busyAction,
+  onToggle,
+  overview,
+  readOnly,
+}: {
+  busyAction: string | null
+  onToggle: (paymentRail: PaymentRail) => void
+  overview: ProjectDashboardOverview
+  readOnly: boolean
+}) {
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardAction>
+          <Badge variant="secondary">
+            {paymentRailDescriptors.filter((descriptor) => projectPaymentRailSetting(overview, descriptor.rail).enabled).length}
+          </Badge>
+        </CardAction>
+        <CardTitle>Payment methods</CardTitle>
+        <CardDescription>Merchant-managed receiving methods for this project.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Method</TableHead>
+              <TableHead className="hidden lg:table-cell">Truth source</TableHead>
+              <TableHead>Availability</TableHead>
+              <TableHead>Status</TableHead>
+              {readOnly ? null : <TableHead className="text-right">Action</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paymentRailDescriptors.map((descriptor) => {
+              const setting = projectPaymentRailSetting(overview, descriptor.rail)
+              const ready = paymentRailReady(overview, descriptor.rail)
+              const busy = busyAction === `rail-${descriptor.rail}`
+
+              return (
+                <TableRow key={descriptor.rail}>
+                  <TableCell>
+                    <div className="flex max-w-[340px] items-start gap-3">
+                      <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted/30">
+                        {descriptor.rail === 'zama_private' ? <ShieldCheckIcon /> : <RadioTowerIcon />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{descriptor.label}</span>
+                          <Badge variant="outline">{descriptor.receivedAs}</Badge>
+                        </div>
+                        <p className="mt-1 text-sm leading-5 text-muted-foreground">{descriptor.setupHint}</p>
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">{descriptor.truthSource}</TableCell>
+                  <TableCell>
+                    <StatusBadge value={ready ? 'ready' : 'locked'} />
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge value={setting.enabled ? 'enabled' : 'disabled'} />
+                  </TableCell>
+                  {readOnly ? null : (
+                    <TableCell className="text-right">
+                      <Button disabled={busy} onClick={() => onToggle(descriptor.rail)} size="sm" type="button" variant={setting.enabled ? 'outline' : 'default'}>
+                        {busy ? <Spinner data-icon="inline-start" /> : setting.enabled ? <PowerOffIcon data-icon="inline-start" /> : <PowerIcon data-icon="inline-start" />}
+                        {setting.enabled ? 'Disable' : 'Enable'}
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
+function paymentRailReady(overview: ProjectDashboardOverview, rail: PaymentRail) {
+  if (rail === 'evm_erc20') {
+    return overview.supportedEvmAssets.length > 0
+  }
+
+  return overview.environments.some(
+    (environment) => environment.status === 'active' && Boolean(environment.settlementContract) && Boolean(environment.tokenContract),
+  )
+}
+
 function projectedCheckoutFeeBps(overview: ProjectDashboardOverview): number | null {
   return overview.checkoutSessions.find((session) => typeof session.billing.feeBps === 'number')?.billing.feeBps ?? null
+}
+
+function checkoutReference(session: ProjectDashboardOverview['checkoutSessions'][number]) {
+  if (session.paymentRail === 'evm_erc20') {
+    return session.paymentIntentId ? compact(session.paymentIntentId) : 'pending intent'
+  }
+
+  return session.chainInvoiceId === null ? 'missing chain invoice' : String(session.chainInvoiceId)
+}
+
+function formatEvmTransferAmount(overview: ProjectDashboardOverview, transfer: EvmTransferLedgerEntry) {
+  const asset = overview.evmAssetBalances.find(
+    (balance) =>
+      balance.chainId === transfer.chainId &&
+      balance.tokenContract.toLowerCase() === transfer.tokenContract.toLowerCase(),
+  )
+
+  return formatTokenUnits(transfer.amountMinorUnits, asset?.tokenDecimals ?? 6, {
+    symbol: asset?.tokenSymbol ?? 'ERC20',
+  })
 }

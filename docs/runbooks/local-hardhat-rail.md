@@ -45,10 +45,10 @@ just web-local
 7. Smoke the shared truth surface:
 
 ```bash
-curl http://127.0.0.1:8080/api/contracts/local-dev
+curl http://127.0.0.1:18080/api/contracts/local-dev
 curl -I http://127.0.0.1:3001/dashboard
 curl -I http://127.0.0.1:3002
-curl http://127.0.0.1:8080/api/invoices/demo-card-001
+curl http://127.0.0.1:18080/api/invoices/demo-card-001
 ```
 
 8. Run the local readiness gate after Hardhat, Rust API, and Next web are all running:
@@ -64,7 +64,7 @@ just verify-local
 - `just clean-local-dev` is the explicit cache-only recovery path when a running local UI looks stale after branch churn, env changes, or design-token renames. Restart the affected web server after using it.
 - `deploy:localhost` is contract-only; use it only when you deliberately want to keep existing local database rows.
 - `env/` is the service environment contract. Commit only `*.env.example`; same-name `*.env` files contain local secrets and are ignored by git.
-- `DATABASE_URL` in `env/local-dev.zamapay-api.env` persists projects, API keys, checkout sessions, invoices, operator projections, webhook outbox state, subscriptions, and withdrawal read models in normalized Postgres tables; auth sessions stay process-local.
+- `DATABASE_URL` in `env/local-dev.zamapay-api.env` persists projects, project secrets, checkout sessions, invoices, operator projections, webhook outbox state, subscriptions, and withdrawal read models in normalized Postgres tables; auth sessions stay process-local.
 - Supabase-backed local runs use `just api-supabase-local`. The override changes only the ZamaPay Postgres host; the chain remains local Hardhat/FHEVM mock.
 - `ZAMAPAY_PORTAL_STATE_KEY` is only for isolated local verification namespaces; normal local development uses the default `portal` row.
 - `NEXT_PUBLIC_RUNTIME_PROFILE=local-dev` in `env/local-dev.zamapay-web.env` is the frontend manifest selector.

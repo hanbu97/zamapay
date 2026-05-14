@@ -1,7 +1,7 @@
 use domain::{
     DecryptJobStatus, FinalityStatus, FulfillmentStatus, PaymentTruth, SettlementSnapshot,
 };
-use shared::{DEFAULT_FINALITY_THRESHOLD, InvoiceRecord};
+use shared::{DEFAULT_FINALITY_THRESHOLD, InvoiceRecord, PaymentRail};
 
 pub(crate) fn seeded_invoice(
     invoice_id: &str,
@@ -26,6 +26,8 @@ pub(crate) fn seeded_invoice(
         amount_minor_units,
         billing: None,
         note: note.to_string(),
+        payment_rail: PaymentRail::ZamaPrivate,
+        payment_intent_id: None,
         chain_invoice_id: None,
         chain_tx_hash: None,
         payment_tx_hash: None,

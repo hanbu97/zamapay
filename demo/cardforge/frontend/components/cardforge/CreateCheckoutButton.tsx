@@ -37,7 +37,7 @@ export function CreateCheckoutButton({ config }: CreateCheckoutButtonProps) {
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Checkout creation failed.'
       if (caught instanceof CardForgeApiError && caught.code === 'zamapay_project_auth_failed') {
-        setStatus('CardForge backend needs a valid ZamaPay project API key.')
+        setStatus('CardForge backend needs a valid ZamaPay project secret key.')
         setError(message)
         return
       }

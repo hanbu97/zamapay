@@ -6,6 +6,8 @@
 scripts
 |-- postgres-init/
 |   `-- 01-cardforge.sql
+|-- evm-erc20-indexer.mjs
+|-- local-evm-erc20-verify.mjs
 |-- local-full-verify.js
 |-- local-readiness.js
 |-- reset-local-dev.js
@@ -22,13 +24,15 @@ scripts
 - Root scripts implement cross-package local-dev readiness; `Justfile` is the supported human-facing and agent-facing workflow entrypoint.
 - Agents should call `just` recipes for repeatable setup, reset, service startup, deployment, and verification. Call scripts directly only while debugging script internals or wiring a new recipe.
 - Package-local contract tasks stay in `contracts/scripts`.
-- `run-rust-tests.sh` runs Rust workspace tests with a clean test env, the database URL from local-dev env, and serial test threads by default so Postgres-backed tests do not deadlock.
+- `run-rust-tests.sh` runs Rust workspace tests with a clean test env, the database URL from local-dev env, local-dev runtime profile, a test-only webhook secret encryption key, and serial test threads by default so Postgres-backed tests do not deadlock.
 - `run-with-env.sh` is the tiny process launcher used by `Justfile`; it sources one or more service env files, exports them, then `exec`s the target command.
 - `runtime-profile.js` is the Node reader for `env/runtime-profiles.json`; scripts must use it instead of repeating URL, RPC, chain id, or finality defaults.
-- `seed-cardforge-local-project.js` logs in with the local dev signer, creates a fresh local-dev ZamaPay project/API key, and writes the ignored CardForge backend env.
+- `evm-erc20-indexer.mjs` is the ordinary EVM rail worker; it polls enabled ERC20 `Transfer` logs for watchlisted receiver assets, posts block-hash-backed transfer projections, and advances backend-owned scan cursors with a reorg window.
+- `local-evm-erc20-verify.mjs` is the local ordinary ERC20 rail acceptance proof; it creates a project secret and checkout, verifies the hosted checkout route, sends exact local ERC20 payment, runs one indexer pass, and asserts ledger plus merchant balance truth.
+- `seed-cardforge-local-project.js` logs in with the local dev signer, creates a fresh local-dev ZamaPay project secret and webhook endpoint, and writes only `ZAMAPAY_SECRET_KEY` into the ignored CardForge backend env.
 - `sync-cardforge-frontend-generated.js` copies root generated contract clients and runtime profiles into the standalone CardForge frontend package.
 - `verify-runtime-profile.js` is the cheap preflight gate for local-dev, Sepolia local UI, and public preview config.
-- `local-full-verify.js` is the final local acceptance gate; it first checks runtime profile config, then stops at the first failed unit test, live web e2e test, build, contract check, Rust check, or readiness proof.
+- `local-full-verify.js` is the final local acceptance gate; it first checks runtime profile config, then runs `just check`, live web e2e, production web build, and readiness proof with the inherited local API URL.
 - `local-readiness.js` is dependency-light Node and verifies the profile-selected manifest, Rust API, Next pages, wallet login, and dev-signer boundary.
 - `reset-local-dev.js` is the complete local-dev reset entry: it verifies the profile-selected Hardhat Local RPC is reachable, recreates the `zamapay` and `cardforge` databases, redeploys contracts, and refreshes standalone generated snapshots.
 - The old merchant loop script was removed because it wrote payment projections directly; the accepted checkout path now proves payment through `PrivateCheckoutSettlement`.

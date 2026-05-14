@@ -10,7 +10,10 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { getSession, type PaymentProject, type ProjectDashboardOverview } from '@/lib/api'
+import { formatMinorTokenUnits } from '@/lib/amount-format'
 import { loadMerchantProjectOverview, loadMerchantProjects } from '@/lib/merchant-portal'
+import { paymentRailShortLabel } from '@/lib/payment-rails'
+import { formatCheckoutAmountForProject, formatCheckoutFeeForProject, projectBalanceSymbol } from '@/lib/project-amounts'
 import { formatMerchantTimestamp } from '@/lib/time-format'
 
 type AccountSnapshot = {
@@ -84,9 +87,11 @@ export default async function DashboardPage() {
 
 function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
   const summary = summarizeAccount(snapshots)
+  const balanceSymbol = accountBalanceSymbol(snapshots)
   const sessions = snapshots
     .flatMap(({ overview, project }) =>
       (overview?.checkoutSessions ?? []).map((session) => ({
+        overview,
         project,
         session,
       })),
@@ -102,9 +107,9 @@ function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Total Projects" value={summary.projectCount} />
-        <MetricCard description="Available to withdraw" label="Total Balance" value={formatMinorUnits(summary.withdrawableMinorUnits)} />
+        <MetricCard description="Available to withdraw" label="Total Balance" value={formatMinorUnits(summary.withdrawableMinorUnits, balanceSymbol)} />
         <MetricCard description="Checkout sessions created today" label="Today's Orders" value={todaySessions.length} />
-        <MetricCard description="Paid gross volume today" label="Today's Volume" value={formatMinorUnits(todayVolumeMinorUnits)} />
+        <MetricCard description="Paid gross volume today" label="Today's Volume" value={formatMinorUnits(todayVolumeMinorUnits, balanceSymbol)} />
       </div>
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
@@ -122,6 +127,7 @@ function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
                 <TableRow>
                   <TableHead>Checkout</TableHead>
                   <TableHead className="hidden md:table-cell">Project</TableHead>
+                  <TableHead className="hidden lg:table-cell">Method</TableHead>
                   <TableHead className="w-28">Amount</TableHead>
                   <TableHead className="hidden w-28 md:table-cell">Fee</TableHead>
                   <TableHead className="w-24 text-right">Status</TableHead>
@@ -129,7 +135,7 @@ function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
               </TableHeader>
               <TableBody>
                 {sessions.length > 0 ? (
-                  sessions.map(({ project, session }) => (
+                  sessions.map(({ overview, project, session }) => (
                     <TableRow key={session.checkoutSessionId}>
                       <TableCell>
                         <div className="flex max-w-[360px] flex-col gap-1">
@@ -145,8 +151,11 @@ function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
                           {project.name}
                         </Link>
                       </TableCell>
-                      <TableCell>{session.amountLabel}</TableCell>
-                      <TableCell className="hidden md:table-cell">{formatCheckoutFee(session)}</TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        <Badge variant="outline">{paymentRailShortLabel(session.paymentRail)}</Badge>
+                      </TableCell>
+                      <TableCell>{formatCheckoutAmountForProject(session, overview)}</TableCell>
+                      <TableCell className="hidden md:table-cell">{formatCheckoutFeeForProject(session, overview)}</TableCell>
                       <TableCell className="text-right">
                         <StatusBadge value={session.status} />
                       </TableCell>
@@ -154,14 +163,14 @@ function AccountDashboard({ snapshots }: { snapshots: AccountSnapshot[] }) {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={5}>
+                    <TableCell colSpan={6}>
                       <Empty className="border">
                         <EmptyHeader>
                           <EmptyMedia variant="icon">
                             <ReceiptTextIcon />
                           </EmptyMedia>
                           <EmptyTitle>No checkouts yet</EmptyTitle>
-                          <EmptyDescription>Open a project, copy its API key, and create a checkout from a merchant backend.</EmptyDescription>
+                          <EmptyDescription>Open a project, copy its secret key, and create a checkout from a merchant backend.</EmptyDescription>
                         </EmptyHeader>
                       </Empty>
                     </TableCell>
@@ -287,15 +296,12 @@ function activityTime(session: ProjectDashboardOverview['checkoutSessions'][numb
   return Number.isNaN(createdAt) ? 0 : createdAt
 }
 
-function formatMinorUnits(value: number) {
-  return `${(value / 1_000_000).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  })} cUSDT`
+function formatMinorUnits(value: number, symbol: string) {
+  return formatMinorTokenUnits(value, { symbol })
 }
 
-function formatCheckoutFee(session: ProjectDashboardOverview['checkoutSessions'][number]) {
-  const fee = session.billing?.platformFeeMinorUnits
+function accountBalanceSymbol(snapshots: AccountSnapshot[]) {
+  const symbols = new Set(snapshots.map((snapshot) => projectBalanceSymbol(snapshot.overview)))
 
-  return typeof fee === 'number' ? formatMinorUnits(fee) : 'not quoted'
+  return symbols.size === 1 ? Array.from(symbols)[0] : 'stablecoin units'
 }

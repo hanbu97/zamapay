@@ -33,6 +33,7 @@ import {
   type BillingPlanCatalogEntry,
   type BillingSubscriptionResponse,
 } from '@/lib/api'
+import { formatMinorTokenUnits } from '@/lib/amount-format'
 import { confidentialUsdMockAbi, privateSubscriptionRegistryAbi } from '@/lib/contracts'
 import {
   contractEnvironmentConfig,
@@ -145,7 +146,7 @@ const planViews: PlanView[] = [
     plan: 'free',
     title: 'Free',
     summary: 'Start with hosted checkout and signed project webhooks.',
-    features: ['Hosted checkout', 'Project API keys', 'Signed webhooks', 'Local-dev proof loop'],
+    features: ['Hosted checkout', 'Project secrets', 'Signed webhooks', 'Local-dev proof loop'],
   },
   {
     plan: 'growth',
@@ -227,15 +228,11 @@ function formatMoney(priceUsd: number | null | undefined, cycle: BillingCycle) {
 }
 
 function formatMinorUnits(value: number) {
-  return `${(value / 1_000000).toLocaleString('en-US', { maximumFractionDigits: 2 })} cUSDT`
+  return formatMinorTokenUnits(value, { locale: 'en-US' })
 }
 
 function formatMinorUnitsBigInt(value: bigint) {
-  const whole = value / 1_000000n
-  const fraction = value % 1_000000n
-  const fractionText = fraction.toString().padStart(6, '0').replace(/0+$/, '')
-
-  return `${whole.toLocaleString('en-US')}${fractionText ? `.${fractionText}` : ''} cUSDT`
+  return formatMinorTokenUnits(value, { locale: 'en-US' })
 }
 
 function formatBps(value: number | null | undefined) {
