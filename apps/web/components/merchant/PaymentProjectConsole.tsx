@@ -39,7 +39,7 @@ import {
   type BillingSubscriptionResponse,
   type PaymentRail,
   type ProjectDashboardOverview,
-  type EvmTransferLedgerEntry,
+  type EvmSettlementLedgerEntry,
   type WebhookDeliveryRecord,
 } from '@/lib/api'
 import { formatTokenUnits } from '@/lib/amount-format'
@@ -271,7 +271,7 @@ export function PaymentProjectConsole({
           amountMinorUnits,
           chainId: submitted.chainId,
           chainTxHash: submitted.chainTxHash,
-          receiverAddress: submitted.receiverAddress,
+          settlementContract: submitted.settlementContract,
           recipientAddress: submitted.recipientAddress,
           tokenContract: submitted.tokenContract,
         })
@@ -709,7 +709,7 @@ export function PaymentProjectConsole({
             <Card size="sm">
               <CardHeader>
                 <CardAction>
-                  <Badge variant="secondary">{overview.evmTransferLedger.length}</Badge>
+                  <Badge variant="secondary">{overview.evmSettlementLedger.length}</Badge>
                 </CardAction>
                 <CardTitle>ERC20 settlement ledger</CardTitle>
                 <CardDescription>Settlement contract payment events matched to project payment intents.</CardDescription>
@@ -725,18 +725,18 @@ export function PaymentProjectConsole({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {overview.evmTransferLedger.length > 0 ? (
-                      overview.evmTransferLedger.map((transfer) => (
-                        <TableRow key={transfer.transferId}>
+                    {overview.evmSettlementLedger.length > 0 ? (
+                      overview.evmSettlementLedger.map((event) => (
+                        <TableRow key={event.settlementEventId}>
                           <TableCell>
                             <div className="flex max-w-[360px] flex-col gap-1">
-                              <span className="font-mono text-xs">{compact(transfer.txHash)}</span>
-                              <StatusBadge value={transfer.status} />
+                              <span className="font-mono text-xs">{compact(event.txHash)}</span>
+                              <StatusBadge value={event.status} />
                             </div>
                           </TableCell>
-                          <TableCell>{formatEvmTransferAmount(overview, transfer)}</TableCell>
-                          <TableCell className="hidden font-mono text-xs md:table-cell">{compact(transfer.toAddress)}</TableCell>
-                          <TableCell className="text-right">{transfer.confirmations}</TableCell>
+                          <TableCell>{formatEvmSettlementAmount(overview, event)}</TableCell>
+                          <TableCell className="hidden font-mono text-xs md:table-cell">{compact(event.toAddress)}</TableCell>
+                          <TableCell className="text-right">{event.confirmations}</TableCell>
                         </TableRow>
                       ))
                     ) : (
@@ -910,14 +910,14 @@ function checkoutReference(session: ProjectDashboardOverview['checkoutSessions']
   return session.chainInvoiceId === null ? 'missing chain invoice' : String(session.chainInvoiceId)
 }
 
-function formatEvmTransferAmount(overview: ProjectDashboardOverview, transfer: EvmTransferLedgerEntry) {
+function formatEvmSettlementAmount(overview: ProjectDashboardOverview, event: EvmSettlementLedgerEntry) {
   const asset = overview.evmAssetBalances.find(
     (balance) =>
-      balance.chainId === transfer.chainId &&
-      balance.tokenContract.toLowerCase() === transfer.tokenContract.toLowerCase(),
+      balance.chainId === event.chainId &&
+      balance.tokenContract.toLowerCase() === event.tokenContract.toLowerCase(),
   )
 
-  return formatTokenUnits(transfer.amountMinorUnits, asset?.tokenDecimals ?? 6, {
+  return formatTokenUnits(event.amountMinorUnits, asset?.tokenDecimals ?? 6, {
     symbol: asset?.tokenSymbol ?? 'ERC20',
   })
 }

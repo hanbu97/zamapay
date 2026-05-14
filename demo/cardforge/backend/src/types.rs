@@ -31,7 +31,7 @@ impl PaymentRail {
     pub(crate) fn message(self) -> &'static str {
         match self {
             Self::ZamaPrivate => "Private cUSDT checkout",
-            Self::EvmErc20 => "Ordinary ERC20 transfer",
+            Self::EvmErc20 => "ERC20 settlement checkout",
         }
     }
 }

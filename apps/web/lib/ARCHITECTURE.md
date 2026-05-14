@@ -27,7 +27,7 @@ apps/web/lib
 
 ## Decisions
 
-- API helpers are transport-only; they do not invent payment truth, ERC20 asset support, receiver availability, project authority, webhook secret lifecycle, delivery state, fulfillment release truth, subscription entitlement, or billing math.
+- API helpers are transport-only; they do not invent payment truth, ERC20 asset support, settlement-contract availability, project authority, webhook secret lifecycle, delivery state, fulfillment release truth, subscription entitlement, or billing math.
 - `amount-format.ts` is the only UI formatting source for token minor units; it preserves six-decimal merchant-net and fee precision instead of rounding small values into false whole-token amounts.
 - `project-amounts.ts` is the only project-level formatter that infers cUSDT/USDT/USDC/mixed labels from checkout intents and ERC20 balances; UI components render those labels instead of guessing from local table context.
 - `payment-rails.ts` is the only frontend source for rail names, short labels, receiving copy, and old-project default settings; merchant screens do not hardcode private-vs-ERC20 wording.

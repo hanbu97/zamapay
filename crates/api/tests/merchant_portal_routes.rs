@@ -150,19 +150,6 @@ async fn supported_evm_assets_are_public_but_watchlist_requires_operator_key() {
     assert_eq!(cursor.status(), StatusCode::OK);
     let cursor = response_json(cursor).await;
     assert_eq!(cursor["lastScannedBlock"], 12);
-
-    let retired_transfer_route = app
-        .oneshot(
-            Request::builder()
-                .method(Method::POST)
-                .uri("/api/operator/evm/transfers")
-                .header("content-type", "application/json")
-                .body(Body::from("{}"))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(retired_transfer_route.status(), StatusCode::GONE);
 }
 
 #[tokio::test]

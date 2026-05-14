@@ -314,7 +314,7 @@ export type EvmPaymentIntent = {
   updatedAt: string
 }
 
-export type EvmTransferStatus =
+export type EvmSettlementEventStatus =
   | 'detected'
   | 'confirmed'
   | 'underpaid'
@@ -324,8 +324,8 @@ export type EvmTransferStatus =
   | 'reorged'
   | 'ignored'
 
-export type EvmTransferLedgerEntry = {
-  transferId: string
+export type EvmSettlementLedgerEntry = {
+  settlementEventId: string
   chainId: number
   tokenContract: string
   fromAddress: string
@@ -337,7 +337,7 @@ export type EvmTransferLedgerEntry = {
   blockHash: string | null
   confirmations: number
   matchedIntentId: string | null
-  status: EvmTransferStatus
+  status: EvmSettlementEventStatus
   observedAt: string
   updatedAt: string
 }
@@ -448,7 +448,7 @@ export type ProjectWithdrawalRecord = {
   amountMinorUnits: number
   chainId: number | null
   tokenContract: string | null
-  receiverAddress: string | null
+  settlementContract: string | null
   recipientAddress: string | null
   status: 'completed'
   receipt: string
@@ -489,7 +489,7 @@ export type ProjectDashboardOverview = {
   supportedEvmAssets: SupportedEvmAsset[]
   evmAssetBalances: EvmAssetBalance[]
   evmPaymentIntents: EvmPaymentIntent[]
-  evmTransferLedger: EvmTransferLedgerEntry[]
+  evmSettlementLedger: EvmSettlementLedgerEntry[]
   summary: {
     totalCheckouts: number
     openCheckouts: number
@@ -538,7 +538,7 @@ export type CreateProjectWithdrawalPayload = {
   chainTxHash: string
   chainId?: number
   tokenContract?: string
-  receiverAddress?: string
+  settlementContract?: string
   recipientAddress?: string
   settlementBucketCommitment?: string
   withdrawalNonce?: string

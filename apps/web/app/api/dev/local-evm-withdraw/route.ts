@@ -94,7 +94,6 @@ export async function POST(request: Request) {
       amountMinorUnits,
       chainId,
       chainTxHash,
-      receiverAddress: settlementContract,
       recipientAddress,
       settlementContract,
       settlementProjectId,

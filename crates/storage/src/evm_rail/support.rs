@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use domain::{FinalityStatus, PaymentTruth};
 use shared::{
-    EvmChain, EvmChainToken, EvmPaymentIntent, EvmPaymentIntentStatus, EvmReceiverAddress,
-    EvmRpcNode, EvmTransferProjectionRequest, EvmTransferStatus, ReceiverAddressStatus,
-    SupportedEvmAsset,
+    EvmChain, EvmChainToken, EvmPaymentIntent, EvmPaymentIntentStatus, EvmRpcNode,
+    EvmSettlementContract, EvmSettlementContractStatus, EvmSettlementEventProjectionRequest,
+    EvmSettlementEventStatus, SupportedEvmAsset,
 };
 
-pub(crate) fn transfer_id(payload: &EvmTransferProjectionRequest) -> String {
+pub(crate) fn settlement_event_id(payload: &EvmSettlementEventProjectionRequest) -> String {
     format!(
         "evm_{}_{}_{}_{}",
         payload.chain_id,
@@ -18,11 +18,14 @@ pub(crate) fn transfer_id(payload: &EvmTransferProjectionRequest) -> String {
     )
 }
 
-pub(crate) fn transfer_status(confirmations: u64, threshold: u64) -> EvmTransferStatus {
+pub(crate) fn settlement_event_status(
+    confirmations: u64,
+    threshold: u64,
+) -> EvmSettlementEventStatus {
     if confirmations >= threshold {
-        EvmTransferStatus::Confirmed
+        EvmSettlementEventStatus::Confirmed
     } else {
-        EvmTransferStatus::Detected
+        EvmSettlementEventStatus::Detected
     }
 }
 
@@ -30,10 +33,9 @@ pub(crate) fn supported_asset(
     chain: &EvmChain,
     token: &EvmChainToken,
     rpc_node: &EvmRpcNode,
-    receiver: &EvmReceiverAddress,
+    settlement_contract: &EvmSettlementContract,
 ) -> SupportedEvmAsset {
     SupportedEvmAsset {
-        receiver_id: receiver.receiver_id.clone(),
         chain_id: chain.chain_id,
         network: chain.network.clone(),
         chain_name: chain.name.clone(),
@@ -44,8 +46,7 @@ pub(crate) fn supported_asset(
         min_amount_minor_units: token.min_amount_minor_units,
         finality_threshold: chain.finality_threshold,
         rpc_url: rpc_node.url.clone(),
-        receiver_address: receiver.address.clone(),
-        settlement_contract: receiver.address.clone(),
+        settlement_contract: settlement_contract.contract_address.clone(),
     }
 }
 
@@ -54,7 +55,7 @@ pub(crate) fn intent_supported_asset(
     chains: &HashMap<u64, EvmChain>,
     tokens: &HashMap<String, EvmChainToken>,
     rpc_nodes: &HashMap<String, EvmRpcNode>,
-    receivers: &HashMap<String, EvmReceiverAddress>,
+    settlement_contracts: &HashMap<String, EvmSettlementContract>,
 ) -> Option<SupportedEvmAsset> {
     let chain = chains.get(&intent.chain_id).filter(|chain| chain.enabled)?;
     let token = tokens.values().find(|token| {
@@ -68,11 +69,15 @@ pub(crate) fn intent_supported_asset(
         .values()
         .filter(|node| node.chain_id == intent.chain_id && node.enabled)
         .min_by_key(|node| node.rpc_node_id.as_str())?;
-    let receiver = receivers
-        .get(&intent.receiver_id)
-        .filter(|receiver| receiver.status == ReceiverAddressStatus::Active)?;
+    let settlement_contract = settlement_contracts.values().find(|contract| {
+        contract.chain_id == intent.chain_id
+            && contract.status == EvmSettlementContractStatus::Active
+            && contract
+                .contract_address
+                .eq_ignore_ascii_case(&intent.settlement_contract)
+    })?;
 
-    Some(supported_asset(chain, token, rpc_node, receiver))
+    Some(supported_asset(chain, token, rpc_node, settlement_contract))
 }
 
 pub(crate) fn open_intent(intent: &EvmPaymentIntent, now: DateTime<Utc>) -> bool {
@@ -82,25 +87,27 @@ pub(crate) fn open_intent(intent: &EvmPaymentIntent, now: DateTime<Utc>) -> bool
     ) && intent.expires_at > now
 }
 
-pub(crate) fn intent_status_from_transfer(
-    transfer_status: EvmTransferStatus,
+pub(crate) fn intent_status_from_settlement_event(
+    settlement_event_status: EvmSettlementEventStatus,
     confirmations: u64,
     finality_threshold: u64,
 ) -> EvmPaymentIntentStatus {
-    match transfer_status {
-        EvmTransferStatus::Confirmed => EvmPaymentIntentStatus::Confirmed,
-        EvmTransferStatus::Detected => {
+    match settlement_event_status {
+        EvmSettlementEventStatus::Confirmed => EvmPaymentIntentStatus::Confirmed,
+        EvmSettlementEventStatus::Detected => {
             if confirmations >= finality_threshold {
                 EvmPaymentIntentStatus::Confirmed
             } else {
                 EvmPaymentIntentStatus::Detected
             }
         }
-        EvmTransferStatus::Underpaid => EvmPaymentIntentStatus::Underpaid,
-        EvmTransferStatus::Overpaid => EvmPaymentIntentStatus::Overpaid,
-        EvmTransferStatus::Expired => EvmPaymentIntentStatus::Expired,
-        EvmTransferStatus::Reorged => EvmPaymentIntentStatus::Failed,
-        EvmTransferStatus::Duplicate | EvmTransferStatus::Ignored => EvmPaymentIntentStatus::Failed,
+        EvmSettlementEventStatus::Underpaid => EvmPaymentIntentStatus::Underpaid,
+        EvmSettlementEventStatus::Overpaid => EvmPaymentIntentStatus::Overpaid,
+        EvmSettlementEventStatus::Expired => EvmPaymentIntentStatus::Expired,
+        EvmSettlementEventStatus::Reorged => EvmPaymentIntentStatus::Failed,
+        EvmSettlementEventStatus::Duplicate | EvmSettlementEventStatus::Ignored => {
+            EvmPaymentIntentStatus::Failed
+        }
     }
 }
 

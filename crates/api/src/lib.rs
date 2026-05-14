@@ -15,7 +15,7 @@ use indexer::ProjectionState;
 use shared::{
     AddressManifest, CreateInvoiceRequest, DEFAULT_FINALITY_THRESHOLD, DashboardOverview,
     DecryptCallbackRequest, EvmIndexerCursor, EvmIndexerCursorProjectionRequest,
-    EvmIndexerWatchlist, EvmTransferProjectionRequest, EvmTransferProjectionResponse,
+    EvmIndexerWatchlist, EvmSettlementEventProjectionRequest, EvmSettlementEventProjectionResponse,
     FulfillmentResponse, InvoiceRecord, NonceRequest, NonceResponse, OperatorDiagnostics,
     OperatorSettlementEventRequest, PaymentConfirmationsRequest, PaymentProjectionRequest,
     PublicCheckoutResponse, SessionResponse, SupportedEvmAsset, VerifyRequest,
@@ -101,12 +101,8 @@ pub fn app(state: AppState) -> Router {
         .route("/api/operator/diagnostics", get(operator_diagnostics))
         .route("/api/operator/evm/watchlist", get(evm_indexer_watchlist))
         .route(
-            "/api/operator/evm/transfers",
-            post(retired_evm_transfer_projection),
-        )
-        .route(
             "/api/operator/evm/settlement-events",
-            post(project_evm_transfer),
+            post(project_evm_settlement_event),
         )
         .route(
             "/api/operator/evm/cursors",
@@ -394,23 +390,17 @@ async fn evm_indexer_watchlist(
     Ok(Json(state.portal.evm_indexer_watchlist(Utc::now()).await))
 }
 
-async fn retired_evm_transfer_projection() -> impl IntoResponse {
-    (
-        StatusCode::GONE,
-        Json(serde_json::json!({
-            "error": "ordinary EVM payments are settled through EvmCheckoutSettlement events"
-        })),
-    )
-}
-
-async fn project_evm_transfer(
+async fn project_evm_settlement_event(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Json(payload): Json<EvmTransferProjectionRequest>,
-) -> Result<Json<EvmTransferProjectionResponse>, ApiError> {
+    Json(payload): Json<EvmSettlementEventProjectionRequest>,
+) -> Result<Json<EvmSettlementEventProjectionResponse>, ApiError> {
     require_operator_key(&state, &headers).await?;
-    validate_evm_transfer_projection(&payload)?;
-    let projected = state.portal.project_evm_transfer(payload, Utc::now()).await;
+    validate_evm_settlement_event_projection(&payload)?;
+    let projected = state
+        .portal
+        .project_evm_settlement_event(payload, Utc::now())
+        .await;
     if let Some(invoice) = projected.invoice.as_ref() {
         if invoice.snapshot.is_fulfillment_ready() {
             if let Some(project_id) = invoice.project_id.as_deref() {
@@ -621,8 +611,8 @@ fn validated_payment_projection(
     Ok((payment_tx_hash, payer_address))
 }
 
-fn validate_evm_transfer_projection(
-    payload: &EvmTransferProjectionRequest,
+fn validate_evm_settlement_event_projection(
+    payload: &EvmSettlementEventProjectionRequest,
 ) -> Result<(), ApiError> {
     if payload.chain_id == 0 {
         return Err(ApiError::bad_request("chainId must be greater than zero"));

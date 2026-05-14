@@ -17,7 +17,7 @@ pg_store/
 - `repository.rs` exposes async connection, load, and save functions over normalized record sets and runs SeaORM directly on the caller's Tokio runtime; no blocking bridge, private runtime, or request-time pool rebuild exists here.
 - Webhook event payloads keep parsed JSON text plus frozen raw JSON text and SHA-256 because dispatch signs the exact emitted bytes, not a later serialization.
 - Webhook endpoint secrets are normalized into ciphertext/preview rows, while delivery attempts are append-only evidence rows; delivery state remains in the delivery aggregate table.
-- Ordinary EVM tables persist settlement intent ids and settlement-contract cursors; receiver rows are catalog entries only and do not carry lease state.
+- Ordinary EVM tables persist settlement intent ids, settlement-contract catalog rows, and settlement-contract cursors; schema startup drops retired receiver-pool and transfer-ledger tables instead of carrying a compatibility layer.
 
 ## Boundary
 

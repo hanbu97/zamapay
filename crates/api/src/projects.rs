@@ -479,7 +479,7 @@ async fn create_withdrawal(
     }
     let has_asset_scope = payload.chain_id.is_some()
         || payload.token_contract.is_some()
-        || payload.receiver_address.is_some();
+        || payload.settlement_contract.is_some();
     if has_asset_scope && (payload.chain_id.is_none() || payload.token_contract.is_none()) {
         return Err(ApiError::bad_request(
             "chainId and tokenContract are required for token-scoped withdrawals",
@@ -495,12 +495,12 @@ async fn create_withdrawal(
         ));
     }
     if payload
-        .receiver_address
+        .settlement_contract
         .as_deref()
         .is_some_and(|value| !is_evm_address(value))
     {
         return Err(ApiError::bad_request(
-            "receiverAddress must be an EVM address",
+            "settlementContract must be an EVM address",
         ));
     }
     if payload
@@ -548,8 +548,8 @@ async fn create_withdrawal(
                     .token_contract
                     .as_ref()
                     .map(|value| value.trim().to_string()),
-                receiver_address: payload
-                    .receiver_address
+                settlement_contract: payload
+                    .settlement_contract
                     .as_ref()
                     .map(|value| value.trim().to_string()),
                 recipient_address: payload

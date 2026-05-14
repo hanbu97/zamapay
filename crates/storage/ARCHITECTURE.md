@@ -20,7 +20,7 @@ src/
 ├── billing.rs          # subscription state and contract fee-term projection
 ├── evm_rail.rs         # ERC20 settlement intents, cursor, ledger projection
 ├── evm_rail/
-│   ├── catalog.rs      # default chain/token/RPC/receiver catalog seed data
+│   ├── catalog.rs      # default chain/token/RPC/settlement-contract catalog seed data
 │   └── support.rs      # pure ERC20 matching/status/id helper functions
 ├── projects.rs         # payment-project/session/key/webhook state machine
 ├── projections.rs      # pure invoice projection and diagnostics helpers

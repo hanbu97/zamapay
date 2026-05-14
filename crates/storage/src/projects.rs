@@ -187,7 +187,7 @@ impl PortalStore {
         let supported_evm_assets = self.supported_evm_assets().await;
         let evm_asset_balances = self.evm_asset_balances_by_project(project_id).await;
         let evm_payment_intents = self.evm_intents_by_project(project_id).await;
-        let evm_transfer_ledger = self.evm_transfers_by_project(project_id).await;
+        let evm_settlement_ledger = self.evm_settlement_events_by_project(project_id).await;
         let api_keys = self.api_keys_by_project(project_id).await;
         let webhook_endpoints = self.webhook_endpoints_by_project(project_id).await;
         let checkout_sessions = self.checkout_sessions_by_project(project_id).await;
@@ -203,7 +203,7 @@ impl PortalStore {
             supported_evm_assets,
             evm_asset_balances,
             evm_payment_intents,
-            evm_transfer_ledger,
+            evm_settlement_ledger,
             api_keys,
             webhook_endpoints,
             checkout_sessions,
@@ -319,7 +319,7 @@ impl PortalStore {
             amount_minor_units,
             chain_id: scope.chain_id,
             token_contract: scope.token_contract,
-            receiver_address: scope.receiver_address,
+            settlement_contract: scope.settlement_contract,
             recipient_address: scope.recipient_address,
             status: ProjectWithdrawalStatus::Completed,
             receipt: receipt.trim().to_string(),

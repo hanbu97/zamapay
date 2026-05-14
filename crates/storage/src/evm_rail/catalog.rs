@@ -1,5 +1,6 @@
 use shared::{
-    EvmChain, EvmChainToken, EvmReceiverAddress, EvmRpcNode, EvmRpcNodeKind, ReceiverAddressStatus,
+    EvmChain, EvmChainToken, EvmRpcNode, EvmRpcNodeKind, EvmSettlementContract,
+    EvmSettlementContractStatus,
 };
 
 use crate::pg_store::PortalRecordSet;
@@ -31,11 +32,12 @@ pub(crate) fn seed_evm_catalog(records: &mut PortalRecordSet) {
         }
     }
 
-    if records.evm_receiver_addresses.is_empty() {
-        for receiver in default_receivers() {
-            records
-                .evm_receiver_addresses
-                .insert(receiver.receiver_id.clone(), receiver);
+    if records.evm_settlement_contracts.is_empty() {
+        for settlement_contract in default_settlement_contracts() {
+            records.evm_settlement_contracts.insert(
+                settlement_contract.settlement_contract_id.clone(),
+                settlement_contract,
+            );
         }
     }
 }
@@ -213,13 +215,13 @@ fn rpc(network: &str, chain_id: u64, url: impl Into<String>, kind: EvmRpcNodeKin
     }
 }
 
-fn default_receivers() -> Vec<EvmReceiverAddress> {
+fn default_settlement_contracts() -> Vec<EvmSettlementContract> {
     let local_settlement = std::env::var("ZAMAPAY_LOCAL_EVM_SETTLEMENT_CONTRACT")
         .ok()
         .filter(|value| !value.trim().is_empty())
         .or_else(local_manifest_evm_settlement_contract)
         .unwrap_or_else(|| DEFAULT_LOCAL_SETTLEMENT.to_string());
-    let mut receivers = vec![receiver(
+    let mut settlement_contracts = vec![settlement_contract(
         "hardhat-local",
         LOCAL_CHAIN_ID,
         0,
@@ -229,28 +231,28 @@ fn default_receivers() -> Vec<EvmReceiverAddress> {
         .ok()
         .filter(|value| !value.trim().is_empty())
     {
-        receivers.extend([
-            receiver("ethereum", 1, 0, public_settlement.clone()),
-            receiver("bsc", 56, 0, public_settlement.clone()),
-            receiver("polygon", 137, 0, public_settlement.clone()),
-            receiver("plasma", 9_745, 0, public_settlement),
+        settlement_contracts.extend([
+            settlement_contract("ethereum", 1, 0, public_settlement.clone()),
+            settlement_contract("bsc", 56, 0, public_settlement.clone()),
+            settlement_contract("polygon", 137, 0, public_settlement.clone()),
+            settlement_contract("plasma", 9_745, 0, public_settlement),
         ]);
     }
-    receivers
+    settlement_contracts
 }
 
-fn receiver(
+fn settlement_contract(
     network: &str,
     chain_id: u64,
     slot: u64,
-    address: impl Into<String>,
-) -> EvmReceiverAddress {
-    EvmReceiverAddress {
-        receiver_id: format!("recv_{chain_id}_{slot}"),
+    contract_address: impl Into<String>,
+) -> EvmSettlementContract {
+    EvmSettlementContract {
+        settlement_contract_id: format!("settle_{chain_id}_{slot}"),
         chain_id,
         network: network.to_string(),
-        address: address.into(),
-        status: ReceiverAddressStatus::Active,
+        contract_address: contract_address.into(),
+        status: EvmSettlementContractStatus::Active,
     }
 }
 

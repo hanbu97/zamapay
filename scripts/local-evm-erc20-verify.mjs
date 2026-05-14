@@ -348,7 +348,7 @@ async function main() {
       entry.chainId === setup.checkout.evmPaymentIntent.chainId &&
       entry.tokenContract.toLowerCase() === setup.checkout.evmPaymentIntent.tokenContract.toLowerCase(),
   )
-  const ledger = overview.evmTransferLedger.find(
+  const ledger = overview.evmSettlementLedger.find(
     (entry) => entry.txHash.toLowerCase() === payment.paymentHash.toLowerCase(),
   )
 

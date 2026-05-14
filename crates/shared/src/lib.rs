@@ -446,7 +446,7 @@ pub struct EvmRpcNode {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum ReceiverAddressStatus {
+pub enum EvmSettlementContractStatus {
     #[default]
     Active,
     Disabled,
@@ -454,12 +454,12 @@ pub enum ReceiverAddressStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EvmReceiverAddress {
-    pub receiver_id: String,
+pub struct EvmSettlementContract {
+    pub settlement_contract_id: String,
     pub chain_id: u64,
     pub network: String,
-    pub address: String,
-    pub status: ReceiverAddressStatus,
+    pub contract_address: String,
+    pub status: EvmSettlementContractStatus,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -490,10 +490,6 @@ pub struct EvmPaymentIntent {
     pub token_symbol: String,
     pub token_contract: String,
     pub token_decimals: u8,
-    #[serde(default, skip_serializing)]
-    pub receiver_id: String,
-    #[serde(default, skip_serializing)]
-    pub receiver_address: String,
     #[serde(default)]
     pub settlement_contract: String,
     pub expected_amount_minor_units: u64,
@@ -514,7 +510,7 @@ pub struct EvmPaymentIntent {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum EvmTransferStatus {
+pub enum EvmSettlementEventStatus {
     #[default]
     Detected,
     Confirmed,
@@ -528,8 +524,8 @@ pub enum EvmTransferStatus {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EvmTransferLedgerEntry {
-    pub transfer_id: String,
+pub struct EvmSettlementLedgerEntry {
+    pub settlement_event_id: String,
     pub chain_id: u64,
     pub token_contract: String,
     pub tx_hash: String,
@@ -542,7 +538,7 @@ pub struct EvmTransferLedgerEntry {
     pub amount_minor_units: u64,
     pub matched_intent_id: Option<String>,
     pub confirmations: u64,
-    pub status: EvmTransferStatus,
+    pub status: EvmSettlementEventStatus,
     pub observed_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -550,8 +546,6 @@ pub struct EvmTransferLedgerEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SupportedEvmAsset {
-    #[serde(default, skip_serializing)]
-    pub receiver_id: String,
     pub chain_id: u64,
     pub network: String,
     pub chain_name: String,
@@ -562,14 +556,12 @@ pub struct SupportedEvmAsset {
     pub min_amount_minor_units: u64,
     pub finality_threshold: u64,
     pub rpc_url: String,
-    #[serde(default, skip_serializing)]
-    pub receiver_address: String,
     pub settlement_contract: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EvmTransferProjectionRequest {
+pub struct EvmSettlementEventProjectionRequest {
     pub settlement_intent_id: String,
     pub settlement_project_id: String,
     pub settlement_contract: String,
@@ -590,8 +582,8 @@ pub struct EvmTransferProjectionRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct EvmTransferProjectionResponse {
-    pub transfer: EvmTransferLedgerEntry,
+pub struct EvmSettlementEventProjectionResponse {
+    pub settlement_event: EvmSettlementLedgerEntry,
     pub matched_intent: Option<EvmPaymentIntent>,
     pub invoice: Option<InvoiceRecord>,
 }
@@ -765,7 +757,7 @@ pub struct ProjectWithdrawalRecord {
     #[serde(default)]
     pub token_contract: Option<String>,
     #[serde(default)]
-    pub receiver_address: Option<String>,
+    pub settlement_contract: Option<String>,
     #[serde(default)]
     pub recipient_address: Option<String>,
     pub status: ProjectWithdrawalStatus,
@@ -784,7 +776,7 @@ pub struct CreateProjectWithdrawalRequest {
     #[serde(default)]
     pub token_contract: Option<String>,
     #[serde(default)]
-    pub receiver_address: Option<String>,
+    pub settlement_contract: Option<String>,
     #[serde(default)]
     pub recipient_address: Option<String>,
     #[serde(default)]
@@ -927,7 +919,7 @@ pub struct ProjectDashboardOverview {
     #[serde(default)]
     pub evm_payment_intents: Vec<EvmPaymentIntent>,
     #[serde(default)]
-    pub evm_transfer_ledger: Vec<EvmTransferLedgerEntry>,
+    pub evm_settlement_ledger: Vec<EvmSettlementLedgerEntry>,
     #[serde(rename = "projectSecrets")]
     pub api_keys: Vec<ProjectApiKey>,
     pub webhook_endpoints: Vec<ProjectWebhookEndpoint>,

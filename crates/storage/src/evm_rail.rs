@@ -4,9 +4,9 @@ use ring::digest;
 use shared::{
     CheckoutBillingSnapshot, CheckoutSessionStatus, EvmAssetBalance, EvmIndexerCursor,
     EvmIndexerCursorProjectionRequest, EvmIndexerWatchAsset, EvmIndexerWatchlist, EvmPaymentIntent,
-    EvmPaymentIntentStatus, EvmTransferLedgerEntry, EvmTransferProjectionRequest,
-    EvmTransferProjectionResponse, EvmTransferStatus, PaymentRail, ProjectWithdrawalRecord,
-    PublicCheckoutResponse, ReceiverAddressStatus, SupportedEvmAsset,
+    EvmPaymentIntentStatus, EvmSettlementContractStatus, EvmSettlementEventProjectionRequest,
+    EvmSettlementEventProjectionResponse, EvmSettlementEventStatus, EvmSettlementLedgerEntry,
+    PaymentRail, ProjectWithdrawalRecord, PublicCheckoutResponse, SupportedEvmAsset,
 };
 use uuid::Uuid;
 
@@ -20,14 +20,14 @@ mod support;
 pub(crate) use catalog::seed_evm_catalog;
 use support::{
     asset_balance_key, block_hash_conflicts, cursor_id, finality_for_evm_intent,
-    intent_status_from_transfer, intent_supported_asset, open_intent, payment_truth_for_evm_intent,
-    supported_asset, transfer_id, transfer_status,
+    intent_status_from_settlement_event, intent_supported_asset, open_intent,
+    payment_truth_for_evm_intent, settlement_event_id, settlement_event_status, supported_asset,
 };
 
 #[derive(Debug, Clone)]
 struct IntentMatch {
     intent_id: String,
-    status: EvmTransferStatus,
+    status: EvmSettlementEventStatus,
 }
 
 impl PortalStore {
@@ -35,7 +35,7 @@ impl PortalStore {
         let chains = self.evm_chains.read().await;
         let tokens = self.evm_chain_tokens.read().await;
         let rpc_nodes = self.evm_rpc_nodes.read().await;
-        let receivers = self.evm_receiver_addresses.read().await;
+        let settlement_contracts = self.evm_settlement_contracts.read().await;
 
         let mut assets = Vec::new();
         for chain in chains.values().filter(|chain| chain.enabled) {
@@ -45,9 +45,9 @@ impl PortalStore {
             else {
                 continue;
             };
-            let Some(receiver) = receivers.values().find(|receiver| {
-                receiver.chain_id == chain.chain_id
-                    && receiver.status == ReceiverAddressStatus::Active
+            let Some(settlement_contract) = settlement_contracts.values().find(|contract| {
+                contract.chain_id == chain.chain_id
+                    && contract.status == EvmSettlementContractStatus::Active
             }) else {
                 continue;
             };
@@ -57,7 +57,7 @@ impl PortalStore {
                     && token.enabled
                     && !token.contract_address.trim().is_empty()
             }) {
-                assets.push(supported_asset(chain, token, rpc_node, receiver));
+                assets.push(supported_asset(chain, token, rpc_node, settlement_contract));
             }
         }
 
@@ -81,7 +81,7 @@ impl PortalStore {
         let chains = self.evm_chains.read().await;
         let tokens = self.evm_chain_tokens.read().await;
         let rpc_nodes = self.evm_rpc_nodes.read().await;
-        let receivers = self.evm_receiver_addresses.read().await;
+        let settlement_contracts = self.evm_settlement_contracts.read().await;
 
         let mut chain_candidates: Vec<_> = chains
             .values()
@@ -111,20 +111,21 @@ impl PortalStore {
             token_candidates.sort_by(|left, right| left.symbol.cmp(&right.symbol));
 
             for token in token_candidates {
-                let receiver_id = receivers
+                let settlement_contract_id = settlement_contracts
                     .values()
-                    .filter(|receiver| receiver.chain_id == chain.chain_id)
-                    .filter(|receiver| receiver.status == ReceiverAddressStatus::Active)
-                    .map(|receiver| receiver.receiver_id.clone())
+                    .filter(|contract| contract.chain_id == chain.chain_id)
+                    .filter(|contract| contract.status == EvmSettlementContractStatus::Active)
+                    .map(|contract| contract.settlement_contract_id.clone())
                     .min();
-                let Some(receiver_id) = receiver_id else {
+                let Some(settlement_contract_id) = settlement_contract_id else {
                     continue;
                 };
-                let Some(receiver) = receivers.get(&receiver_id) else {
+                let Some(settlement_contract) = settlement_contracts.get(&settlement_contract_id)
+                else {
                     continue;
                 };
 
-                return Ok(supported_asset(chain, token, rpc_node, receiver));
+                return Ok(supported_asset(chain, token, rpc_node, settlement_contract));
             }
         }
 
@@ -158,8 +159,8 @@ impl PortalStore {
                 let chains = self.evm_chains.read().await;
                 let tokens = self.evm_chain_tokens.read().await;
                 let rpc_nodes = self.evm_rpc_nodes.read().await;
-                let receivers = self.evm_receiver_addresses.read().await;
-                intent_supported_asset(intent, &chains, &tokens, &rpc_nodes, &receivers)
+                let settlement_contracts = self.evm_settlement_contracts.read().await;
+                intent_supported_asset(intent, &chains, &tokens, &rpc_nodes, &settlement_contracts)
             }
             None => None,
         };
@@ -185,7 +186,7 @@ impl PortalStore {
         let chains = self.evm_chains.read().await;
         let tokens = self.evm_chain_tokens.read().await;
         let rpc_nodes = self.evm_rpc_nodes.read().await;
-        let receivers = self.evm_receiver_addresses.read().await;
+        let settlement_contracts = self.evm_settlement_contracts.read().await;
         let cursors = self.evm_indexer_cursors.read().await;
 
         let mut assets = Vec::new();
@@ -196,22 +197,22 @@ impl PortalStore {
             else {
                 continue;
             };
-            for receiver in receivers.values().filter(|receiver| {
-                receiver.chain_id == chain.chain_id
-                    && receiver.status == ReceiverAddressStatus::Active
+            for settlement_contract in settlement_contracts.values().filter(|contract| {
+                contract.chain_id == chain.chain_id
+                    && contract.status == EvmSettlementContractStatus::Active
             }) {
                 for token in tokens.values().filter(|token| {
                     token.chain_id == chain.chain_id
                         && token.enabled
                         && !token.contract_address.trim().is_empty()
                 }) {
-                    let asset = supported_asset(chain, token, rpc_node, receiver);
+                    let asset = supported_asset(chain, token, rpc_node, settlement_contract);
                     let open_intent_ids: Vec<String> = intents
                         .values()
                         .filter(|intent| intent.chain_id == asset.chain_id)
                         .filter(|intent| {
                             intent
-                                .receiver_address
+                                .settlement_contract
                                 .eq_ignore_ascii_case(&asset.settlement_contract)
                         })
                         .filter(|intent| {
@@ -267,15 +268,15 @@ impl PortalStore {
         cursor
     }
 
-    pub async fn project_evm_transfer(
+    pub async fn project_evm_settlement_event(
         &self,
-        payload: EvmTransferProjectionRequest,
+        payload: EvmSettlementEventProjectionRequest,
         now: DateTime<Utc>,
-    ) -> EvmTransferProjectionResponse {
-        let transfer_id = transfer_id(&payload);
+    ) -> EvmSettlementEventProjectionResponse {
+        let settlement_event_id = settlement_event_id(&payload);
         if let Some(existing) = self
-            .update_existing_transfer(
-                &transfer_id,
+            .update_existing_settlement_event(
+                &settlement_event_id,
                 payload.confirmations,
                 payload.block_hash.clone(),
                 now,
@@ -294,8 +295,8 @@ impl PortalStore {
                 self.enqueue_webhook_event_if_ready(invoice).await;
                 self.persist().await;
             }
-            return EvmTransferProjectionResponse {
-                transfer: existing,
+            return EvmSettlementEventProjectionResponse {
+                settlement_event: existing,
                 matched_intent,
                 invoice,
             };
@@ -303,12 +304,12 @@ impl PortalStore {
 
         let matched = self.match_evm_intent(&payload, now).await;
         let matched_intent_id = matched.as_ref().map(|matched| matched.intent_id.clone());
-        let transfer_status = matched
+        let settlement_event_status = matched
             .as_ref()
             .map(|matched| matched.status)
-            .unwrap_or(EvmTransferStatus::Ignored);
-        let transfer = EvmTransferLedgerEntry {
-            transfer_id: transfer_id.clone(),
+            .unwrap_or(EvmSettlementEventStatus::Ignored);
+        let settlement_event = EvmSettlementLedgerEntry {
+            settlement_event_id: settlement_event_id.clone(),
             chain_id: payload.chain_id,
             token_contract: payload.token_contract.trim().to_string(),
             tx_hash: payload.tx_hash.trim().to_string(),
@@ -320,17 +321,17 @@ impl PortalStore {
             amount_minor_units: payload.amount_minor_units,
             matched_intent_id: matched_intent_id.clone(),
             confirmations: payload.confirmations,
-            status: transfer_status,
+            status: settlement_event_status,
             observed_at: now,
             updated_at: now,
         };
-        self.evm_transfer_ledger
+        self.evm_settlement_ledger
             .write()
             .await
-            .insert(transfer_id, transfer.clone());
+            .insert(settlement_event_id, settlement_event.clone());
 
         let (matched_intent, invoice) = if let Some(intent_id) = matched_intent_id {
-            self.apply_evm_transfer_to_intent(&intent_id, &transfer, now)
+            self.apply_evm_settlement_event_to_intent(&intent_id, &settlement_event, now)
                 .await
         } else {
             (None, None)
@@ -342,8 +343,8 @@ impl PortalStore {
             self.persist().await;
         }
 
-        EvmTransferProjectionResponse {
-            transfer,
+        EvmSettlementEventProjectionResponse {
+            settlement_event,
             matched_intent,
             invoice,
         }
@@ -362,10 +363,10 @@ impl PortalStore {
         intents
     }
 
-    pub(crate) async fn evm_transfers_by_project(
+    pub(crate) async fn evm_settlement_events_by_project(
         &self,
         project_id: &str,
-    ) -> Vec<EvmTransferLedgerEntry> {
+    ) -> Vec<EvmSettlementLedgerEntry> {
         let intent_ids = self
             .evm_payment_intents
             .read()
@@ -374,21 +375,21 @@ impl PortalStore {
             .filter(|intent| intent.project_id == project_id)
             .map(|intent| intent.intent_id.clone())
             .collect::<std::collections::HashSet<_>>();
-        let mut transfers: Vec<_> = self
-            .evm_transfer_ledger
+        let mut settlement_events: Vec<_> = self
+            .evm_settlement_ledger
             .read()
             .await
             .values()
-            .filter(|transfer| {
-                transfer
+            .filter(|event| {
+                event
                     .matched_intent_id
                     .as_ref()
                     .is_some_and(|intent_id| intent_ids.contains(intent_id))
             })
             .cloned()
             .collect();
-        transfers.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-        transfers
+        settlement_events.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        settlement_events
     }
 
     pub(crate) async fn evm_asset_balances_by_project(
@@ -448,8 +449,8 @@ impl PortalStore {
             });
         }
 
-        for transfer in self.evm_transfer_ledger.read().await.values() {
-            let Some(intent) = transfer
+        for settlement_event in self.evm_settlement_ledger.read().await.values() {
+            let Some(intent) = settlement_event
                 .matched_intent_id
                 .as_ref()
                 .and_then(|intent_id| intent_by_id.get(intent_id))
@@ -460,28 +461,28 @@ impl PortalStore {
             let Some(balance) = balances.get_mut(&key) else {
                 continue;
             };
-            match transfer.status {
-                EvmTransferStatus::Confirmed => {
-                    balance.confirmed_minor_units += transfer.amount_minor_units;
-                    let merchant_net = transfer
+            match settlement_event.status {
+                EvmSettlementEventStatus::Confirmed => {
+                    balance.confirmed_minor_units += settlement_event.amount_minor_units;
+                    let merchant_net = settlement_event
                         .matched_intent_id
                         .as_ref()
                         .and_then(|intent_id| sessions_by_intent.get(intent_id))
                         .filter(|session| session.status == CheckoutSessionStatus::Paid)
                         .map(|session| session.billing.merchant_net_minor_units)
-                        .unwrap_or(transfer.amount_minor_units);
+                        .unwrap_or(settlement_event.amount_minor_units);
                     balance.withdrawable_minor_units += merchant_net;
                 }
-                EvmTransferStatus::Detected => {
-                    balance.pending_minor_units += transfer.amount_minor_units;
+                EvmSettlementEventStatus::Detected => {
+                    balance.pending_minor_units += settlement_event.amount_minor_units;
                 }
-                EvmTransferStatus::Underpaid
-                | EvmTransferStatus::Overpaid
-                | EvmTransferStatus::Expired
-                | EvmTransferStatus::Reorged => {
-                    balance.exception_minor_units += transfer.amount_minor_units;
+                EvmSettlementEventStatus::Underpaid
+                | EvmSettlementEventStatus::Overpaid
+                | EvmSettlementEventStatus::Expired
+                | EvmSettlementEventStatus::Reorged => {
+                    balance.exception_minor_units += settlement_event.amount_minor_units;
                 }
-                EvmTransferStatus::Duplicate | EvmTransferStatus::Ignored => {}
+                EvmSettlementEventStatus::Duplicate | EvmSettlementEventStatus::Ignored => {}
             }
         }
         for withdrawal in &withdrawals {
@@ -497,69 +498,75 @@ impl PortalStore {
         balances.into_values().collect()
     }
 
-    async fn update_existing_transfer(
+    async fn update_existing_settlement_event(
         &self,
-        transfer_id: &str,
+        settlement_event_id: &str,
         confirmations: u64,
         block_hash: Option<String>,
         now: DateTime<Utc>,
-    ) -> Option<EvmTransferLedgerEntry> {
-        let mut transfers = self.evm_transfer_ledger.write().await;
-        let transfer = transfers.get_mut(transfer_id)?;
-        if block_hash_conflicts(transfer.block_hash.as_deref(), block_hash.as_deref()) {
-            transfer.status = EvmTransferStatus::Reorged;
-            transfer.updated_at = now;
-            let matched_intent_id = transfer.matched_intent_id.clone();
-            let transfer = transfer.clone();
-            drop(transfers);
+    ) -> Option<EvmSettlementLedgerEntry> {
+        let mut settlement_events = self.evm_settlement_ledger.write().await;
+        let settlement_event = settlement_events.get_mut(settlement_event_id)?;
+        if block_hash_conflicts(
+            settlement_event.block_hash.as_deref(),
+            block_hash.as_deref(),
+        ) {
+            settlement_event.status = EvmSettlementEventStatus::Reorged;
+            settlement_event.updated_at = now;
+            let matched_intent_id = settlement_event.matched_intent_id.clone();
+            let settlement_event = settlement_event.clone();
+            drop(settlement_events);
 
             if let Some(intent_id) = matched_intent_id {
                 self.mark_evm_intent_failed(&intent_id, now).await;
                 self.persist().await;
             }
 
-            return Some(transfer);
+            return Some(settlement_event);
         }
-        transfer.confirmations = transfer.confirmations.max(confirmations);
-        if transfer.block_hash.is_none() {
-            transfer.block_hash = block_hash;
+        settlement_event.confirmations = settlement_event.confirmations.max(confirmations);
+        if settlement_event.block_hash.is_none() {
+            settlement_event.block_hash = block_hash;
         }
-        transfer.updated_at = now;
-        let matched_intent_id = transfer.matched_intent_id.clone();
-        let mut transfer = transfer.clone();
-        drop(transfers);
+        settlement_event.updated_at = now;
+        let matched_intent_id = settlement_event.matched_intent_id.clone();
+        let mut settlement_event = settlement_event.clone();
+        drop(settlement_events);
 
         if let Some(intent_id) = matched_intent_id {
-            if transfer.status == EvmTransferStatus::Detected {
+            if settlement_event.status == EvmSettlementEventStatus::Detected {
                 if let Some(intent) = self.evm_payment_intent_by_id(&intent_id).await {
-                    if transfer.confirmations >= intent.finality_threshold {
-                        if let Some(stored) =
-                            self.evm_transfer_ledger.write().await.get_mut(transfer_id)
+                    if settlement_event.confirmations >= intent.finality_threshold {
+                        if let Some(stored) = self
+                            .evm_settlement_ledger
+                            .write()
+                            .await
+                            .get_mut(settlement_event_id)
                         {
-                            stored.status = EvmTransferStatus::Confirmed;
+                            stored.status = EvmSettlementEventStatus::Confirmed;
                             stored.updated_at = now;
                         }
                     }
                 }
             }
-            transfer = self
-                .evm_transfer_ledger
+            settlement_event = self
+                .evm_settlement_ledger
                 .read()
                 .await
-                .get(transfer_id)
+                .get(settlement_event_id)
                 .cloned()
-                .unwrap_or(transfer);
-            self.apply_evm_transfer_to_intent(&intent_id, &transfer, now)
+                .unwrap_or(settlement_event);
+            self.apply_evm_settlement_event_to_intent(&intent_id, &settlement_event, now)
                 .await;
             self.persist().await;
         }
 
-        Some(transfer)
+        Some(settlement_event)
     }
 
     async fn match_evm_intent(
         &self,
-        payload: &EvmTransferProjectionRequest,
+        payload: &EvmSettlementEventProjectionRequest,
         now: DateTime<Utc>,
     ) -> Option<IntentMatch> {
         let intents = self.evm_payment_intents.read().await;
@@ -587,7 +594,7 @@ impl PortalStore {
                         .settlement_project_id
                         .eq_ignore_ascii_case(&payload.settlement_project_id)
                     && intent
-                        .receiver_address
+                        .settlement_contract
                         .eq_ignore_ascii_case(&payload.settlement_contract)
                     && intent.expected_amount_minor_units == payload.amount_minor_units
                     && intent.merchant_net_minor_units == payload.merchant_net_minor_units
@@ -597,14 +604,14 @@ impl PortalStore {
         {
             return Some(IntentMatch {
                 intent_id: intent.intent_id.clone(),
-                status: transfer_status(payload.confirmations, intent.finality_threshold),
+                status: settlement_event_status(payload.confirmations, intent.finality_threshold),
             });
         }
 
         if let Some(intent) = candidates.iter().find(|intent| intent.expires_at <= now) {
             return Some(IntentMatch {
                 intent_id: intent.intent_id.clone(),
-                status: EvmTransferStatus::Expired,
+                status: EvmSettlementEventStatus::Expired,
             });
         }
 
@@ -622,14 +629,14 @@ impl PortalStore {
             })
             .map(|intent| IntentMatch {
                 intent_id: intent.intent_id.clone(),
-                status: EvmTransferStatus::Duplicate,
+                status: EvmSettlementEventStatus::Duplicate,
             })
     }
 
-    async fn apply_evm_transfer_to_intent(
+    async fn apply_evm_settlement_event_to_intent(
         &self,
         intent_id: &str,
-        transfer: &EvmTransferLedgerEntry,
+        settlement_event: &EvmSettlementLedgerEntry,
         now: DateTime<Utc>,
     ) -> (Option<EvmPaymentIntent>, Option<shared::InvoiceRecord>) {
         let matched_amount = self.matched_amount_for_intent(intent_id).await;
@@ -637,19 +644,19 @@ impl PortalStore {
         let Some(intent) = intents.get_mut(intent_id) else {
             return (None, None);
         };
-        if transfer.status == EvmTransferStatus::Duplicate {
+        if settlement_event.status == EvmSettlementEventStatus::Duplicate {
             let intent = intent.clone();
             drop(intents);
             let invoice = self.invoice_for_intent(intent_id).await;
             return (Some(intent), invoice);
         }
 
-        intent.detected_tx_hash = Some(transfer.tx_hash.clone());
-        intent.payer_address = Some(transfer.from_address.clone());
-        intent.confirmations = intent.confirmations.max(transfer.confirmations);
+        intent.detected_tx_hash = Some(settlement_event.tx_hash.clone());
+        intent.payer_address = Some(settlement_event.from_address.clone());
+        intent.confirmations = intent.confirmations.max(settlement_event.confirmations);
         intent.matched_amount_minor_units = matched_amount;
-        intent.status = intent_status_from_transfer(
-            transfer.status,
+        intent.status = intent_status_from_settlement_event(
+            settlement_event.status,
             intent.confirmations,
             intent.finality_threshold,
         );
@@ -662,21 +669,21 @@ impl PortalStore {
     }
 
     async fn matched_amount_for_intent(&self, intent_id: &str) -> u64 {
-        self.evm_transfer_ledger
+        self.evm_settlement_ledger
             .read()
             .await
             .values()
-            .filter(|transfer| transfer.matched_intent_id.as_deref() == Some(intent_id))
-            .filter(|transfer| {
+            .filter(|event| event.matched_intent_id.as_deref() == Some(intent_id))
+            .filter(|event| {
                 !matches!(
-                    transfer.status,
-                    EvmTransferStatus::Duplicate
-                        | EvmTransferStatus::Ignored
-                        | EvmTransferStatus::Expired
-                        | EvmTransferStatus::Reorged
+                    event.status,
+                    EvmSettlementEventStatus::Duplicate
+                        | EvmSettlementEventStatus::Ignored
+                        | EvmSettlementEventStatus::Expired
+                        | EvmSettlementEventStatus::Reorged
                 )
             })
-            .map(|transfer| transfer.amount_minor_units)
+            .map(|event| event.amount_minor_units)
             .sum()
     }
 
@@ -792,8 +799,6 @@ pub(crate) fn build_evm_payment_intent(
         token_symbol: asset.token_symbol.clone(),
         token_contract: asset.token_contract.clone(),
         token_decimals: asset.token_decimals,
-        receiver_id: asset.receiver_id.clone(),
-        receiver_address: asset.receiver_address.clone(),
         settlement_contract: asset.settlement_contract.clone(),
         expected_amount_minor_units: amount_minor_units,
         merchant_net_minor_units: billing.merchant_net_minor_units,

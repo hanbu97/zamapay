@@ -422,7 +422,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
           <div className="mt-5 flex min-w-0 items-center gap-2 text-sm font-medium text-black/70">
             <span>Total balance</span>
             <button
-              aria-label={isEvmRail ? 'ERC20 transfer rail' : `${balanceActionLabel} confidential balance`}
+              aria-label={isEvmRail ? 'ERC20 settlement rail' : `${balanceActionLabel} confidential balance`}
               className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-black/5 px-2.5 text-xs font-semibold text-black/75 transition-colors hover:bg-black/10 disabled:opacity-50"
               disabled={!canRevealWallet}
               onClick={() => void revealWalletBalance()}
@@ -640,7 +640,7 @@ function defaultWalletStatus(config: CardForgeConfig): string {
 
 function defaultConnectedWalletStatus(config: CardForgeConfig): string {
   return config.paymentRail === 'evm_erc20'
-    ? 'ERC20 transfer records sync after checkout confirmation.'
+    ? 'ERC20 settlement records sync after checkout confirmation.'
     : 'Private balance locked. Reveal it when you are ready.'
 }
 

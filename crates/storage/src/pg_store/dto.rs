@@ -11,9 +11,9 @@ use shared::{
     BillingCycle, BillingEntitlementStatus, BillingPaymentRecord, BillingPaymentStatus,
     BillingPlan, BillingSubscription, BillingSubscriptionStatus, CheckoutBillingSnapshot,
     CheckoutSession, CheckoutSessionStatus, DecryptRequestSnapshot, EvmChain, EvmChainToken,
-    EvmIndexerCursor, EvmPaymentIntent, EvmReceiverAddress, EvmRpcNode, EvmTransferLedgerEntry,
-    FulfillmentReleaseAudit, InvoiceAuthorityMode, InvoiceRecord, PaymentProject,
-    PaymentProjectEnvironment, PaymentRail, ProjectApiKey, ProjectEnvironmentKind,
+    EvmIndexerCursor, EvmPaymentIntent, EvmRpcNode, EvmSettlementContract,
+    EvmSettlementLedgerEntry, FulfillmentReleaseAudit, InvoiceAuthorityMode, InvoiceRecord,
+    PaymentProject, PaymentProjectEnvironment, PaymentRail, ProjectApiKey, ProjectEnvironmentKind,
     ProjectInvoiceAuthority, ProjectPaymentRailSetting, ProjectStatus, ProjectWebhookEndpoint,
     ProjectWithdrawalRecord, ProjectWithdrawalStatus, WebhookDeliveryAttemptRecord,
     WebhookDeliveryRecord, WebhookEndpointSecretRecord, WebhookEndpointSecretStatus,
@@ -31,9 +31,9 @@ pub(crate) struct PortalRecordSet {
     pub(crate) evm_chains: HashMap<u64, EvmChain>,
     pub(crate) evm_chain_tokens: HashMap<String, EvmChainToken>,
     pub(crate) evm_rpc_nodes: HashMap<String, EvmRpcNode>,
-    pub(crate) evm_receiver_addresses: HashMap<String, EvmReceiverAddress>,
+    pub(crate) evm_settlement_contracts: HashMap<String, EvmSettlementContract>,
     pub(crate) evm_payment_intents: HashMap<String, EvmPaymentIntent>,
-    pub(crate) evm_transfer_ledger: HashMap<String, EvmTransferLedgerEntry>,
+    pub(crate) evm_settlement_ledger: HashMap<String, EvmSettlementLedgerEntry>,
     pub(crate) evm_indexer_cursors: HashMap<String, EvmIndexerCursor>,
     pub(crate) environments: HashMap<String, PaymentProjectEnvironment>,
     pub(crate) payment_rail_settings: HashMap<String, ProjectPaymentRailSetting>,
@@ -60,9 +60,9 @@ impl Default for PortalRecordSet {
             evm_chains: HashMap::new(),
             evm_chain_tokens: HashMap::new(),
             evm_rpc_nodes: HashMap::new(),
-            evm_receiver_addresses: HashMap::new(),
+            evm_settlement_contracts: HashMap::new(),
             evm_payment_intents: HashMap::new(),
-            evm_transfer_ledger: HashMap::new(),
+            evm_settlement_ledger: HashMap::new(),
             evm_indexer_cursors: HashMap::new(),
             environments: HashMap::new(),
             payment_rail_settings: HashMap::new(),
@@ -572,21 +572,21 @@ impl EvmRpcNodeRow {
 }
 
 #[derive(Debug, FromQueryResult)]
-pub(crate) struct EvmReceiverAddressRow {
-    pub(crate) receiver_id: String,
+pub(crate) struct EvmSettlementContractRow {
+    pub(crate) settlement_contract_id: String,
     pub(crate) chain_id: i64,
     pub(crate) network: String,
-    pub(crate) address: String,
+    pub(crate) contract_address: String,
     pub(crate) status: String,
 }
 
-impl EvmReceiverAddressRow {
-    pub(crate) fn into_domain(self) -> EvmReceiverAddress {
-        EvmReceiverAddress {
-            receiver_id: self.receiver_id,
-            chain_id: u64_from_i64(self.chain_id, "evm_receiver.chain_id"),
+impl EvmSettlementContractRow {
+    pub(crate) fn into_domain(self) -> EvmSettlementContract {
+        EvmSettlementContract {
+            settlement_contract_id: self.settlement_contract_id,
+            chain_id: u64_from_i64(self.chain_id, "evm_settlement_contract.chain_id"),
             network: self.network,
-            address: self.address,
+            contract_address: self.contract_address,
             status: decode_enum(&self.status),
         }
     }
@@ -604,8 +604,7 @@ pub(crate) struct EvmPaymentIntentRow {
     pub(crate) token_symbol: String,
     pub(crate) token_contract: String,
     pub(crate) token_decimals: i32,
-    pub(crate) receiver_id: String,
-    pub(crate) receiver_address: String,
+    pub(crate) settlement_contract: String,
     pub(crate) expected_amount_minor_units: i64,
     pub(crate) merchant_net_minor_units: i64,
     pub(crate) platform_fee_minor_units: i64,
@@ -633,9 +632,7 @@ impl EvmPaymentIntentRow {
             token_symbol: self.token_symbol,
             token_contract: self.token_contract,
             token_decimals: u8_from_i32(self.token_decimals, "evm_payment_intent.token_decimals"),
-            receiver_id: self.receiver_id,
-            settlement_contract: self.receiver_address.clone(),
-            receiver_address: self.receiver_address,
+            settlement_contract: self.settlement_contract,
             expected_amount_minor_units: u64_from_i64(
                 self.expected_amount_minor_units,
                 "evm_payment_intent.expected_amount_minor_units",
@@ -668,8 +665,8 @@ impl EvmPaymentIntentRow {
 }
 
 #[derive(Debug, FromQueryResult)]
-pub(crate) struct EvmTransferLedgerRow {
-    pub(crate) transfer_id: String,
+pub(crate) struct EvmSettlementLedgerRow {
+    pub(crate) settlement_event_id: String,
     pub(crate) chain_id: i64,
     pub(crate) token_contract: String,
     pub(crate) tx_hash: String,
@@ -686,24 +683,24 @@ pub(crate) struct EvmTransferLedgerRow {
     pub(crate) updated_at: DateTime<Utc>,
 }
 
-impl EvmTransferLedgerRow {
-    pub(crate) fn into_domain(self) -> EvmTransferLedgerEntry {
-        EvmTransferLedgerEntry {
-            transfer_id: self.transfer_id,
-            chain_id: u64_from_i64(self.chain_id, "evm_transfer.chain_id"),
+impl EvmSettlementLedgerRow {
+    pub(crate) fn into_domain(self) -> EvmSettlementLedgerEntry {
+        EvmSettlementLedgerEntry {
+            settlement_event_id: self.settlement_event_id,
+            chain_id: u64_from_i64(self.chain_id, "evm_settlement_event.chain_id"),
             token_contract: self.token_contract,
             tx_hash: self.tx_hash,
-            log_index: u64_from_i64(self.log_index, "evm_transfer.log_index"),
-            block_number: u64_from_i64(self.block_number, "evm_transfer.block_number"),
+            log_index: u64_from_i64(self.log_index, "evm_settlement_event.log_index"),
+            block_number: u64_from_i64(self.block_number, "evm_settlement_event.block_number"),
             block_hash: self.block_hash,
             from_address: self.from_address,
             to_address: self.to_address,
             amount_minor_units: u64_from_i64(
                 self.amount_minor_units,
-                "evm_transfer.amount_minor_units",
+                "evm_settlement_event.amount_minor_units",
             ),
             matched_intent_id: self.matched_intent_id,
-            confirmations: u64_from_i64(self.confirmations, "evm_transfer.confirmations"),
+            confirmations: u64_from_i64(self.confirmations, "evm_settlement_event.confirmations"),
             status: decode_enum(&self.status),
             observed_at: self.observed_at,
             updated_at: self.updated_at,
@@ -882,7 +879,7 @@ pub(crate) struct WithdrawalRow {
     pub(crate) amount_minor_units: i64,
     pub(crate) chain_id: Option<i64>,
     pub(crate) token_contract: Option<String>,
-    pub(crate) receiver_address: Option<String>,
+    pub(crate) settlement_contract: Option<String>,
     pub(crate) recipient_address: Option<String>,
     pub(crate) status: String,
     pub(crate) receipt: String,
@@ -903,7 +900,7 @@ impl WithdrawalRow {
                 .chain_id
                 .map(|value| u64_from_i64(value, "withdrawal.chain_id")),
             token_contract: self.token_contract,
-            receiver_address: self.receiver_address,
+            settlement_contract: self.settlement_contract,
             recipient_address: self.recipient_address,
             status: decode_enum(&self.status),
             receipt: self.receipt,

@@ -11,9 +11,8 @@ export type LocalProjectEvmWithdrawSubmission = {
   amountMinorUnits: number
   chainId: number
   chainTxHash: string
-  receiverAddress: string
-  recipientAddress: string
   settlementContract: string
+  recipientAddress: string
   settlementProjectId: string
   tokenContract: string
   withdrawalId: string

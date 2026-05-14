@@ -653,7 +653,7 @@ function formatIntentStatus(status: EvmPaymentIntent['status'] | undefined) {
     case 'failed':
       return 'Failed'
     case 'requires_payment':
-      return 'Awaiting transfer'
+      return 'Awaiting settlement'
     default:
       return 'Unavailable'
   }

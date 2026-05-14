@@ -37,7 +37,7 @@ pub enum CheckoutSessionError {
 pub struct ProjectWithdrawalScope {
     pub chain_id: Option<u64>,
     pub token_contract: Option<String>,
-    pub receiver_address: Option<String>,
+    pub settlement_contract: Option<String>,
     pub recipient_address: Option<String>,
 }
 

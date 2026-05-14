@@ -4,8 +4,8 @@ Confidential merchant checkout for wallet-authenticated merchants, Zama FHEVM se
 
 ## What Is Implemented
 
-- Rust API: nonce login, cookie sessions, dashboard read model, invoice APIs, Zama chain projection, ERC20 asset/payment-intent/transfer-ledger projection, finality, and fulfillment release.
-- Next.js web app: shadcn merchant homepage, wallet login, dashboard, hosted checkout for Zama private or ERC20 transfer rails, and operator diagnostics.
+- Rust API: nonce login, cookie sessions, dashboard read model, invoice APIs, Zama chain projection, ERC20 asset/payment-intent/settlement-ledger projection, finality, and fulfillment release.
+- Next.js web app: shadcn merchant homepage, wallet login, dashboard, hosted checkout for Zama private or ERC20 settlement rails, and operator diagnostics.
 - Server SDK preview: `@zamapay/server` for merchant backends, explicit payment rail checkout creation, and raw-body webhook verification helpers.
 - Contracts: merchant registry, official-style confidential token mock, private checkout settlement, local standard USDT/USDC mocks, local deploy, tests, and smoke scripts.
 - Generated clients: ABI and address manifests flow from Hardhat into `generated/*` for Rust and web.
@@ -121,7 +121,7 @@ For manual browser-only `LoginCard` verification without a wallet extension, tem
 
 Public-testnet work is guarded by explicit runtime profiles and env files. The active local MVP remains Hardhat/FHEVM mock RPC, `ConfidentialUSDMock.claimTestTokens()` from the browser wallet, direct buyer-wallet payment, encrypted pending buckets, merchant-signed withdraw, and local chain evidence projection after finalization.
 
-The ordinary EVM ERC20 rail is a separate non-private rail. Public ERC20 support should be enabled only by explicit chain/token/RPC/settlement-contract catalog rows. Payment truth must come from indexed `EvmCheckoutSettlement.EvmPaymentAccepted` events, confirmation thresholds, and settlement ledger states, not manual tx-hash projection or buyer-chosen receiver addresses.
+The ordinary EVM ERC20 rail is a separate non-private rail. Public ERC20 support should be enabled only by explicit chain/token/RPC/settlement-contract catalog rows. Payment truth must come from indexed `EvmCheckoutSettlement.EvmPaymentAccepted` events, confirmation thresholds, and settlement ledger states, not manual tx-hash projection or buyer-chosen payment destinations.
 
 Sepolia local-UI and preview setup lives in [`env/README.md`](env/README.md) and the workflow runbook. Use these entrypoints instead of hand-sourcing env stacks:
 

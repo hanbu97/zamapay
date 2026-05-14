@@ -2,8 +2,8 @@ use chrono::{TimeDelta, Utc};
 use domain::{FinalityStatus, FulfillmentStatus, PaymentTruth};
 use shared::{
     BillingCycle, BillingEntitlementStatus, BillingPlan, CreateCheckoutSessionRequest,
-    EvmIndexerCursorProjectionRequest, EvmPaymentIntent, EvmTransferProjectionRequest,
-    EvmTransferStatus, PaymentRail, ProjectEnvironmentKind,
+    EvmIndexerCursorProjectionRequest, EvmPaymentIntent, EvmSettlementEventProjectionRequest,
+    EvmSettlementEventStatus, PaymentRail, ProjectEnvironmentKind,
     SubscriptionEntitlementProjectionRequest, WEBHOOK_RETIRED_SECRET_LIMIT,
     WEBHOOK_RETIRED_SECRET_TTL_HOURS, webhook_payload_sha256,
 };
@@ -45,16 +45,16 @@ fn evm_checkout_payload(order_id: &str, amount_minor_units: u64) -> CreateChecko
     payload
 }
 
-fn evm_transfer_request(
+fn evm_settlement_event_request(
     intent: &EvmPaymentIntent,
     tx_hash: &str,
     amount_minor_units: u64,
     confirmations: u64,
-) -> EvmTransferProjectionRequest {
-    EvmTransferProjectionRequest {
+) -> EvmSettlementEventProjectionRequest {
+    EvmSettlementEventProjectionRequest {
         settlement_intent_id: intent.settlement_intent_id.clone(),
         settlement_project_id: intent.settlement_project_id.clone(),
-        settlement_contract: intent.receiver_address.clone(),
+        settlement_contract: intent.settlement_contract.clone(),
         chain_id: intent.chain_id,
         token_contract: intent.token_contract.clone(),
         tx_hash: tx_hash.to_string(),
@@ -64,7 +64,7 @@ fn evm_transfer_request(
             "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string(),
         ),
         from_address: "0x00000000000000000000000000000000000000bb".to_string(),
-        to_address: intent.receiver_address.clone(),
+        to_address: intent.settlement_contract.clone(),
         amount_minor_units,
         merchant_net_minor_units: intent.merchant_net_minor_units,
         platform_fee_minor_units: intent.platform_fee_minor_units,
@@ -644,7 +644,10 @@ async fn evm_checkout_uses_payment_intent_and_settlement_ledger_truth() {
             asset.chain_id == intent.chain_id && asset.token_contract == intent.token_contract
         })
         .expect("intent should use a supported settlement asset");
-    assert_eq!(intent.receiver_address, supported_asset.settlement_contract);
+    assert_eq!(
+        intent.settlement_contract,
+        supported_asset.settlement_contract
+    );
     assert_eq!(intent.expected_amount_minor_units, 120_000_000);
 
     let public_open_checkout = store
@@ -657,12 +660,12 @@ async fn evm_checkout_uses_payment_intent_and_settlement_ledger_truth() {
             .evm_asset
             .expect("open checkout should expose its settlement EVM asset")
             .settlement_contract,
-        intent.receiver_address
+        intent.settlement_contract
     );
 
     let projected = store
-        .project_evm_transfer(
-            evm_transfer_request(
+        .project_evm_settlement_event(
+            evm_settlement_event_request(
                 &intent,
                 "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 intent.expected_amount_minor_units,
@@ -674,11 +677,11 @@ async fn evm_checkout_uses_payment_intent_and_settlement_ledger_truth() {
 
     let matched = projected
         .matched_intent
-        .expect("transfer should match the open payment intent");
+        .expect("settlement event should match the open payment intent");
     assert_eq!(matched.intent_id, intent_id);
     let invoice = projected
         .invoice
-        .expect("matched transfer should pay invoice");
+        .expect("matched settlement event should pay invoice");
     assert_eq!(invoice.payment_rail, PaymentRail::EvmErc20);
     assert_eq!(
         invoice.payment_tx_hash.as_deref(),
@@ -703,7 +706,7 @@ async fn evm_checkout_uses_payment_intent_and_settlement_ledger_truth() {
         .expect("project overview should exist");
     assert_eq!(overview.summary.paid_checkouts, 1);
     assert_eq!(overview.evm_payment_intents.len(), 1);
-    assert_eq!(overview.evm_transfer_ledger.len(), 1);
+    assert_eq!(overview.evm_settlement_ledger.len(), 1);
     assert_eq!(overview.evm_asset_balances.len(), 1);
     assert_eq!(
         overview.evm_asset_balances[0].confirmed_minor_units,
@@ -723,7 +726,7 @@ async fn evm_checkout_uses_payment_intent_and_settlement_ledger_truth() {
             ProjectWithdrawalScope {
                 chain_id: Some(intent.chain_id),
                 token_contract: Some(intent.token_contract.clone()),
-                receiver_address: Some(intent.receiver_address.clone()),
+                settlement_contract: Some(intent.settlement_contract.clone()),
                 recipient_address: Some("0x00000000000000000000000000000000000000aa".to_string()),
             },
             now + TimeDelta::seconds(10),
@@ -858,10 +861,9 @@ async fn evm_settlement_contract_handles_multiple_open_intents() {
         .await
         .unwrap();
 
-    assert_eq!(first_intent.receiver_id, second_intent.receiver_id);
     assert_eq!(
-        first_intent.receiver_address,
-        second_intent.receiver_address
+        first_intent.settlement_contract,
+        second_intent.settlement_contract
     );
     assert_ne!(
         first_intent.settlement_intent_id,
@@ -913,9 +915,9 @@ async fn evm_mismatched_settlement_event_is_ignored_without_paying_invoice() {
         .unwrap();
 
     let projected = store
-        .project_evm_transfer(
+        .project_evm_settlement_event(
             {
-                let mut request = evm_transfer_request(
+                let mut request = evm_settlement_event_request(
                     &intent,
                     "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                     intent.expected_amount_minor_units - 1,
@@ -928,7 +930,10 @@ async fn evm_mismatched_settlement_event_is_ignored_without_paying_invoice() {
         )
         .await;
 
-    assert_eq!(projected.transfer.status, EvmTransferStatus::Ignored);
+    assert_eq!(
+        projected.settlement_event.status,
+        EvmSettlementEventStatus::Ignored
+    );
     assert!(projected.matched_intent.is_none());
     assert!(projected.invoice.is_none());
 
