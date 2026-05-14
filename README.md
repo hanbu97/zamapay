@@ -26,6 +26,12 @@ Local API recipes default to `http://127.0.0.1:18080` to avoid common `8080` con
 
 The workflow contract lives in [`docs/runbooks/development-deployment-workflow.md`](docs/runbooks/development-deployment-workflow.md). Follow that runbook for local-dev, CardForge binding, Supabase-backed local runs, Sepolia local-UI, preview checks, and recovery. The short path below is only the common local loop.
 
+Public documentation is single-sourced from [`docs/content/public`](docs/content/public). The Next.js `/docs` route renders those Markdoc files directly; React and TypeScript files own rendering, not article prose. Use this gate after changing docs copy, SDK examples, rail wording, credential names, or docs navigation:
+
+```bash
+just docs-check
+```
+
 Run these in separate terminals from the repo root.
 
 ```bash

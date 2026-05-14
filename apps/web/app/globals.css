@@ -228,6 +228,9 @@
       44px 44px,
       44px 44px,
       100% 100%;
+  }
+
+  .login-product-bg {
     box-shadow:
       inset -1px 0 0 var(--border),
       inset -36px 0 70px color-mix(in oklch, var(--foreground) 5%, transparent);

@@ -88,8 +88,13 @@ build-sdk:
 verify-sdk-install-shape:
     mise exec -- npm run test:sdk-install-shape
 
+# Validate public Markdoc documentation content and navigation metadata.
+docs-check:
+    mise exec -- node scripts/check-public-docs.mjs
+
 # Check SDK, web, contracts, and Rust workspaces.
 check:
+    just docs-check
     mise exec -- npm run test:sdk
     mise exec -- npm run lint:sdk
     just build-sdk

@@ -1,13 +1,15 @@
+import React, { type ComponentPropsWithoutRef, type ReactNode } from "react"
 import Image from "next/image"
 import Link from "next/link"
+import Markdoc from "@markdoc/markdoc"
 import {
   ArrowRightIcon,
-  CheckCircle2Icon,
+  InfoIcon,
   KeyRoundIcon,
   LockKeyholeIcon,
   ReceiptTextIcon,
+  ShieldCheckIcon,
   StoreIcon,
-  WebhookIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -16,30 +18,64 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-import type { DocsFigureKind, DocsPage, DocsSection } from "./docs-content"
-import { docsPages } from "./docs-content"
+import { CodeBlock } from "./CodeBlock"
+import type { DocsFigureKind, DocsPage } from "./docs-content"
+import { docsGroups } from "./docs-content"
+import { resolveDocsTagName } from "./markdoc-rendering"
 import { MermaidDiagram } from "./MermaidDiagram"
+
+const markdocComponents = {
+  Callout,
+  GuideFigure,
+  a: DocsLink,
+  article: DocsContent,
+  code: InlineCode,
+  h2: DocsHeading2,
+  h3: DocsHeading3,
+  li: DocsListItem,
+  ol: DocsOrderedList,
+  p: DocsParagraph,
+  pre: DocsPre,
+  table: DocsMarkdownTable,
+  tbody: TableBody,
+  td: DocsTableCell,
+  th: DocsTableHead,
+  thead: TableHeader,
+  tr: TableRow,
+  ul: DocsUnorderedList,
+}
 
 export function DocsArticle({ page }: { page: DocsPage }) {
   const Icon = page.icon
+  const content = Markdoc.renderers.react(page.content, React, {
+    components: markdocComponents,
+    resolveTagName: resolveDocsTagName,
+  })
 
   return (
     <div className="mx-auto grid w-full max-w-7xl gap-8 px-4 py-10 md:px-8 lg:grid-cols-[15rem_minmax(0,1fr)]">
       <aside className="hidden lg:block">
-        <div className="sticky top-24 flex flex-col gap-2">
+        <div className="sticky top-24 flex flex-col gap-5">
           <div className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Documentation</div>
-          {docsPages.map((item) => (
-            <Button
-              className="justify-start"
-              key={item.slug}
-              nativeButton={false}
-              render={<Link href={`/docs/${item.slug}`} />}
-              size="sm"
-              variant={item.slug === page.slug ? "secondary" : "ghost"}
-            >
-              <item.icon data-icon="inline-start" />
-              {item.title}
-            </Button>
+          {docsGroups.map((group) => (
+            <div className="grid gap-1" key={group.title}>
+              <div className="px-2 text-[0.68rem] font-medium uppercase tracking-normal text-muted-foreground">
+                {group.title}
+              </div>
+              {group.pages.map((item) => (
+                <Button
+                  className="justify-start"
+                  key={item.slug}
+                  nativeButton={false}
+                  render={<Link href={`/docs/${item.slug}`} />}
+                  size="sm"
+                  variant={item.slug === page.slug ? "secondary" : "ghost"}
+                >
+                  <item.icon data-icon="inline-start" />
+                  {item.title}
+                </Button>
+              ))}
+            </div>
           ))}
         </div>
       </aside>
@@ -63,11 +99,7 @@ export function DocsArticle({ page }: { page: DocsPage }) {
           </div>
         </div>
 
-        <div className="flex flex-col gap-10 py-10">
-          {page.sections.map((section) => (
-            <DocsSectionBlock key={section.id} section={section} />
-          ))}
-        </div>
+        {content}
 
         <Separator />
 
@@ -88,136 +120,114 @@ export function DocsArticle({ page }: { page: DocsPage }) {
   )
 }
 
-function DocsSectionBlock({ section }: { section: DocsSection }) {
-  const hasFigure = Boolean(section.figure)
+function DocsContent({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-10 py-10">{children}</div>
+}
+
+function DocsHeading2({ children, id }: ComponentPropsWithoutRef<"h2">) {
+  return (
+    <h2 className="scroll-mt-24 text-2xl font-semibold tracking-normal" id={id}>
+      {children}
+    </h2>
+  )
+}
+
+function DocsHeading3({ children, id }: ComponentPropsWithoutRef<"h3">) {
+  return (
+    <h3 className="scroll-mt-24 pt-2 text-lg font-semibold tracking-normal" id={id}>
+      {children}
+    </h3>
+  )
+}
+
+function DocsParagraph({ children }: { children: ReactNode }) {
+  return <p className="max-w-3xl text-base leading-7 text-muted-foreground">{children}</p>
+}
+
+function DocsUnorderedList({ children }: { children: ReactNode }) {
+  return <ul className="grid max-w-3xl list-disc gap-2 pl-6 text-base leading-7 text-muted-foreground">{children}</ul>
+}
+
+function DocsOrderedList({ children }: { children: ReactNode }) {
+  return <ol className="grid max-w-3xl list-decimal gap-3 pl-6 text-base leading-7 text-muted-foreground">{children}</ol>
+}
+
+function DocsListItem({ children }: { children: ReactNode }) {
+  return <li className="pl-1">{children}</li>
+}
+
+function InlineCode({ children }: { children: ReactNode }) {
+  return <code className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[0.88em] text-foreground">{children}</code>
+}
+
+function DocsLink({ children, href }: ComponentPropsWithoutRef<"a">) {
+  if (!href) {
+    return <span>{children}</span>
+  }
+
+  const className = "font-medium text-foreground underline underline-offset-4 hover:text-primary"
+
+  if (href.startsWith("/") || href.startsWith("#")) {
+    return (
+      <Link className={className} href={href}>
+        {children}
+      </Link>
+    )
+  }
 
   return (
-    <section className="scroll-mt-24" id={section.id}>
-      <div className={hasFigure ? "grid gap-5 lg:grid-cols-[minmax(0,0.88fr)_minmax(18rem,0.62fr)]" : "grid gap-5"}>
+    <a className={className} href={href} rel="noreferrer" target="_blank">
+      {children}
+    </a>
+  )
+}
+
+type DocsPreProps = ComponentPropsWithoutRef<"pre"> & {
+  "data-language"?: string
+}
+
+function DocsPre({ children, "data-language": dataLanguage }: DocsPreProps) {
+  const content = String(children ?? "")
+  const language = typeof dataLanguage === "string" ? dataLanguage : undefined
+
+  if (language === "mermaid") {
+    return <MermaidDiagram chart={content.trim()} />
+  }
+
+  return <CodeBlock code={content} language={language} />
+}
+
+function DocsMarkdownTable({ children }: { children: ReactNode }) {
+  return (
+    <div className="max-w-full overflow-x-auto rounded-lg border">
+      <Table>{children}</Table>
+    </div>
+  )
+}
+
+function DocsTableHead({ children }: { children: ReactNode }) {
+  return <TableHead>{children}</TableHead>
+}
+
+function DocsTableCell({ children }: { children: ReactNode }) {
+  return <TableCell className="max-w-[24rem] whitespace-normal align-top leading-6">{children}</TableCell>
+}
+
+function Callout({ children, title, type = "note" }: { children: ReactNode; title?: string; type?: string }) {
+  const isWarning = type === "warning"
+
+  return (
+    <div className="max-w-3xl rounded-lg border bg-muted/40 p-4">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border bg-background">
+          {isWarning ? <ShieldCheckIcon className="size-4" /> : <InfoIcon className="size-4" />}
+        </div>
         <div className="min-w-0">
-          <h2 className="text-2xl font-semibold tracking-normal">{section.title}</h2>
-          <div className="mt-3 flex flex-col gap-3 text-base leading-7 text-muted-foreground">
-            {section.body.map((paragraph) => (
-              <p key={paragraph}>{paragraph}</p>
-            ))}
-          </div>
-          {section.steps ? <StepList steps={section.steps} /> : null}
-          {section.table ? <DocsTable section={section} /> : null}
-          {section.mermaid ? <MermaidDiagram chart={section.mermaid} /> : null}
-          {section.code ? (
-            <pre className="mt-5 max-w-full overflow-x-auto rounded-lg border bg-muted p-4 text-xs leading-6 text-muted-foreground">
-              <code>{section.code}</code>
-            </pre>
-          ) : null}
+          {title ? <div className="font-medium">{title}</div> : null}
+          <div className="mt-1 grid gap-2 text-sm leading-6 text-muted-foreground">{children}</div>
         </div>
-        {section.figure ? <GuideFigure kind={section.figure} /> : null}
       </div>
-    </section>
-  )
-}
-
-function StepList({ steps }: { steps: NonNullable<DocsSection["steps"]> }) {
-  return (
-    <div className="mt-5 grid gap-3">
-      {steps.map((step, index) => (
-        <div className="grid gap-3 rounded-lg border bg-card p-4 md:grid-cols-[2.5rem_1fr]" key={step.title}>
-          <Badge className="w-fit" variant="outline">
-            {String(index + 1).padStart(2, "0")}
-          </Badge>
-          <div className="min-w-0">
-            <div className="font-medium">{step.title}</div>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">{step.detail}</p>
-          </div>
-        </div>
-      ))}
     </div>
-  )
-}
-
-function DocsTable({ section }: { section: DocsSection }) {
-  if (!section.table) {
-    return null
-  }
-
-  const table = section.table
-
-  return (
-    <div className="mt-5 overflow-hidden rounded-lg border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            {table.headers.map((header) => (
-              <TableHead key={header}>{header}</TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {table.rows.map((row, rowIndex) => (
-            <TableRow key={`${section.id}-row-${rowIndex}`}>
-              {row.map((cell, cellIndex) => {
-                const rowSpan = getRowSpan(table.rows, rowIndex, cellIndex, table.mergeFirstColumn)
-
-                if (rowSpan === 0) {
-                  return null
-                }
-
-                return (
-                  <TableCell
-                    className={
-                      cellIndex === 0 && table.mergeFirstColumn
-                        ? "max-w-[12rem] whitespace-normal bg-muted/30 align-top font-medium leading-6 text-foreground"
-                        : "max-w-[22rem] whitespace-normal align-top leading-6"
-                    }
-                    key={`${section.id}-${rowIndex}-${cellIndex}`}
-                    rowSpan={rowSpan}
-                  >
-                    <TableCellText value={cell} />
-                  </TableCell>
-                )
-              })}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  )
-}
-
-function getRowSpan(rows: string[][], rowIndex: number, cellIndex: number, mergeFirstColumn?: boolean) {
-  if (!mergeFirstColumn || cellIndex !== 0) {
-    return undefined
-  }
-
-  const value = rows[rowIndex]?.[0]
-
-  if (rowIndex > 0 && rows[rowIndex - 1]?.[0] === value) {
-    return 0
-  }
-
-  let span = 1
-
-  while (rows[rowIndex + span]?.[0] === value) {
-    span += 1
-  }
-
-  return span
-}
-
-function TableCellText({ value }: { value: string }) {
-  const lines = value.split("\n")
-
-  if (lines.length === 1) {
-    return value
-  }
-
-  return (
-    <span className="grid gap-1">
-      {lines.map((line, index) => (
-        <span className="font-mono text-xs leading-5 text-foreground/80" key={`${line}-${index}`}>
-          {line}
-        </span>
-      ))}
-    </span>
   )
 }
 
@@ -242,7 +252,7 @@ function GuideFigure({ kind }: { kind?: DocsFigureKind }) {
           <div className="mt-3 grid gap-2 text-sm">
             <FigureRow label="Project" value="proj_..." />
             <FigureRow label="Key prefix" value="zms_test_..." />
-            <FigureRow label="Webhook" value="enabled" />
+            <FigureRow label="Webhook" value="bootstrapped" />
           </div>
         </CardContent>
       </Card>

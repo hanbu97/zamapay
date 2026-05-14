@@ -4,27 +4,31 @@
 
 ```text
 apps/web/app/docs
-|-- layout.tsx       # Public docs shell that reuses marketing/PublicHeader and keeps navbar-aware content height
-|-- page.tsx         # Docs index with first-viewport guide map and primary article entries
-|-- DocsArticle.tsx  # Server-rendered article renderer, guide figures, tables, flow diagrams, and code blocks
-|-- MermaidDiagram.tsx # Client renderer that dynamically loads Mermaid for docs diagrams
-|-- docs-content.ts  # Static documentation truth for SDK preview, raw HTTP, rails, API, webhooks, examples, CardForge, privacy checkout, and environments
+|-- layout.tsx          # Public docs shell with shared marketing header, footer, and navbar-aware content spacing
+|-- page.tsx            # Docs index grouped from Markdoc frontmatter metadata
+|-- DocsArticle.tsx     # Server-rendered Markdoc article renderer, callouts, figures, tables, Mermaid fences, and code blocks
+|-- CodeBlock.tsx       # Client code block surface with copy, theme-aware chrome, and lightweight syntax highlighting
+|-- MermaidDiagram.tsx  # Client renderer that dynamically loads Mermaid for docs diagrams
+|-- code-highlighting.ts # Dependency-free tokenizer for common docs snippets
+|-- docs-content.ts     # Server-side Markdoc loader for docs/content/public/*.md; no prose lives here
+|-- markdoc-rendering.ts # Markdoc React renderer glue for mapping every tag, including lowercase HTML tags, to local components
 `-- [slug]/
-    |-- page.tsx         # Static docs article route selected by slug
+    |-- page.tsx         # Static docs article route selected by Markdoc slug
     `-- ARCHITECTURE.md  # Dynamic article route note
 ```
 
 ## Decisions
 
-- Documentation is public because integration guidance must be readable before wallet login.
-- The docs content is static TypeScript data, not MDX, so build output stays dependency-free and type checked.
-- `/docs` opens directly into the documentation map; it is not a landing page stacked above a second docs layout.
-- The docs body uses `100dvh - 3.5rem` as its minimum viewport while the shared public header owns top navigation.
-- `/merchant` owns project state and one-time secret reveal.
-- Privacy checkout documents the implemented local-dev mock confidential rail, MVP boundary, field contract, safety controls, and payment path as row-spanned tables plus Mermaid, so privacy claims stay narrower than the settlement proof.
-- Mermaid is isolated in a client component and loaded dynamically; docs articles remain server-rendered and typed.
-- Guide figures render only when a section declares one; text/table-only sections stay single-column and do not receive placeholder cards.
-- API examples document the project/API-key checkout boundary and deliberately exclude browser cookie checkout creation.
+- Public docs prose is single-source under `docs/content/public/*.md`. TypeScript may parse and render it, but must not duplicate article copy.
+- `docs-content.ts` is a server-side content loader: it reads frontmatter, validates Markdoc tags, extracts h2 anchors, maps icon keys, and exposes route metadata plus task/capability navigation.
+- `/docs` follows a Stripe-style docs home shape: start with user goals, expose top stage categories, then browse by capability.
+- The docs route uses the same public marketing footer as the homepage. Docs pages own content only; the layout owns the shared header, bottom breathing room, and footer.
+- Top navigation, docs home, and article sidebars all consume the same grouped docs model; page lists must not be re-flattened in individual components.
+- Article pages render Markdoc on the server. Only Mermaid diagrams cross into a client component.
+- `markdoc-rendering.ts` owns the renderer boundary because Markdoc's default React resolver maps only capitalized component names; docs must route lowercase tags like `pre`, `p`, and `table` through the same component table.
+- Markdoc fences keep code examples in Markdown. `mermaid` fences render through `MermaidDiagram`; other fences render through `CodeBlock` with copy, horizontal scroll, and dependency-free highlighting.
+- `code-highlighting.ts` is intentionally small and local. It highlights the languages we document today without adding a heavy runtime syntax dependency to the public docs path.
+- Custom Markdoc tags are intentionally narrow: `figure` for fixed product diagrams and `callout` for operational warnings or notes.
 - Webhook docs use the public Svix-style HMAC contract only; retired operator dispatch headers and replayable signing material stay out of browser docs.
 - Server SDK docs describe only the Node backend preview package, keep `@zamapay/server/webhooks` as a subpath, and require explicit `paymentRail` in every checkout example.
 - CardForge docs remain a Rust raw HTTP baseline, not TypeScript SDK dogfood.

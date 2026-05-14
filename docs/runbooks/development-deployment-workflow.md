@@ -10,6 +10,7 @@ The stable entrypoints are:
 - `.mise.toml` for Node/npm and command-runner tooling.
 - `env/runtime-profiles.json` for runtime shape.
 - `env/*.env.example` for process env contracts.
+- `docs/content/public/*.md` for public documentation copy rendered by the Next.js docs route.
 - ignored same-name `env/*.env` files for local secrets.
 
 Rust is not managed by mise in this repo. Keep using the workspace Rust toolchain.
@@ -40,6 +41,7 @@ just setup
 - Add a new `just` recipe when an operation becomes repeatable.
 - Keep runtime defaults in `env/runtime-profiles.json`.
 - Keep process-specific values in `env/*.env.example`.
+- Keep public documentation copy in `docs/content/public/*.md`; do not duplicate article prose in React or TypeScript data arrays.
 - Never commit same-name `env/*.env` files.
 - Run `just clean-local-dev` after branch churn, runtime-profile changes, env changes, or visual/CSS cache confusion.
 - Local API workflows default to `127.0.0.1:18080`. Set `ZAMAPAY_LOCAL_API_PORT=<port>` on every related `just` command in a run when that port is not available.
@@ -109,6 +111,14 @@ just verify-sdk-local
 ```
 
 `just build-sdk` emits the ESM/CJS `dist/` package surface that npm exports use. `just verify-sdk-install-shape` installs that package into standalone merchant-shaped Node projects before running CJS, ESM, TS, type-only, esbuild, and webhook receiver checks. `just verify-sdk-local` uses `@zamapay/server` to call `/api/project-secret/bootstrap`, create one `evm_erc20` checkout with explicit `paymentRail`, and retrieve it. It is a smoke test for the SDK against the local API. Fixture and package tests cover both rails and webhook signing vectors.
+
+Run the docs gate when changing public documentation, credential naming, SDK usage examples, payment rail wording, or docs navigation:
+
+```bash
+just docs-check
+```
+
+`just docs-check` parses the Markdoc source used by `/docs`, verifies route metadata and section anchors, and rejects deprecated multi-export project credential names. The browser docs copy is single-source; internal runbooks still live under `docs/runbooks`.
 
 Use this variant when you need a browser checkpoint before the buyer payment:
 
