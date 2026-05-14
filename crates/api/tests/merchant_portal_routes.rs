@@ -94,7 +94,7 @@ async fn supported_evm_assets_are_public_but_watchlist_requires_operator_key() {
     assert!(assets.as_array().unwrap().iter().any(|asset| {
         asset["chainId"] == 31337
             && asset["tokenSymbol"] == "USDT"
-            && asset["receiverAddress"]
+            && asset["settlementContract"]
                 .as_str()
                 .is_some_and(|address| address.starts_with("0x"))
     }));
@@ -127,6 +127,7 @@ async fn supported_evm_assets_are_public_but_watchlist_requires_operator_key() {
     assert_eq!(watchlist.status(), StatusCode::OK);
 
     let cursor = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method(Method::POST)
@@ -136,8 +137,7 @@ async fn supported_evm_assets_are_public_but_watchlist_requires_operator_key() {
                 .body(Body::from(
                     json!({
                         "chainId": 31337,
-                        "tokenContract": "0x0000000000000000000000000000000000001001",
-                        "receiverAddress": "0x00000000000000000000000000000000000000f1",
+                        "settlementContract": "0x00000000000000000000000000000000000000f1",
                         "lastScannedBlock": 12,
                         "lastFinalizedBlock": 10
                     })
@@ -150,6 +150,19 @@ async fn supported_evm_assets_are_public_but_watchlist_requires_operator_key() {
     assert_eq!(cursor.status(), StatusCode::OK);
     let cursor = response_json(cursor).await;
     assert_eq!(cursor["lastScannedBlock"], 12);
+
+    let retired_transfer_route = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/operator/evm/transfers")
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(retired_transfer_route.status(), StatusCode::GONE);
 }
 
 #[tokio::test]

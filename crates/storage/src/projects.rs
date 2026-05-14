@@ -530,6 +530,7 @@ impl PortalStore {
                     project_id,
                     &checkout_session_id,
                     payload.amount_minor_units,
+                    &billing,
                     &asset,
                     now,
                     expires_at,

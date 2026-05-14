@@ -71,13 +71,13 @@ just web-local
 
 `just api-local`, `just web-local`, `just cardforge-api-local`, `just verify-local`, and `just verify-full` share `ZAMAPAY_LOCAL_API_PORT`; use one value for the whole local stack.
 
-`just evm-indexer-local` watches backend-owned EVM payment intents. The worker reads `/api/operator/evm/watchlist`, scans each chain/token/receiver from the stored cursor with a small reorg window, posts ERC20 `Transfer` evidence to `/api/operator/evm/transfers`, then advances `/api/operator/evm/cursors`.
+`just evm-indexer-local` watches backend-owned EVM payment intents. The worker reads `/api/operator/evm/watchlist`, scans each chain/settlement-contract cursor with a small reorg window, posts `EvmPaymentAccepted` evidence to `/api/operator/evm/settlement-events`, then advances `/api/operator/evm/cursors`.
 
 Useful EVM rail knobs:
 
 - `ZAMAPAY_EVM_INDEXER_FROM_BLOCKS` controls the first scan window before a cursor exists.
 - `ZAMAPAY_EVM_INDEXER_REORG_WINDOW_BLOCKS` controls how many blocks are rescanned after the cursor.
-- `ZAMAPAY_LOCAL_EVM_RECEIVER_ADDRESS` pins local-dev to one receiver; when unset, local-dev seeds a small deterministic receiver pool for concurrent checkout tests.
+- `ZAMAPAY_LOCAL_EVM_SETTLEMENT_CONTRACT` pins local-dev to one `EvmCheckoutSettlement` address; when unset, local-dev reads the generated manifest from `just reset-local`.
 
 Start CardForge:
 
@@ -98,9 +98,19 @@ Run the ordinary ERC20 rail gate after Hardhat, API, and web are running:
 just verify-evm-local
 ```
 
-This is the local production-shape proof for the non-private EVM rail. It signs in with the local merchant key, creates a project secret, creates an `evm_erc20` checkout without `chainInvoiceId` or `chainTxHash`, verifies the hosted checkout page, transfers exact local USDT from a Hardhat buyer account to the leased receiver, runs one indexer pass, then checks public checkout truth and merchant EVM balances.
+This is the local production-shape proof for the non-private EVM rail. It signs in with the local merchant key, creates a project secret, creates an `evm_erc20` checkout without `chainInvoiceId` or `chainTxHash`, verifies the hosted checkout page, approves exact local USDT from a Hardhat buyer account, calls `EvmCheckoutSettlement.pay`, runs one indexer pass, then checks public checkout truth and merchant EVM balances.
 
-Use this variant when you need a browser checkpoint before the buyer transfer:
+Run the server SDK gate after Hardhat, API, and the ignored CardForge backend env have a real project secret:
+
+```bash
+just build-sdk
+just verify-sdk-install-shape
+just verify-sdk-local
+```
+
+`just build-sdk` emits the ESM/CJS `dist/` package surface that npm exports use. `just verify-sdk-install-shape` installs that package into standalone merchant-shaped Node projects before running CJS, ESM, TS, type-only, esbuild, and webhook receiver checks. `just verify-sdk-local` uses `@zamapay/server` to call `/api/project-secret/bootstrap`, create one `evm_erc20` checkout with explicit `paymentRail`, and retrieve it. It is a smoke test for the SDK against the local API. Fixture and package tests cover both rails and webhook signing vectors.
+
+Use this variant when you need a browser checkpoint before the buyer payment:
 
 ```bash
 just verify-evm-local --prepare-only
@@ -110,10 +120,10 @@ Open the printed `checkoutUrl`. The buyer entry is `http://127.0.0.1:3001/checko
 
 - `ERC20 hosted checkout`
 - amount due
-- network, token, receiver address, status, and expiry
-- `Copy address`
+- network, token, settlement contract, status, and expiry
+- `Copy contract`
 - `Refresh status`
-- `Pay ERC20 transfer`
+- `Pay through settlement`
 
 Run the heavier gate when preparing a handoff:
 
@@ -130,7 +140,9 @@ just build-web
 
 ## CardForge Project Binding
 
-CardForge is a standalone merchant demo. It does not own ZamaPay merchant state. It needs one project secret export in `env/local-dev.cardforge-backend.env`: `ZAMAPAY_SECRET_KEY`. The `zms_test_...` value authenticates checkout creation and lets CardForge call `/api/project-secret/bootstrap` to fetch project id plus current webhook verifier context at startup. Invalid placeholders must fail closed. `ZAMAPAY_API_URL` is deployment runtime config and stays in the env template because it is shared by every project on that deployment. `ZAMAPAY_SECRET_ENCRYPTION_KEY` belongs only to the ZamaPay API process and is required outside local-dev/test. Webhook receivers must verify `svix-id`, `svix-timestamp`, and `svix-signature` against the raw request body before parsing JSON.
+CardForge is a standalone merchant demo. It does not own ZamaPay merchant state. It needs one project secret export in `env/local-dev.cardforge-backend.env`: `ZAMAPAY_SECRET_KEY`. The `zms_test_...` value authenticates checkout creation and lets CardForge call `/api/project-secret/bootstrap` to fetch project id plus current webhook verifier context at startup. Invalid placeholders must fail closed. `ZAMAPAY_API_URL` is deployment runtime config and stays in the env template because it is shared by every project on that deployment. `CARDFORGE_PAYMENT_RAIL` is the demo rail switch: `zama_private` uses local private chain invoice preparation, while `evm_erc20` sends explicit `paymentRail`, `evmChainId`, and `evmTokenSymbol` to ZamaPay and keeps `chainInvoiceId` null. `ZAMAPAY_SECRET_ENCRYPTION_KEY` belongs only to the ZamaPay API process and is required outside local-dev/test. Webhook receivers must verify `svix-id`, `svix-timestamp`, and `svix-signature` against the raw request body before parsing JSON.
+
+Node merchant backends can use `@zamapay/server` for checkout creation and `@zamapay/server/webhooks` for Svix-style verification. Keep those helpers server-side only. CardForge intentionally stays on Rust raw HTTP; a Rust SDK client is a separate future V1.5 decision, not part of the server SDK preview.
 
 Automated local seed path:
 
@@ -147,7 +159,8 @@ Manual browser path:
 3. Create a payment project.
 4. Copy the one-time `ZAMAPAY_SECRET_KEY` export.
 5. Put that value into `env/local-dev.cardforge-backend.env`; leave `ZAMAPAY_API_URL` and CardForge-owned database/store values in the env template.
-6. Restart `just cardforge-api-local`.
+6. For ordinary ERC20 testing, set `CARDFORGE_PAYMENT_RAIL=evm_erc20`, `CARDFORGE_EVM_CHAIN_ID=31337`, `CARDFORGE_EVM_TOKEN_SYMBOL=USDT`, and mirror browser labels in `env/local-dev.cardforge-frontend.env`.
+7. Restart `just cardforge-api-local` and `just cardforge-web-local`.
 
 The manual path is the right proof when testing that the merchant wallet can later withdraw. The project owner must match the MetaMask account used on the merchant console.
 
@@ -172,13 +185,13 @@ For local-dev ordinary ERC20 rail testing:
 
 1. Keep Hardhat, Postgres, API, web, and `just evm-indexer-local` running.
 2. `just reset-local` must have run after the latest contract changes so generated manifest includes local USDT/USDC mock addresses.
-3. Run `just verify-evm-local --prepare-only` for the fastest local checkout seed, or have a merchant backend create a checkout with `paymentRail: "evm_erc20"`, `evmChainId: 31337`, and `evmTokenSymbol: "USDT"` or `"USDC"`; it must not send `chainInvoiceId` or `chainTxHash`.
-4. Hosted checkout renders the platform payment intent: network, token, exact amount, leased receive address, expiry, and copy/wallet transfer actions.
-5. Buyer wallet claims local standard ERC20 test tokens from the token mock if needed, then sends the exact amount to the assigned receiver.
-6. The EVM indexer observes `Transfer(address indexed from,address indexed to,uint256 value)`, posts `/api/operator/evm/transfers`, and Rust matches by chain id, token contract, receiver, and amount semantics.
-7. Merchant project overview shows the checkout as paid only for exact transfers that satisfy finality; underpay, overpay, duplicate, expiry, and reorg evidence remains visible in the ERC20 transfer ledger and balance exceptions.
+3. Run `just verify-evm-local --prepare-only` for the fastest local checkout seed, or set CardForge to `CARDFORGE_PAYMENT_RAIL=evm_erc20` so its storefront creates the same checkout with `paymentRail: "evm_erc20"`, `evmChainId: 31337`, and `evmTokenSymbol: "USDT"` or `"USDC"`; it must not send `chainInvoiceId` or `chainTxHash`.
+4. Hosted checkout renders the platform payment intent: network, token, exact amount, settlement contract, expiry, and copy/wallet pay action.
+5. Buyer wallet claims local standard ERC20 test tokens from the token mock if needed, approves the settlement contract for the exact amount, then calls `EvmCheckoutSettlement.pay`.
+6. The EVM indexer observes `EvmPaymentAccepted`, posts `/api/operator/evm/settlement-events`, and Rust matches by settlement intent id, project id, chain id, token contract, settlement contract, gross amount, merchant net, and platform fee.
+7. Merchant project overview shows the checkout as paid only for settlement events that satisfy finality; duplicate, expiry, and reorg evidence remains visible in the ERC20 settlement ledger and balance exceptions.
 
-ERC20 rail evidence is checkout id, payment intent id, token contract, receiver id/address, transfer tx hash/log index, block hash, matched intent id, confirmation count, and indexer cursor. Do not use `/api/operator/chain-invoices/*/payment-projection` for ERC20 payment truth.
+ERC20 rail evidence is checkout id, payment intent id, settlement intent id, settlement project id, token contract, settlement contract, payment tx hash/log index, block hash, matched intent id, confirmation count, and indexer cursor. Do not use `/api/operator/chain-invoices/*/payment-projection` for ERC20 payment truth.
 
 ## Supabase Local Run
 
@@ -244,7 +257,7 @@ Use these paths before debugging deeper:
 | CardForge points at an old project | Update ignored CardForge backend env, then restart `just cardforge-api-local`. |
 | Sepolia/local-UI accidentally reads local-dev manifest | Check `NEXT_PUBLIC_RUNTIME_PROFILE`, then run `just verify-runtime sepolia-local-ui`. |
 | Rust integration tests fail from missing database | `just db-up`, then rerun through `just check` or `just rust-test`. |
-| ERC20 checkout payment never confirms | Check `just evm-indexer-local`, `/api/operator/evm/watchlist`, `/api/operator/evm/cursors`, token contract address, leased receiver address, exact minor-unit amount, and ledger exception status. |
+| ERC20 checkout payment never confirms | Check `just evm-indexer-local`, `/api/operator/evm/watchlist`, `/api/operator/evm/cursors`, settlement contract address, token contract address, exact minor-unit amount, and ledger exception status. |
 
 ## Documentation Contract
 

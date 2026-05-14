@@ -6,6 +6,7 @@ Confidential merchant checkout for wallet-authenticated merchants, Zama FHEVM se
 
 - Rust API: nonce login, cookie sessions, dashboard read model, invoice APIs, Zama chain projection, ERC20 asset/payment-intent/transfer-ledger projection, finality, and fulfillment release.
 - Next.js web app: shadcn merchant homepage, wallet login, dashboard, hosted checkout for Zama private or ERC20 transfer rails, and operator diagnostics.
+- Server SDK preview: `@zamapay/server` for merchant backends, explicit payment rail checkout creation, and raw-body webhook verification helpers.
 - Contracts: merchant registry, official-style confidential token mock, private checkout settlement, local standard USDT/USDC mocks, local deploy, tests, and smoke scripts.
 - Generated clients: ABI and address manifests flow from Hardhat into `generated/*` for Rust and web.
 
@@ -49,7 +50,7 @@ Service environment contracts live under `env/`. Files ending in `.env.example` 
 
 Use `just reset-local` after every Hardhat Local reset, before starting the API, web app, and CardForge backend. It recreates both local databases, `zamapay` and `cardforge`, redeploys contracts, refreshes generated clients, and clears local Next/Turbopack caches so chain ids, invoice ids, balances, fulfillment records, and CSS variables stay aligned.
 
-For ordinary ERC20 checkout testing, keep `just evm-indexer-local` running beside the API. The local deploy writes transparent USDT/USDC mock addresses into the generated manifest; the backend derives supported ERC20 assets from enabled chain, token, RPC, and available receiver records, leases one receiver per open intent, and lets the indexer observe block-hash-backed ERC20 `Transfer` logs before payment truth moves.
+For ordinary ERC20 checkout testing, keep `just evm-indexer-local` running beside the API. The local deploy writes transparent USDT/USDC mock addresses and `EvmCheckoutSettlement` into the generated manifest; the backend derives supported ERC20 assets from enabled chain, token, RPC, and settlement-contract rows, and payment truth moves only after the indexer observes block-hash-backed `EvmPaymentAccepted` events.
 
 Use the dedicated local ERC20 rail proof when changing this path:
 
@@ -57,13 +58,23 @@ Use the dedicated local ERC20 rail proof when changing this path:
 just verify-evm-local
 ```
 
-It creates a local merchant project secret, opens an `evm_erc20` checkout, verifies the hosted checkout entry at `http://127.0.0.1:3001/checkout/{checkoutSessionId}`, sends exact local USDT from a Hardhat buyer account to the leased receiver, runs one indexer pass, and asserts the checkout reaches `paid` plus `finality_safe`. For browser inspection before the transfer, use:
+It creates a local merchant project secret, opens an `evm_erc20` checkout, verifies the hosted checkout entry at `http://127.0.0.1:3001/checkout/{checkoutSessionId}`, approves exact local USDT from a Hardhat buyer account, pays through `EvmCheckoutSettlement`, runs one indexer pass, and asserts the checkout reaches `paid` plus `finality_safe`. For browser inspection before payment, use:
 
 ```bash
 just verify-evm-local --prepare-only
 ```
 
-Then open the printed `checkoutUrl`; the buyer-facing entry must show `ERC20 hosted checkout`, network/token/receiver/expiry details, copy/refresh controls, and the `Pay ERC20 transfer` wallet action.
+Then open the printed `checkoutUrl`; the buyer-facing entry must show `ERC20 hosted checkout`, network/token/settlement contract/expiry details, copy/refresh controls, and the `Pay through settlement` wallet action.
+
+Use the server SDK smoke when changing `packages/zamapay-server` or merchant API contracts:
+
+```bash
+just build-sdk
+just verify-sdk-install-shape
+just verify-sdk-local
+```
+
+`just build-sdk` emits the ESM/CJS package `dist/` artifacts used by npm exports. `just verify-sdk-install-shape` installs that built package into standalone CJS, ESM, TS, type-only, esbuild, and webhook receiver projects. `just verify-sdk-local` reads the ignored local CardForge backend env, bootstraps the project through `ZAMAPAY_SECRET_KEY`, creates one `evm_erc20` checkout with explicit `paymentRail`, then retrieves it through the SDK. Contract tests cover both `zama_private` and `evm_erc20` rails.
 
 If a local browser page looks stale after branch churn, env changes, or a design-token rename, run:
 
@@ -92,7 +103,9 @@ Open:
 
 Standalone merchant templates live under `demo/` and are launched from their own directories. The ZamaPay root scripts do not start, build, or lint template projects.
 
-For CardForge project binding, either run `just seed-cardforge-local-project` or create a project in the merchant console and copy the one-time `ZAMAPAY_SECRET_KEY` export into the ignored `env/local-dev.cardforge-backend.env`. The `zms_test_...` value is a server-side project secret: CardForge uses it to create checkouts and to bootstrap project id plus webhook verifier context from ZamaPay at startup. `ZAMAPAY_API_URL`, CardForge database/store, and optional private-rail helper URLs stay in the checked env templates. `ZAMAPAY_SECRET_ENCRYPTION_KEY` is server-only for ZamaPay API encrypted endpoint-secret storage. Webhooks use Svix-style `svix-*` headers and HMAC-SHA256 over the raw request body. Use the browser-created project path when validating merchant-wallet withdraw because the project owner must match the MetaMask merchant account.
+For CardForge project binding, either run `just seed-cardforge-local-project` or create a project in the merchant console and copy the one-time `ZAMAPAY_SECRET_KEY` export into the ignored `env/local-dev.cardforge-backend.env`. The `zms_test_...` value is a server-side project secret: CardForge uses it to create checkouts and to bootstrap project id plus webhook verifier context from ZamaPay at startup. `ZAMAPAY_API_URL`, CardForge database/store, `CARDFORGE_PAYMENT_RAIL`, EVM asset selectors, and optional private-rail helper URLs stay in the checked env templates. Use `CARDFORGE_PAYMENT_RAIL=evm_erc20` with `CARDFORGE_EVM_CHAIN_ID=31337` and `CARDFORGE_EVM_TOKEN_SYMBOL=USDT` when validating the ordinary ERC20 rail from the demo storefront. `ZAMAPAY_SECRET_ENCRYPTION_KEY` is server-only for ZamaPay API encrypted endpoint-secret storage. Webhooks use Svix-style `svix-*` headers and HMAC-SHA256 over the raw request body. Use the browser-created project path when validating merchant-wallet withdraw because the project owner must match the MetaMask merchant account.
+
+Node merchant backends can use `@zamapay/server` with `ZAMAPAY_SECRET_KEY` and `ZAMAPAY_API_URL`. Keep that SDK server-side. CardForge remains a Rust raw HTTP baseline, not TypeScript SDK dogfood.
 
 Run the full local readiness gate after API, web, and Hardhat are running:
 
@@ -108,7 +121,7 @@ For manual browser-only `LoginCard` verification without a wallet extension, tem
 
 Public-testnet work is guarded by explicit runtime profiles and env files. The active local MVP remains Hardhat/FHEVM mock RPC, `ConfidentialUSDMock.claimTestTokens()` from the browser wallet, direct buyer-wallet payment, encrypted pending buckets, merchant-signed withdraw, and local chain evidence projection after finalization.
 
-The ordinary EVM ERC20 rail is a separate non-private rail. Public ERC20 support should be enabled only by explicit chain/token/RPC/receiver catalog rows or environment-backed receiver configuration; payment truth must come from indexed `Transfer` logs, receiver leases, confirmation thresholds, and exception states, not manual tx-hash projection.
+The ordinary EVM ERC20 rail is a separate non-private rail. Public ERC20 support should be enabled only by explicit chain/token/RPC/settlement-contract catalog rows. Payment truth must come from indexed `EvmCheckoutSettlement.EvmPaymentAccepted` events, confirmation thresholds, and settlement ledger states, not manual tx-hash projection or buyer-chosen receiver addresses.
 
 Sepolia local-UI and preview setup lives in [`env/README.md`](env/README.md) and the workflow runbook. Use these entrypoints instead of hand-sourcing env stacks:
 
@@ -137,7 +150,10 @@ For individual gates:
 
 ```bash
 just check
+just build-sdk
+just verify-sdk-install-shape
 just build-web
+just verify-sdk-local
 just verify-local
 ```
 

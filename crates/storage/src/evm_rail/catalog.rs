@@ -6,7 +6,7 @@ use crate::pg_store::PortalRecordSet;
 
 const LOCAL_CHAIN_ID: u64 = 31_337;
 const DEFAULT_LOCAL_RPC_URL: &str = "http://127.0.0.1:8545";
-const DEFAULT_LOCAL_RECEIVER: &str = "0x00000000000000000000000000000000000000f1";
+const DEFAULT_LOCAL_SETTLEMENT: &str = "0x00000000000000000000000000000000000000f1";
 const DEFAULT_LOCAL_USDT: &str = "0x0000000000000000000000000000000000001001";
 const DEFAULT_LOCAL_USDC: &str = "0x0000000000000000000000000000000000001002";
 
@@ -214,30 +214,26 @@ fn rpc(network: &str, chain_id: u64, url: impl Into<String>, kind: EvmRpcNodeKin
 }
 
 fn default_receivers() -> Vec<EvmReceiverAddress> {
-    let local_receiver = std::env::var("ZAMAPAY_LOCAL_EVM_RECEIVER_ADDRESS")
+    let local_settlement = std::env::var("ZAMAPAY_LOCAL_EVM_SETTLEMENT_CONTRACT")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| DEFAULT_LOCAL_RECEIVER.to_string());
-    let mut receivers = vec![receiver("hardhat-local", LOCAL_CHAIN_ID, 0, local_receiver)];
-    if std::env::var("ZAMAPAY_LOCAL_EVM_RECEIVER_ADDRESS").is_err() {
-        receivers.extend((2..=4).map(|slot| {
-            receiver(
-                "hardhat-local",
-                LOCAL_CHAIN_ID,
-                slot,
-                format!("0x00000000000000000000000000000000000000f{slot}"),
-            )
-        }));
-    }
-    if let Some(public_receiver) = std::env::var("ZAMAPAY_EVM_RECEIVER_ADDRESS")
+        .or_else(local_manifest_evm_settlement_contract)
+        .unwrap_or_else(|| DEFAULT_LOCAL_SETTLEMENT.to_string());
+    let mut receivers = vec![receiver(
+        "hardhat-local",
+        LOCAL_CHAIN_ID,
+        0,
+        local_settlement,
+    )];
+    if let Some(public_settlement) = std::env::var("ZAMAPAY_EVM_SETTLEMENT_CONTRACT")
         .ok()
         .filter(|value| !value.trim().is_empty())
     {
         receivers.extend([
-            receiver("ethereum", 1, 0, public_receiver.clone()),
-            receiver("bsc", 56, 0, public_receiver.clone()),
-            receiver("polygon", 137, 0, public_receiver.clone()),
-            receiver("plasma", 9_745, 0, public_receiver),
+            receiver("ethereum", 1, 0, public_settlement.clone()),
+            receiver("bsc", 56, 0, public_settlement.clone()),
+            receiver("polygon", 137, 0, public_settlement.clone()),
+            receiver("plasma", 9_745, 0, public_settlement),
         ]);
     }
     receivers
@@ -255,9 +251,6 @@ fn receiver(
         network: network.to_string(),
         address: address.into(),
         status: ReceiverAddressStatus::Active,
-        lease_intent_id: None,
-        leased_until: None,
-        available_after: None,
     }
 }
 
@@ -296,5 +289,13 @@ fn local_manifest_erc20_contract(symbol: &str) -> Option<String> {
                 .is_some_and(|value| value.eq_ignore_ascii_case(symbol))
         })?
         .contract
+        .filter(|address| !address.trim().is_empty())
+}
+
+fn local_manifest_evm_settlement_contract() -> Option<String> {
+    shared::local_dev_contract_manifest()
+        .ok()?
+        .contracts
+        .evm_checkout_settlement
         .filter(|address| !address.trim().is_empty())
 }

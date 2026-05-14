@@ -1,0 +1,11 @@
+{
+  "name": "zamapay-install-shape-webhook-node",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zamapay/server": "file:../.."
+  },
+  "scripts": {
+    "runtestproject": "node index.js"
+  }
+}

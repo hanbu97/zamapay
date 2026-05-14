@@ -309,15 +309,9 @@ static SCHEMA_SQL: &[&str] = &[
         network text not null,
         address text not null,
         status text not null,
-        lease_intent_id text,
-        leased_until timestamptz,
-        available_after timestamptz,
         primary key (state_key, receiver_id)
     )
     "#,
-    "alter table zamapay_evm_receiver_addresses add column if not exists lease_intent_id text",
-    "alter table zamapay_evm_receiver_addresses add column if not exists leased_until timestamptz",
-    "alter table zamapay_evm_receiver_addresses add column if not exists available_after timestamptz",
     "create index if not exists zamapay_evm_receiver_addresses_chain_idx on zamapay_evm_receiver_addresses (state_key, chain_id, status)",
     r#"
     create table if not exists zamapay_evm_payment_intents (
@@ -325,6 +319,8 @@ static SCHEMA_SQL: &[&str] = &[
         intent_id text not null,
         checkout_session_id text not null,
         project_id text not null,
+        settlement_intent_id text not null default '',
+        settlement_project_id text not null default '',
         chain_id bigint not null check (chain_id > 0),
         network text not null,
         token_symbol text not null,
@@ -333,6 +329,8 @@ static SCHEMA_SQL: &[&str] = &[
         receiver_id text not null default '',
         receiver_address text not null,
         expected_amount_minor_units bigint not null check (expected_amount_minor_units > 0),
+        merchant_net_minor_units bigint not null default 0 check (merchant_net_minor_units >= 0),
+        platform_fee_minor_units bigint not null default 0 check (platform_fee_minor_units >= 0),
         matched_amount_minor_units bigint not null default 0 check (matched_amount_minor_units >= 0),
         status text not null,
         detected_tx_hash text,
@@ -345,9 +343,14 @@ static SCHEMA_SQL: &[&str] = &[
         primary key (state_key, intent_id)
     )
     "#,
+    "alter table zamapay_evm_payment_intents add column if not exists settlement_intent_id text not null default ''",
+    "alter table zamapay_evm_payment_intents add column if not exists settlement_project_id text not null default ''",
     "alter table zamapay_evm_payment_intents add column if not exists receiver_id text not null default ''",
+    "alter table zamapay_evm_payment_intents add column if not exists merchant_net_minor_units bigint not null default 0",
+    "alter table zamapay_evm_payment_intents add column if not exists platform_fee_minor_units bigint not null default 0",
     "alter table zamapay_evm_payment_intents add column if not exists matched_amount_minor_units bigint not null default 0",
     "create index if not exists zamapay_evm_payment_intents_open_idx on zamapay_evm_payment_intents (state_key, chain_id, lower(token_contract), lower(receiver_address), expected_amount_minor_units, status)",
+    "create index if not exists zamapay_evm_payment_intents_settlement_intent_idx on zamapay_evm_payment_intents (state_key, lower(settlement_intent_id))",
     "create index if not exists zamapay_evm_payment_intents_project_idx on zamapay_evm_payment_intents (state_key, project_id, updated_at desc)",
     r#"
     create table if not exists zamapay_evm_transfer_ledger (
@@ -378,15 +381,33 @@ static SCHEMA_SQL: &[&str] = &[
         state_key text not null references zamapay_portal_counters(state_key) on delete cascade,
         cursor_id text not null,
         chain_id bigint not null check (chain_id > 0),
-        token_contract text not null,
-        receiver_address text not null,
+        settlement_contract text not null,
         last_scanned_block bigint not null check (last_scanned_block >= 0),
         last_finalized_block bigint not null check (last_finalized_block >= 0),
         updated_at timestamptz not null,
         primary key (state_key, cursor_id)
     )
     "#,
-    "create unique index if not exists zamapay_evm_indexer_cursors_asset_idx on zamapay_evm_indexer_cursors (state_key, chain_id, lower(token_contract), lower(receiver_address))",
+    "alter table zamapay_evm_indexer_cursors add column if not exists settlement_contract text not null default ''",
+    r#"
+    do $$
+    begin
+        if exists (
+            select 1 from information_schema.columns
+            where table_name = 'zamapay_evm_indexer_cursors' and column_name = 'token_contract'
+        ) then
+            alter table zamapay_evm_indexer_cursors alter column token_contract drop not null;
+        end if;
+        if exists (
+            select 1 from information_schema.columns
+            where table_name = 'zamapay_evm_indexer_cursors' and column_name = 'receiver_address'
+        ) then
+            alter table zamapay_evm_indexer_cursors alter column receiver_address drop not null;
+        end if;
+    end $$;
+    "#,
+    "drop index if exists zamapay_evm_indexer_cursors_asset_idx",
+    "create unique index if not exists zamapay_evm_indexer_cursors_settlement_idx on zamapay_evm_indexer_cursors (state_key, chain_id, lower(settlement_contract))",
     r#"
     create table if not exists zamapay_checkout_metadata (
         state_key text not null references zamapay_portal_counters(state_key) on delete cascade,

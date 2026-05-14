@@ -21,10 +21,10 @@ export const paymentRailDescriptors: PaymentRailDescriptor[] = [
   {
     label: 'EVM ERC20',
     rail: 'evm_erc20',
-    receivedAs: 'USDT / USDC transfer',
-    setupHint: 'Needs enabled chain, token, RPC node, and receiver address.',
+    receivedAs: 'USDT / USDC settlement',
+    setupHint: 'Needs enabled chain, token, RPC node, and settlement contract.',
     shortLabel: 'ERC20',
-    truthSource: 'Indexed ERC20 Transfer log',
+    truthSource: 'EvmCheckoutSettlement payment event',
   },
 ]
 

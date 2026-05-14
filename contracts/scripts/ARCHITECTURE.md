@@ -13,6 +13,6 @@ contracts/scripts
 ## Decisions
 
 - `sync-generated.js` is the canonical bridge from Hardhat artifacts and address manifests into repo-level generated clients.
-- `deploy-contracts.js` deploys `PrivateCheckoutSettlement`, `ConfidentialUSDMock`, subscription contracts, and local transparent USDT/USDC mocks; it does not deploy transparent invoice settlement or public-testnet manifests.
+- `deploy-contracts.js` deploys `PrivateCheckoutSettlement`, `EvmCheckoutSettlement`, `ConfidentialUSDMock`, subscription contracts, and local transparent USDT/USDC mocks; `ZAMAPAY_EVM_WITHDRAW_AUTHORIZER` and `ZAMAPAY_PLATFORM_FEE_WALLET` define the ordinary ERC20 custody boundary for non-local deployments.
 - `npm run node` plus `npm run deploy:localhost` is the persistent local-chain path; `deploy:local` remains the fast ephemeral path.
 - Local cUSDT liquidity is wallet-owned: browsers call `ConfidentialUSDMock.claimTestTokens()` through MetaMask. There is no owner-mint script in the active MVP.

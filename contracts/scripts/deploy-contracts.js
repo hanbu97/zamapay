@@ -12,6 +12,9 @@ async function main() {
 
   await assertSafePublicNetworkSigner(hre, deployer, 'deployer')
   const platformFeeWallet = process.env.ZAMAPAY_PLATFORM_FEE_WALLET || deployer.address
+  const evmWithdrawAuthorizer = process.env.ZAMAPAY_EVM_WITHDRAW_AUTHORIZER
+    ? ethers.getAddress(process.env.ZAMAPAY_EVM_WITHDRAW_AUTHORIZER)
+    : deployer.address
 
   const registryFactory = await ethers.getContractFactory('MerchantRegistry')
   const registry = await registryFactory.deploy()
@@ -47,6 +50,10 @@ async function main() {
   const standardUsdc = await standardErc20Factory.deploy('Local USDC', 'USDC', 6)
   await standardUsdc.waitForDeployment()
 
+  const evmCheckoutFactory = await ethers.getContractFactory('EvmCheckoutSettlement')
+  const evmCheckout = await evmCheckoutFactory.deploy(evmWithdrawAuthorizer, platformFeeWallet)
+  await evmCheckout.waitForDeployment()
+
   const network = await ethers.provider.getNetwork()
   const billing = await readBillingProtocol({ subscriptionRegistry })
   const manifest = {
@@ -58,6 +65,7 @@ async function main() {
       SubscriptionPass: await pass.getAddress(),
       PrivateSubscriptionRegistry: await subscriptionRegistry.getAddress(),
       PrivateCheckoutSettlement: await privateCheckout.getAddress(),
+      EvmCheckoutSettlement: await evmCheckout.getAddress(),
     },
     billing,
     testTokenFaucet: {
@@ -82,6 +90,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     deployer: deployer.address,
     platformFeeWallet,
+    evmWithdrawAuthorizer,
   }
 
   writeGeneratedClients(
@@ -92,6 +101,7 @@ async function main() {
       SubscriptionPass: await hre.artifacts.readArtifact('SubscriptionPass'),
       PrivateSubscriptionRegistry: await hre.artifacts.readArtifact('PrivateSubscriptionRegistry'),
       PrivateCheckoutSettlement: await hre.artifacts.readArtifact('PrivateCheckoutSettlement'),
+      EvmCheckoutSettlement: await hre.artifacts.readArtifact('EvmCheckoutSettlement'),
     },
     manifest,
   )

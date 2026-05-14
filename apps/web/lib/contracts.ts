@@ -3,6 +3,7 @@ import type { AddressManifest } from '../../../generated/clients/ts/contracts.ts
 import {
   addressManifests,
   confidentialUsdMockAbi,
+  evmCheckoutSettlementAbi,
   merchantRegistryAbi,
   localDevAddresses,
   privateCheckoutSettlementAbi,
@@ -54,6 +55,7 @@ export const sepoliaAddresses = (addressManifests as Record<string, AddressManif
 
 export {
   confidentialUsdMockAbi,
+  evmCheckoutSettlementAbi,
   localDevAddresses,
   merchantRegistryAbi,
   privateCheckoutSettlementAbi,

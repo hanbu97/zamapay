@@ -1,0 +1,46 @@
+{
+  "name": "@zamapay/server",
+  "version": "0.1.0-preview.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./webhooks": {
+      "import": {
+        "types": "./dist/esm/webhooks.d.ts",
+        "default": "./dist/esm/webhooks.js"
+      },
+      "require": {
+        "types": "./dist/cjs/webhooks.d.ts",
+        "default": "./dist/cjs/webhooks.js"
+      }
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "npm run clean && npm run build:esm && npm run build:cjs && node scripts/write-dist-package-types.mjs",
+    "build:cjs": "tsc -p tsconfig.build.cjs.json",
+    "build:esm": "tsc -p tsconfig.build.esm.json",
+    "clean": "node scripts/clean-dist.mjs",
+    "lint": "tsc --noEmit",
+    "prepack": "npm run build",
+    "test": "node --test tests/*.test.ts",
+    "test:install-shape": "npm run build && RUN_INSTALL_SHAPE_TESTS=1 node --test tests/install-shape.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "^5.9.3"
+  }
+}

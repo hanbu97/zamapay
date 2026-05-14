@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
 import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib/contract-environment'
-import { privateCheckoutSettlementAbi } from '@/lib/contracts'
+import { evmCheckoutSettlementAbi, privateCheckoutSettlementAbi } from '@/lib/contracts'
 import { getInvoiceRecord, type EvmPaymentIntent, type PaymentRail, type SupportedEvmAsset } from '@/lib/api'
 import { encryptLocalEuint64 } from '@/lib/local-fhevm-browser'
 import { ensureEthereumProvider, ensureWalletChain, type WalletChain } from '@/lib/wallet'
@@ -36,13 +36,13 @@ type CheckoutPaymentCardProps = {
   tokenAddress: string | null
 }
 
-const erc20TransferAbi = [
+const erc20ApproveAbi = [
   {
     type: 'function',
-    name: 'transfer',
+    name: 'approve',
     stateMutability: 'nonpayable',
     inputs: [
-      { name: 'to', type: 'address' },
+      { name: 'spender', type: 'address' },
       { name: 'amount', type: 'uint256' },
     ],
     outputs: [{ name: '', type: 'bool' }],
@@ -89,7 +89,7 @@ function initialPaymentStatus(paymentTruth: string, finalityStatus: string, paym
   }
 
   return paymentRail === 'evm_erc20'
-    ? 'Send the exact ERC20 amount to the assigned address.'
+    ? 'Approve the exact ERC20 amount and pay through the settlement contract.'
     : 'Confirm the private payment with your wallet.'
 }
 
@@ -341,7 +341,7 @@ export function CheckoutPaymentCard({
     }
 
     const token = ensureHexAddress(evmPaymentIntent.tokenContract, 'ERC20 token')
-    const receiver = ensureHexAddress(evmPaymentIntent.receiverAddress, 'receiver address')
+    const settlement = ensureHexAddress(evmPaymentIntent.settlementContract, 'EvmCheckoutSettlement')
     const provider = ensureEthereumProvider()
     const walletChain = evmAssetWalletChain(evmAsset)
     const payerAddress = await resolvePayerAddress({
@@ -353,20 +353,39 @@ export function CheckoutPaymentCard({
     setStatus(`Switching wallet to ${walletChain.name}...`)
     await ensureWalletChain(provider, walletChain)
 
-    setStatus(`Confirm ${amountLabel} ${evmPaymentIntent.tokenSymbol} transfer.`)
+    setStatus(`Approve ${amountLabel} ${evmPaymentIntent.tokenSymbol} for settlement.`)
     const walletClient = createWalletClient({ transport: custom(provider) })
     const publicClient = createPublicClient({ transport: http(evmAsset.rpcUrl) })
-    const txHash = await walletClient.writeContract({
+    const approveHash = await walletClient.writeContract({
       account: payerAddress,
       chain: null,
       address: token,
-      abi: erc20TransferAbi,
-      functionName: 'transfer',
-      args: [receiver, BigInt(evmPaymentIntent.expectedAmountMinorUnits)],
+      abi: erc20ApproveAbi,
+      functionName: 'approve',
+      args: [settlement, BigInt(evmPaymentIntent.expectedAmountMinorUnits)],
     })
 
-    await publicClient.waitForTransactionReceipt({ hash: txHash })
-    setStatus('Transfer submitted. Waiting for indexer confirmations...')
+    await publicClient.waitForTransactionReceipt({ hash: approveHash })
+    setStatus('Confirm settlement payment.')
+    const paymentHash = await walletClient.writeContract({
+      account: payerAddress,
+      chain: null,
+      address: settlement,
+      abi: evmCheckoutSettlementAbi,
+      functionName: 'pay',
+      args: [
+        evmPaymentIntent.settlementIntentId as HexValue,
+        evmPaymentIntent.settlementProjectId as HexValue,
+        token,
+        BigInt(evmPaymentIntent.expectedAmountMinorUnits),
+        BigInt(evmPaymentIntent.merchantNetMinorUnits),
+        BigInt(evmPaymentIntent.platformFeeMinorUnits),
+        BigInt(Math.floor(new Date(evmPaymentIntent.expiresAt).getTime() / 1000)),
+      ],
+    })
+
+    await publicClient.waitForTransactionReceipt({ hash: paymentHash })
+    setStatus('Payment accepted by settlement. Waiting for indexer confirmations...')
 
     const projected = await waitForEvmPaymentProjection(invoiceId)
     if (projected) {
@@ -374,7 +393,7 @@ export function CheckoutPaymentCard({
       return
     }
 
-    setStatus('Transfer submitted. Refreshing while the indexer confirms it.')
+    setStatus('Payment accepted by settlement. Refreshing while the indexer confirms it.')
     router.refresh()
   }
 
@@ -429,8 +448,8 @@ export function CheckoutPaymentCard({
               <CheckoutDetail label="Token" value={evmPaymentIntent?.tokenSymbol ?? 'Unavailable'} />
               <CheckoutDetail
                 className="sm:col-span-2"
-                label="Receive address"
-                value={evmPaymentIntent?.receiverAddress ?? 'Unavailable'}
+                label="Settlement contract"
+                value={evmPaymentIntent?.settlementContract ?? 'Unavailable'}
               />
               <CheckoutDetail label="Status" value={formatIntentStatus(evmPaymentIntent?.status)} />
               <CheckoutDetail label="Expires" value={formatDateTime(evmPaymentIntent?.expiresAt)} />
@@ -438,13 +457,15 @@ export function CheckoutPaymentCard({
             <div className="mt-4 flex flex-wrap gap-2">
               <Button
                 disabled={!evmPaymentIntent}
-                onClick={() => void copyEvmAddress(evmPaymentIntent?.receiverAddress, setStatus)}
+                onClick={() =>
+                  void copyEvmAddress(evmPaymentIntent?.settlementContract, setStatus)
+                }
                 size="sm"
                 type="button"
                 variant="outline"
               >
                 <CopyIcon data-icon="inline-start" />
-                Copy address
+                Copy contract
               </Button>
               <Button onClick={() => router.refresh()} size="sm" type="button" variant="outline">
                 <RefreshCcwIcon data-icon="inline-start" />
@@ -473,7 +494,7 @@ export function CheckoutPaymentCard({
             </div>
             <div className="min-w-0">
               <div className="text-sm font-medium">
-                {isPaid ? 'Success' : isEvmPayment ? 'Ready for ERC20 transfer' : 'Ready for private payment'}
+                {isPaid ? 'Success' : isEvmPayment ? 'Ready for ERC20 settlement' : 'Ready for private payment'}
               </div>
               <p className={isPaid ? 'mt-1 text-sm text-emerald-800' : 'mt-1 text-sm text-muted-foreground'}>
                 {status}
@@ -510,7 +531,7 @@ export function CheckoutPaymentCard({
             <AlertTitle>Payment unavailable</AlertTitle>
             <AlertDescription>
               {isEvmPayment
-                ? 'No enabled receiver address is available for this ERC20 asset.'
+                ? 'No enabled settlement contract is available for this ERC20 asset.'
                 : 'No deployed private checkout manifest is available for this chain.'}
             </AlertDescription>
           </Alert>
@@ -554,7 +575,7 @@ function paymentButtonLabel({
     return 'Payment unavailable'
   }
 
-  return paymentRail === 'evm_erc20' ? 'Pay ERC20 transfer' : 'Pay confidentially'
+  return paymentRail === 'evm_erc20' ? 'Pay through settlement' : 'Pay confidentially'
 }
 
 async function waitForPaymentProjection(input: { invoiceId: string; projectPayment: Promise<void> }): Promise<boolean> {
@@ -592,15 +613,15 @@ function delay(milliseconds: number) {
 
 async function copyEvmAddress(address: string | null | undefined, setStatus: (status: string) => void) {
   if (!address) {
-    setStatus('No receive address is available.')
+    setStatus('No settlement contract is available.')
     return
   }
 
   try {
     await navigator.clipboard.writeText(address)
-    setStatus('Receive address copied.')
+    setStatus('Settlement contract copied.')
   } catch {
-    setStatus('Clipboard permission denied. Select the receive address and copy it manually.')
+    setStatus('Clipboard permission denied. Select the settlement contract and copy it manually.')
   }
 }
 

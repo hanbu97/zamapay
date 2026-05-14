@@ -188,9 +188,12 @@ async fn chain_invoice_bridge_uses_project_secret_key() {
             cancel_url: None,
             chain_invoice_id: None,
             chain_tx_hash: None,
+            evm_chain_id: None,
+            evm_token_symbol: None,
             merchant_order_id: "cardforge-order-test".to_string(),
             metadata: Default::default(),
             note: "demo".to_string(),
+            payment_rail: PaymentRail::ZamaPrivate,
             success_url: None,
             title: "Arena Access Card".to_string(),
         },
@@ -255,8 +258,60 @@ async fn checkout_uses_server_catalog_product_amounts() {
             .as_object()
             .expect("metadata should be an object")
             .len(),
-        3
+        4
     );
+}
+
+#[tokio::test]
+async fn evm_checkout_skips_private_invoice_and_sends_rail_fields() {
+    let captured = Arc::new(Mutex::new(None::<Value>));
+    let chain_invoice_calls = Arc::new(Mutex::new(0_u32));
+    let fake_zamapay =
+        fake_zamapay_api_with_local_chain_counter(captured.clone(), chain_invoice_calls.clone())
+            .await;
+    let mut config = test_config(&fake_zamapay, "proj_cardforge", "zms_test_secret");
+    config.local_chain_invoice_api_url = fake_zamapay;
+    config.payment_rail = PaymentRail::EvmErc20;
+    config.evm_token_symbol = "USDT".to_string();
+    let service = app(test_state(config).await);
+
+    let checkout = service
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/orders/checkout")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "buyerWalletAddress": "0xcAa3F62150E5813A52c329498dBEfa913B49f2de",
+                        "productId": "arena-access"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(checkout.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(checkout.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let response: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(response["paymentRail"], "evm_erc20");
+    assert!(response["chainInvoiceId"].is_null());
+    assert_eq!(*chain_invoice_calls.lock().unwrap(), 0);
+
+    let payload = captured
+        .lock()
+        .expect("captured checkout request lock should work")
+        .clone()
+        .expect("fake ZamaPay API should receive checkout request");
+    assert_eq!(payload["paymentRail"], "evm_erc20");
+    assert_eq!(payload["amountLabel"], "80 USDT");
+    assert_eq!(payload["evmChainId"], 31_337);
+    assert_eq!(payload["evmTokenSymbol"], "USDT");
+    assert!(payload["chainInvoiceId"].is_null());
+    assert!(payload["chainTxHash"].is_null());
 }
 
 #[tokio::test]
@@ -678,6 +733,7 @@ async fn fake_zamapay_api(captured: Arc<Mutex<Option<(String, HeaderMap)>>>) -> 
                         "chainTxHash": "0x01",
                         "checkoutUrl": "http://127.0.0.1:3001/checkout/cs_cardforge",
                         "merchantOwnerWallet": "0xcAa3F62150E5813A52c329498dBEfa913B49f2de",
+                        "paymentRail": "zama_private",
                         "title": "CardForge prepaid card bundle",
                         "amountLabel": "120 cUSDT",
                         "amountMinorUnits": 120000000,
@@ -775,6 +831,7 @@ async fn fake_zamapay_api_with_local_chain_counter(
                         "chainTxHash": payload["chainTxHash"],
                         "checkoutUrl": "http://127.0.0.1:3001/checkout/cs_cardforge",
                         "merchantOwnerWallet": "0xcAa3F62150E5813A52c329498dBEfa913B49f2de",
+                        "paymentRail": payload.get("paymentRail").cloned().unwrap_or_else(|| json!("zama_private")),
                         "title": payload["title"],
                         "amountLabel": payload["amountLabel"],
                         "amountMinorUnits": gross,
@@ -821,6 +878,9 @@ fn test_config(api_url: &str, project_id: &str, secret_key: &str) -> Config {
         webhook_endpoint: "http://127.0.0.1:8092/api/zamapay/webhook".to_string(),
         webhook_endpoint_id: "whend_test".to_string(),
         webhook_secret: TEST_WEBHOOK_SECRET.to_string(),
+        payment_rail: PaymentRail::ZamaPrivate,
+        evm_chain_id: 31_337,
+        evm_token_symbol: "USDT".to_string(),
     }
 }
 

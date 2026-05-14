@@ -29,8 +29,8 @@ export function CreateCheckoutButton({ config }: CreateCheckoutButtonProps) {
 
     try {
       const checkout = await createCardForgeCheckout(config)
-      const fee = formatMinorUnits(checkout.billing.platformFeeMinorUnits)
-      const net = formatMinorUnits(checkout.billing.merchantNetMinorUnits)
+      const fee = formatMinorUnits(checkout.billing.platformFeeMinorUnits, config.paymentAssetSymbol)
+      const net = formatMinorUnits(checkout.billing.merchantNetMinorUnits, config.paymentAssetSymbol)
 
       setStatus(`Checkout ${checkout.checkoutSessionId} created. ZamaPay fee ${fee}; merchant receives ${net}. Redirecting...`)
       window.location.assign(checkout.checkoutUrl)
@@ -154,9 +154,9 @@ export function CardForgeFulfillmentPanel({ codes, config }: CardForgeFulfillmen
   )
 }
 
-function formatMinorUnits(value: number) {
+function formatMinorUnits(value: number, symbol: string) {
   return `${(value / 1_000_000).toLocaleString(undefined, {
     maximumFractionDigits: 6,
     minimumFractionDigits: 0,
-  })} cUSDT`
+  })} ${symbol}`
 }

@@ -1,0 +1,279 @@
+{
+  "apiVersion": "2026-05-14",
+  "headers": {
+    "apiVersion": "ZamaPay-Version",
+    "authorization": "Authorization",
+    "idempotencyKey": "idempotency-key"
+  },
+  "paymentRails": ["zama_private", "evm_erc20"],
+  "bootstrap": {
+    "request": {
+      "method": "GET",
+      "path": "/api/project-secret/bootstrap",
+      "headers": {
+        "authorization": "Bearer zms_test_fixture",
+        "zamaPayVersion": "2026-05-14"
+      }
+    },
+    "response": {
+      "projectId": "proj_sdk_fixture",
+      "environment": "local_dev",
+      "webhookEndpointId": "we_sdk_fixture",
+      "webhookEndpointUrl": "https://merchant.example.test/api/zamapay/webhook",
+      "webhookSecret": "whsec_Y3VycmVudC13ZWJob29rLXNlY3JldA"
+    }
+  },
+  "checkoutSessions": {
+    "createZamaPrivate": {
+      "request": {
+        "merchantOrderId": "order_sdk_zama",
+        "title": "SDK private checkout",
+        "amountLabel": "120 cUSDT",
+        "amountMinorUnits": 120000000,
+        "note": "Private rail contract fixture",
+        "successUrl": "https://merchant.example.test/success",
+        "cancelUrl": "https://merchant.example.test/cancel",
+        "paymentRail": "zama_private",
+        "chainInvoiceId": 42,
+        "chainTxHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "metadata": {
+          "source": "sdk-fixture"
+        }
+      },
+      "response": {
+        "checkoutSessionId": "cs_sdk_zama",
+        "projectId": "proj_sdk_fixture",
+        "environment": "local_dev",
+        "paymentRail": "zama_private",
+        "merchantOrderId": "order_sdk_zama",
+        "idempotencyKey": "order_sdk_zama",
+        "invoiceId": "inv_sdk_zama",
+        "chainInvoiceId": 42,
+        "chainTxHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "paymentIntentId": null,
+        "checkoutUrl": "http://127.0.0.1:18080/checkout/cs_sdk_zama",
+        "title": "SDK private checkout",
+        "amountLabel": "120 cUSDT",
+        "amountMinorUnits": 120000000,
+        "billing": {
+          "plan": "free",
+          "feeBps": 0,
+          "grossAmountMinorUnits": 120000000,
+          "platformFeeMinorUnits": 0,
+          "merchantNetMinorUnits": 120000000
+        },
+        "note": "Private rail contract fixture",
+        "successUrl": "https://merchant.example.test/success",
+        "cancelUrl": "https://merchant.example.test/cancel",
+        "metadata": {
+          "source": "sdk-fixture"
+        },
+        "status": "open",
+        "createdAt": "2026-05-14T05:37:39Z",
+        "updatedAt": "2026-05-14T05:37:39Z",
+        "expiresAt": "2026-05-14T06:07:39Z",
+        "merchantOwnerWallet": "0x1111111111111111111111111111111111111111",
+        "evmPaymentIntent": null
+      },
+      "retrieveResponse": {
+        "checkoutSessionId": "cs_sdk_zama",
+        "projectId": "proj_sdk_fixture",
+        "environment": "local_dev",
+        "paymentRail": "zama_private",
+        "merchantOrderId": "order_sdk_zama",
+        "idempotencyKey": "order_sdk_zama",
+        "invoiceId": "inv_sdk_zama",
+        "chainInvoiceId": 42,
+        "chainTxHash": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "paymentIntentId": null,
+        "checkoutUrl": "http://127.0.0.1:18080/checkout/cs_sdk_zama",
+        "title": "SDK private checkout",
+        "amountLabel": "120 cUSDT",
+        "amountMinorUnits": 120000000,
+        "billing": {
+          "plan": "free",
+          "feeBps": 0,
+          "grossAmountMinorUnits": 120000000,
+          "platformFeeMinorUnits": 0,
+          "merchantNetMinorUnits": 120000000
+        },
+        "note": "Private rail contract fixture",
+        "successUrl": "https://merchant.example.test/success",
+        "cancelUrl": "https://merchant.example.test/cancel",
+        "metadata": {
+          "source": "sdk-fixture"
+        },
+        "status": "open",
+        "createdAt": "2026-05-14T05:37:39Z",
+        "updatedAt": "2026-05-14T05:37:39Z",
+        "expiresAt": "2026-05-14T06:07:39Z"
+      }
+    },
+    "createEvmErc20": {
+      "request": {
+        "merchantOrderId": "order_sdk_evm",
+        "title": "SDK ERC20 checkout",
+        "amountLabel": "10 USDT",
+        "amountMinorUnits": 10000000,
+        "note": "ERC20 rail contract fixture",
+        "successUrl": "https://merchant.example.test/success",
+        "cancelUrl": "https://merchant.example.test/cancel",
+        "paymentRail": "evm_erc20",
+        "evmChainId": 31337,
+        "evmTokenSymbol": "USDT",
+        "metadata": {
+          "source": "sdk-fixture"
+        }
+      },
+      "response": {
+        "checkoutSessionId": "cs_sdk_evm",
+        "projectId": "proj_sdk_fixture",
+        "environment": "local_dev",
+        "paymentRail": "evm_erc20",
+        "merchantOrderId": "order_sdk_evm",
+        "idempotencyKey": "order_sdk_evm",
+        "invoiceId": "inv_sdk_evm",
+        "chainInvoiceId": null,
+        "chainTxHash": null,
+        "paymentIntentId": "epi_sdk_usdt",
+        "checkoutUrl": "http://127.0.0.1:18080/checkout/cs_sdk_evm",
+        "title": "SDK ERC20 checkout",
+        "amountLabel": "10 USDT",
+        "amountMinorUnits": 10000000,
+        "billing": {
+          "plan": "free",
+          "feeBps": 0,
+          "grossAmountMinorUnits": 10000000,
+          "platformFeeMinorUnits": 0,
+          "merchantNetMinorUnits": 10000000
+        },
+        "note": "ERC20 rail contract fixture",
+        "successUrl": "https://merchant.example.test/success",
+        "cancelUrl": "https://merchant.example.test/cancel",
+        "metadata": {
+          "source": "sdk-fixture"
+        },
+        "status": "open",
+        "createdAt": "2026-05-14T05:37:39Z",
+        "updatedAt": "2026-05-14T05:37:39Z",
+        "expiresAt": "2026-05-14T06:07:39Z",
+        "merchantOwnerWallet": "0x1111111111111111111111111111111111111111",
+        "evmPaymentIntent": {
+          "intentId": "epi_sdk_usdt",
+          "checkoutSessionId": "cs_sdk_evm",
+          "projectId": "proj_sdk_fixture",
+          "settlementIntentId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+          "settlementProjectId": "0x2222222222222222222222222222222222222222222222222222222222222222",
+          "chainId": 31337,
+          "network": "hardhat",
+          "tokenSymbol": "USDT",
+          "tokenContract": "0x2222222222222222222222222222222222222222",
+          "tokenDecimals": 6,
+          "settlementContract": "0x3333333333333333333333333333333333333333",
+          "expectedAmountMinorUnits": 10000000,
+          "merchantNetMinorUnits": 10000000,
+          "platformFeeMinorUnits": 0,
+          "matchedAmountMinorUnits": 0,
+          "status": "requires_payment",
+          "detectedTxHash": null,
+          "payerAddress": null,
+          "confirmations": 0,
+          "finalityThreshold": 2,
+          "createdAt": "2026-05-14T05:37:39Z",
+          "updatedAt": "2026-05-14T05:37:39Z",
+          "expiresAt": "2026-05-14T06:07:39Z"
+        }
+      },
+      "retrieveResponse": {
+        "checkoutSessionId": "cs_sdk_evm",
+        "projectId": "proj_sdk_fixture",
+        "environment": "local_dev",
+        "paymentRail": "evm_erc20",
+        "merchantOrderId": "order_sdk_evm",
+        "idempotencyKey": "order_sdk_evm",
+        "invoiceId": "inv_sdk_evm",
+        "chainInvoiceId": null,
+        "chainTxHash": null,
+        "paymentIntentId": "epi_sdk_usdt",
+        "checkoutUrl": "http://127.0.0.1:18080/checkout/cs_sdk_evm",
+        "title": "SDK ERC20 checkout",
+        "amountLabel": "10 USDT",
+        "amountMinorUnits": 10000000,
+        "billing": {
+          "plan": "free",
+          "feeBps": 0,
+          "grossAmountMinorUnits": 10000000,
+          "platformFeeMinorUnits": 0,
+          "merchantNetMinorUnits": 10000000
+        },
+        "note": "ERC20 rail contract fixture",
+        "successUrl": "https://merchant.example.test/success",
+        "cancelUrl": "https://merchant.example.test/cancel",
+        "metadata": {
+          "source": "sdk-fixture"
+        },
+        "status": "open",
+        "createdAt": "2026-05-14T05:37:39Z",
+        "updatedAt": "2026-05-14T05:37:39Z",
+        "expiresAt": "2026-05-14T06:07:39Z"
+      }
+    }
+  },
+  "errorEnvelopes": {
+    "authentication": {
+      "status": 401,
+      "body": {
+        "error": {
+          "type": "authentication_error",
+          "code": "missing_bearer_project_secret",
+          "message": "missing bearer project secret"
+        }
+      }
+    },
+    "idempotency": {
+      "status": 400,
+      "body": {
+        "error": {
+          "type": "invalid_request_error",
+          "code": "missing_idempotency_key",
+          "message": "idempotency-key header is required"
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "currentSecret": "whsec_Y3VycmVudC13ZWJob29rLXNlY3JldA",
+    "retiredSecret": "whsec_cmV0aXJlZC13ZWJob29rLXNlY3JldA",
+    "valid": {
+      "messageId": "msg_sdk_contract_valid",
+      "timestamp": "1778767200",
+      "nowUnixSeconds": 1778767300,
+      "rawBody": "{\"event\":\"checkout.session.paid\",\"checkoutSessionId\":\"cs_sdk_zama\",\"invoiceId\":\"inv_sdk_zama\",\"paymentRail\":\"zama_private\",\"amountMinorUnits\":120000000,\"status\":\"paid\"}",
+      "rawPayloadSha256": "52c941adde537b777fba513fe3feb2f4eb41dd3333875a653263136ef5b05d67",
+      "headers": {
+        "svix-id": "msg_sdk_contract_valid",
+        "svix-timestamp": "1778767200",
+        "svix-signature": "v1,5yNPpAEVbZC4hH23K/c3wiqU+lAfqrUuXi4sK/D15vU="
+      }
+    },
+    "tamperedBody": {
+      "rawBody": "{\n  \"event\": \"checkout.session.paid\",\n  \"checkoutSessionId\": \"cs_sdk_zama\",\n  \"invoiceId\": \"inv_sdk_zama\",\n  \"paymentRail\": \"zama_private\",\n  \"amountMinorUnits\": 120000000,\n  \"status\": \"paid\"\n}",
+      "expectedError": "invalid_signature"
+    },
+    "expired": {
+      "nowUnixSeconds": 1778767601,
+      "expectedError": "timestamp_too_old"
+    },
+    "invalidSecret": {
+      "secret": "whsec_!!!",
+      "expectedError": "invalid_secret"
+    },
+    "rotation": {
+      "headers": {
+        "svix-id": "msg_sdk_contract_valid",
+        "svix-timestamp": "1778767200",
+        "svix-signature": "v1,5yNPpAEVbZC4hH23K/c3wiqU+lAfqrUuXi4sK/D15vU= v1,+9tF8zqr9pomZsvt/DigZSTQ2NCdo0vE9gVhEvB/l58="
+      }
+    }
+  }
+}

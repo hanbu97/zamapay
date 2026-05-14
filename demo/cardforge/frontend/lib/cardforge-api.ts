@@ -8,10 +8,11 @@ export type CheckoutRecord = {
     platformFeeMinorUnits: number
     plan: string
   }
-  chainInvoiceId: number
+  chainInvoiceId: null | number
   checkoutSessionId: string
   checkoutUrl: string
   invoiceId: string
+  paymentRail: 'evm_erc20' | 'zama_private'
 }
 
 export type FulfillmentSnapshot = {
@@ -33,7 +34,7 @@ export type WebhookReceipt = {
   payload: {
     amountLabel?: string
     amountMinorUnits?: number
-    chainInvoiceId?: number
+    chainInvoiceId?: null | number
     chainTxHash?: null | string
     checkoutSessionId?: string
     createdAt?: string
@@ -59,7 +60,7 @@ export type OwnedCardRecord = {
     label: string
     secret: string
   }>
-  chainInvoiceId: number
+  chainInvoiceId: null | number
   checkoutSessionId: string
   id: string
   invoiceId: string

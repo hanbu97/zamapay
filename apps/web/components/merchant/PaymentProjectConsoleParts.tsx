@@ -65,7 +65,7 @@ export function EvmAssetBalancesCard({ overview }: { overview: ProjectDashboardO
                         <RadioTowerIcon />
                       </EmptyMedia>
                       <EmptyTitle>No ERC20 balances</EmptyTitle>
-                      <EmptyDescription>Confirmed ERC20 Transfer logs will appear here.</EmptyDescription>
+                      <EmptyDescription>Confirmed ERC20 settlement events will appear here.</EmptyDescription>
                     </EmptyHeader>
                   </Empty>
                 </TableCell>

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, Utc};
 use domain::{FinalityStatus, PaymentTruth};
 use shared::{
     EvmChain, EvmChainToken, EvmPaymentIntent, EvmPaymentIntentStatus, EvmReceiverAddress,
@@ -8,13 +8,11 @@ use shared::{
     SupportedEvmAsset,
 };
 
-const RECEIVER_REUSE_DELAY_SECONDS: i64 = 15 * 60;
-
 pub(crate) fn transfer_id(payload: &EvmTransferProjectionRequest) -> String {
     format!(
         "evm_{}_{}_{}_{}",
         payload.chain_id,
-        normalize_hex(&payload.token_contract),
+        normalize_hex(&payload.settlement_contract),
         normalize_hex(&payload.tx_hash),
         payload.log_index
     )
@@ -47,6 +45,7 @@ pub(crate) fn supported_asset(
         finality_threshold: chain.finality_threshold,
         rpc_url: rpc_node.url.clone(),
         receiver_address: receiver.address.clone(),
+        settlement_contract: receiver.address.clone(),
     }
 }
 
@@ -74,41 +73,6 @@ pub(crate) fn intent_supported_asset(
         .filter(|receiver| receiver.status == ReceiverAddressStatus::Active)?;
 
     Some(supported_asset(chain, token, rpc_node, receiver))
-}
-
-pub(crate) fn receiver_is_available(receiver: &EvmReceiverAddress, now: DateTime<Utc>) -> bool {
-    if receiver.status != ReceiverAddressStatus::Active {
-        return false;
-    }
-    if receiver
-        .available_after
-        .is_some_and(|available_after| available_after > now)
-    {
-        return false;
-    }
-    match (receiver.lease_intent_id.as_ref(), receiver.leased_until) {
-        (Some(_), Some(leased_until)) => leased_until + receiver_reuse_delay() <= now,
-        (Some(_), None) => false,
-        (None, _) => true,
-    }
-}
-
-pub(crate) fn reclaim_receiver_if_reusable(receiver: &mut EvmReceiverAddress, now: DateTime<Utc>) {
-    if receiver
-        .available_after
-        .is_some_and(|available_after| available_after <= now)
-    {
-        receiver.available_after = None;
-    }
-    if receiver.lease_intent_id.is_some()
-        && receiver
-            .leased_until
-            .is_some_and(|leased_until| leased_until + receiver_reuse_delay() <= now)
-    {
-        receiver.lease_intent_id = None;
-        receiver.leased_until = None;
-        receiver.available_after = None;
-    }
 }
 
 pub(crate) fn open_intent(intent: &EvmPaymentIntent, now: DateTime<Utc>) -> bool {
@@ -169,21 +133,12 @@ pub(crate) fn block_hash_conflicts(existing: Option<&str>, incoming: Option<&str
     )
 }
 
-pub(crate) fn cursor_id(chain_id: u64, token_contract: &str, receiver_address: &str) -> String {
-    format!(
-        "cur_{}_{}_{}",
-        chain_id,
-        normalize_hex(token_contract),
-        normalize_hex(receiver_address)
-    )
+pub(crate) fn cursor_id(chain_id: u64, settlement_contract: &str) -> String {
+    format!("cur_{}_{}", chain_id, normalize_hex(settlement_contract))
 }
 
 pub(crate) fn asset_balance_key(chain_id: u64, token_contract: &str) -> String {
     format!("{chain_id}:{}", normalize_hex(token_contract))
-}
-
-pub(crate) fn receiver_reuse_delay() -> TimeDelta {
-    TimeDelta::seconds(RECEIVER_REUSE_DELAY_SECONDS)
 }
 
 fn normalize_hex(value: &str) -> String {

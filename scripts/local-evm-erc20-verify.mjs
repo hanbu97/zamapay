@@ -19,8 +19,11 @@ const CHECKOUT_ID = argValue('--checkout-id')
 
 const erc20Abi = parseAbi([
   'function claimTestTokens() returns (uint256)',
-  'function transfer(address to, uint256 amount) returns (bool)',
+  'function approve(address spender, uint256 amount) returns (bool)',
   'function balanceOf(address owner) view returns (uint256)',
+])
+const settlementAbi = parseAbi([
+  'function pay(bytes32 intentId, bytes32 projectId, address token, uint256 grossAmount, uint256 merchantNetAmount, uint256 platformFeeAmount, uint256 expiresAt)',
 ])
 
 const hardhatLocal = {
@@ -130,8 +133,6 @@ async function createCheckout() {
       amountLabel: `${formatTokenAmount(AMOUNT_MINOR_UNITS, 6)} ${TOKEN_SYMBOL.toUpperCase()}`,
       amountMinorUnits: AMOUNT_MINOR_UNITS,
       cancelUrl: `${WEB_BASE_URL}/merchant`,
-      chainInvoiceId: null,
-      chainTxHash: null,
       evmChainId: 31337,
       evmTokenSymbol: TOKEN_SYMBOL,
       merchantOrderId: `local-evm-${Date.now()}`,
@@ -178,7 +179,7 @@ async function assertHostedCheckoutRenders(checkoutUrl) {
   }
 
   assert(html.includes('ERC20 hosted checkout'), 'hosted checkout did not render the ERC20 rail badge')
-  assert(html.includes('Pay ERC20 transfer'), 'hosted checkout did not render the ERC20 payment action')
+  assert(html.includes('Pay through settlement'), 'hosted checkout did not render the ERC20 settlement action')
 }
 
 async function payCheckout(checkout) {
@@ -191,7 +192,7 @@ async function payCheckout(checkout) {
     transport: http(RPC_URL),
   })
   const token = getAddress(intent.tokenContract)
-  const receiver = getAddress(intent.receiverAddress)
+  const settlement = getAddress(intent.settlementContract)
 
   const claimHash = await walletClient.writeContract({
     address: token,
@@ -208,19 +209,37 @@ async function payCheckout(checkout) {
   })
   assert(balance >= BigInt(intent.expectedAmountMinorUnits), 'buyer token balance is lower than checkout amount')
 
-  const transferHash = await walletClient.writeContract({
+  const approveHash = await walletClient.writeContract({
     address: token,
     abi: erc20Abi,
-    functionName: 'transfer',
-    args: [receiver, BigInt(intent.expectedAmountMinorUnits)],
+    functionName: 'approve',
+    args: [settlement, BigInt(intent.expectedAmountMinorUnits)],
   })
-  const receipt = await publicClient.waitForTransactionReceipt({ hash: transferHash })
+  await publicClient.waitForTransactionReceipt({ hash: approveHash })
+
+  const paymentHash = await walletClient.writeContract({
+    address: settlement,
+    abi: settlementAbi,
+    functionName: 'pay',
+    args: [
+      intent.settlementIntentId,
+      intent.settlementProjectId,
+      token,
+      BigInt(intent.expectedAmountMinorUnits),
+      BigInt(intent.merchantNetMinorUnits),
+      BigInt(intent.platformFeeMinorUnits),
+      BigInt(Math.floor(new Date(intent.expiresAt).getTime() / 1000)),
+    ],
+  })
+  const receipt = await publicClient.waitForTransactionReceipt({ hash: paymentHash })
 
   return {
+    approveHash,
     buyer: buyer.address,
+    paymentHash,
+    settlement,
     token,
-    transferBlock: Number(receipt.blockNumber),
-    transferHash,
+    paymentBlock: Number(receipt.blockNumber),
   }
 }
 
@@ -234,7 +253,7 @@ async function runIndexerOnce() {
   const parsed = lastLine ? JSON.parse(lastLine) : null
 
   assert(parsed?.assets >= 1, 'indexer watchlist did not include the open EVM intent')
-  assert(parsed?.projected >= 1, 'indexer did not project the ERC20 transfer')
+  assert(parsed?.projected >= 1, 'indexer did not project the ERC20 settlement event')
 
   return parsed
 }
@@ -310,7 +329,8 @@ async function main() {
     checkoutUrl: setup.checkout.checkoutUrl,
     intentId: setup.checkout.evmPaymentIntent.intentId,
     projectId: setup.projectId,
-    receiver: setup.checkout.evmPaymentIntent.receiverAddress,
+    settlementContract: setup.checkout.evmPaymentIntent.settlementContract,
+    settlementIntentId: setup.checkout.evmPaymentIntent.settlementIntentId,
     tokenContract: setup.checkout.evmPaymentIntent.tokenContract,
   }
 
@@ -329,11 +349,11 @@ async function main() {
       entry.tokenContract.toLowerCase() === setup.checkout.evmPaymentIntent.tokenContract.toLowerCase(),
   )
   const ledger = overview.evmTransferLedger.find(
-    (entry) => entry.txHash.toLowerCase() === payment.transferHash.toLowerCase(),
+    (entry) => entry.txHash.toLowerCase() === payment.paymentHash.toLowerCase(),
   )
 
-  assert(ledger?.status === 'confirmed', `expected confirmed transfer ledger entry, got ${ledger?.status}`)
-  assert(balance?.confirmedMinorUnits >= setup.checkout.evmPaymentIntent.expectedAmountMinorUnits, 'confirmed EVM balance did not include transfer')
+  assert(ledger?.status === 'confirmed', `expected confirmed settlement ledger entry, got ${ledger?.status}`)
+  assert(balance?.confirmedMinorUnits >= setup.checkout.evmPaymentIntent.expectedAmountMinorUnits, 'confirmed EVM balance did not include settlement')
 
   console.log(
     JSON.stringify(
@@ -345,8 +365,8 @@ async function main() {
         indexer,
         ledgerStatus: ledger.status,
         paymentTruth: publicCheckout.invoice.snapshot.paymentTruth,
-        transferBlock: payment.transferBlock,
-        transferHash: payment.transferHash,
+        paymentBlock: payment.paymentBlock,
+        paymentHash: payment.paymentHash,
       },
       null,
       2,

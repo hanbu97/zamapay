@@ -10,9 +10,12 @@
 |-- env/                    # Split process env contracts and ignored local secret files
 |-- Justfile                # Human workflow entrypoint for local, Supabase, and Sepolia runs
 |-- package.json            # npm workspace scripts for package-local build/test atoms
+|-- fixtures/               # Executable cross-language merchant API and webhook contract examples
 |-- README.md               # Platform quickstart, verification commands, and testnet handoff
 |-- apps/
 |   `-- web/                 # Next.js ZamaPay platform shell
+|-- packages/
+|   `-- zamapay-server/      # Preview server-side TypeScript SDK for merchant backends
 |-- contracts/              # Hardhat + Zama FHEVM contracts and deploy pipeline
 |-- crates/
 |   |-- api/                # Rust HTTP API, auth session, CORS, cookie boundary
@@ -38,6 +41,8 @@
 - `demo/` is intentionally outside the root npm and Rust workspaces; templates must install and run from their own directories.
 - `crates/api` owns wallet nonce issuance, signature verification, and cookie sessions.
 - `crates/shared` holds API DTOs and typed ids only; ABI-derived schemas must stay in generated artifacts later.
+- `fixtures/merchant-api` owns executable merchant API contract examples that Rust tests and SDK tests both consume.
+- `packages/zamapay-server` owns the preview server-side TypeScript SDK; browser/mobile SDKs and OpenAPI generation are explicitly future work.
 - `docker-compose.yml` owns the local Postgres runtime; `DATABASE_URL` is the durable normalized portal-schema contract shared by local Docker and future hosted Postgres/Supabase.
 - `env/` owns process-specific environment contracts; example files are commit-safe and same-name `.env` files are local secret material.
 - `.mise.toml` pins Node LTS and `just` only; Rust is intentionally left to the existing upgraded local toolchain.

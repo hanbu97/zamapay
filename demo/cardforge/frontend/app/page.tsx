@@ -37,6 +37,9 @@ export default function CardForgePage() {
             <span className="sm:hidden">Pay</span>
             <ArrowUpRightIcon data-icon="inline-end" />
           </a>
+          <span className="hidden shrink-0 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1 text-xs font-semibold text-white/70 md:inline-flex">
+            {config.paymentRailLabel}
+          </span>
         </div>
       </header>
 

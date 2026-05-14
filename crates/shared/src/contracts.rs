@@ -43,6 +43,9 @@ pub struct ContractAddresses {
     #[serde(rename = "PrivateCheckoutSettlement")]
     #[serde(default)]
     pub private_checkout_settlement: Option<String>,
+    #[serde(rename = "EvmCheckoutSettlement")]
+    #[serde(default)]
+    pub evm_checkout_settlement: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +222,13 @@ mod tests {
                 .as_deref()
                 .is_none_or(|address| address.starts_with("0x"))
         }));
+        assert!(
+            manifest
+                .contracts
+                .evm_checkout_settlement
+                .as_deref()
+                .is_none_or(|address| address.starts_with("0x"))
+        );
     }
 
     #[test]

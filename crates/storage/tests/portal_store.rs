@@ -2,8 +2,8 @@ use chrono::{TimeDelta, Utc};
 use domain::{FinalityStatus, FulfillmentStatus, PaymentTruth};
 use shared::{
     BillingCycle, BillingEntitlementStatus, BillingPlan, CreateCheckoutSessionRequest,
-    EvmIndexerCursorProjectionRequest, EvmPaymentIntent, EvmPaymentIntentStatus,
-    EvmTransferProjectionRequest, EvmTransferStatus, PaymentRail, ProjectEnvironmentKind,
+    EvmIndexerCursorProjectionRequest, EvmPaymentIntent, EvmTransferProjectionRequest,
+    EvmTransferStatus, PaymentRail, ProjectEnvironmentKind,
     SubscriptionEntitlementProjectionRequest, WEBHOOK_RETIRED_SECRET_LIMIT,
     WEBHOOK_RETIRED_SECRET_TTL_HOURS, webhook_payload_sha256,
 };
@@ -52,6 +52,9 @@ fn evm_transfer_request(
     confirmations: u64,
 ) -> EvmTransferProjectionRequest {
     EvmTransferProjectionRequest {
+        settlement_intent_id: intent.settlement_intent_id.clone(),
+        settlement_project_id: intent.settlement_project_id.clone(),
+        settlement_contract: intent.receiver_address.clone(),
         chain_id: intent.chain_id,
         token_contract: intent.token_contract.clone(),
         tx_hash: tx_hash.to_string(),
@@ -63,6 +66,8 @@ fn evm_transfer_request(
         from_address: "0x00000000000000000000000000000000000000bb".to_string(),
         to_address: intent.receiver_address.clone(),
         amount_minor_units,
+        merchant_net_minor_units: intent.merchant_net_minor_units,
+        platform_fee_minor_units: intent.platform_fee_minor_units,
         confirmations,
     }
 }
@@ -589,7 +594,7 @@ async fn webhook_endpoint_secret_rotation_keeps_current_and_retired_truth() {
 }
 
 #[tokio::test]
-async fn evm_checkout_uses_payment_intent_and_transfer_ledger_truth() {
+async fn evm_checkout_uses_payment_intent_and_settlement_ledger_truth() {
     let store = test_store().await;
     let now = Utc::now();
     let created = store
@@ -632,22 +637,26 @@ async fn evm_checkout_uses_payment_intent_and_transfer_ledger_truth() {
         .evm_payment_intent_by_id(intent_id)
         .await
         .expect("payment intent should be stored");
-    assert_eq!(
-        intent.receiver_address,
-        "0x00000000000000000000000000000000000000f1"
-    );
+    let supported_assets = store.supported_evm_assets().await;
+    let supported_asset = supported_assets
+        .iter()
+        .find(|asset| {
+            asset.chain_id == intent.chain_id && asset.token_contract == intent.token_contract
+        })
+        .expect("intent should use a supported settlement asset");
+    assert_eq!(intent.receiver_address, supported_asset.settlement_contract);
     assert_eq!(intent.expected_amount_minor_units, 120_000_000);
 
     let public_open_checkout = store
         .public_checkout_by_id(&checkout.checkout_session_id)
         .await
-        .expect("public checkout should load while receiver is leased");
+        .expect("public checkout should load while settlement intent is open");
     assert!(public_open_checkout.evm_payment_intent.is_some());
     assert_eq!(
         public_open_checkout
             .evm_asset
-            .expect("leased checkout should still expose its payable EVM asset")
-            .receiver_address,
+            .expect("open checkout should expose its settlement EVM asset")
+            .settlement_contract,
         intent.receiver_address
     );
 
@@ -793,13 +802,13 @@ async fn project_payment_rail_settings_gate_checkout_creation() {
 }
 
 #[tokio::test]
-async fn evm_receiver_pool_locks_addresses_for_open_intents() {
+async fn evm_settlement_contract_handles_multiple_open_intents() {
     let store = test_store().await;
     let now = Utc::now();
     let created = store
         .create_project(
             "0x00000000000000000000000000000000000000aa",
-            "Pool merchant",
+            "Settlement merchant",
             ProjectEnvironmentKind::LocalDev,
             None,
             now,
@@ -827,7 +836,7 @@ async fn evm_receiver_pool_locks_addresses_for_open_intents() {
             now,
         )
         .await
-        .expect("first ERC20 checkout should reserve a receiver");
+        .expect("first ERC20 checkout should create a settlement intent");
     let second = store
         .create_checkout_session(
             &project_id,
@@ -838,7 +847,7 @@ async fn evm_receiver_pool_locks_addresses_for_open_intents() {
             now,
         )
         .await
-        .expect("second ERC20 checkout should reserve another receiver");
+        .expect("second ERC20 checkout should create another settlement intent");
 
     let first_intent = store
         .evm_payment_intent_by_id(first.payment_intent_id.as_deref().unwrap())
@@ -849,17 +858,22 @@ async fn evm_receiver_pool_locks_addresses_for_open_intents() {
         .await
         .unwrap();
 
-    assert_ne!(first_intent.receiver_id, second_intent.receiver_id);
-    assert_ne!(
+    assert_eq!(first_intent.receiver_id, second_intent.receiver_id);
+    assert_eq!(
         first_intent.receiver_address,
         second_intent.receiver_address
     );
+    assert_ne!(
+        first_intent.settlement_intent_id,
+        second_intent.settlement_intent_id
+    );
     let watchlist = store.evm_indexer_watchlist(now).await;
-    assert_eq!(watchlist.assets.len(), 2);
+    assert_eq!(watchlist.assets.len(), 1);
+    assert_eq!(watchlist.assets[0].open_intent_ids.len(), 2);
 }
 
 #[tokio::test]
-async fn evm_underpaid_transfer_records_exception_without_paying_invoice() {
+async fn evm_mismatched_settlement_event_is_ignored_without_paying_invoice() {
     let store = test_store().await;
     let now = Utc::now();
     let created = store
@@ -900,47 +914,42 @@ async fn evm_underpaid_transfer_records_exception_without_paying_invoice() {
 
     let projected = store
         .project_evm_transfer(
-            evm_transfer_request(
-                &intent,
-                "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-                intent.expected_amount_minor_units - 1,
-                1,
-            ),
+            {
+                let mut request = evm_transfer_request(
+                    &intent,
+                    "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    intent.expected_amount_minor_units - 1,
+                    1,
+                );
+                request.merchant_net_minor_units -= 1;
+                request
+            },
             now + TimeDelta::seconds(5),
         )
         .await;
 
-    assert_eq!(projected.transfer.status, EvmTransferStatus::Underpaid);
-    let matched = projected
-        .matched_intent
-        .expect("underpay should link intent");
-    assert_eq!(matched.status, EvmPaymentIntentStatus::Underpaid);
-    assert_eq!(matched.matched_amount_minor_units, 119_999_999);
-    let invoice = projected
-        .invoice
-        .expect("underpay should update invoice state");
-    assert_eq!(invoice.snapshot.payment_truth, PaymentTruth::PendingPayment);
-    assert_eq!(invoice.snapshot.finality_status, FinalityStatus::NotPaid);
+    assert_eq!(projected.transfer.status, EvmTransferStatus::Ignored);
+    assert!(projected.matched_intent.is_none());
+    assert!(projected.invoice.is_none());
 
     let overview = store.project_overview(&project_id).await.unwrap();
     assert_eq!(overview.summary.paid_checkouts, 0);
-    assert_eq!(
-        overview.evm_asset_balances[0].exception_minor_units,
-        119_999_999
-    );
+    assert_eq!(overview.evm_asset_balances.len(), 1);
+    assert_eq!(overview.evm_asset_balances[0].confirmed_minor_units, 0);
+    assert_eq!(overview.evm_asset_balances[0].pending_minor_units, 0);
+    assert_eq!(overview.evm_asset_balances[0].exception_minor_units, 0);
     assert_eq!(overview.evm_asset_balances[0].withdrawable_minor_units, 0);
 }
 
 #[tokio::test]
-async fn evm_indexer_cursor_is_projected_per_asset_receiver() {
+async fn evm_indexer_cursor_is_projected_per_settlement_contract() {
     let store = test_store().await;
     let now = Utc::now();
     let cursor = store
         .project_evm_indexer_cursor(
             EvmIndexerCursorProjectionRequest {
                 chain_id: 31_337,
-                token_contract: "0x0000000000000000000000000000000000001001".to_string(),
-                receiver_address: "0x00000000000000000000000000000000000000f1".to_string(),
+                settlement_contract: "0x00000000000000000000000000000000000000f1".to_string(),
                 last_scanned_block: 42,
                 last_finalized_block: 40,
             },

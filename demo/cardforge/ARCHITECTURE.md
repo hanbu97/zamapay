@@ -13,8 +13,8 @@ demo/cardforge
 ## Decisions
 
 - CardForge is not part of the ZamaPay platform. It is a separate merchant template demo and is not a member of the root npm or Rust workspaces.
-- The frontend owns catalog display, demo navigation, buyer intent, and the currently connected wallet address. It calls only `NEXT_PUBLIC_CARDFORGE_API_URL`.
-- The backend owns ZamaPay API URL, project secret bootstrap, server-side catalog amounts, hosted checkout creation, private invoice creation, webhook signature verification, webhook receipt, release policy, and wallet-scoped owned-card persistence in its own Postgres database.
+- The frontend owns catalog display, visible rail labeling, demo navigation, buyer intent, and the currently connected wallet address. It calls only `NEXT_PUBLIC_CARDFORGE_API_URL`.
+- The backend owns ZamaPay API URL, project secret bootstrap, server-side catalog amounts, configured hosted checkout rail creation, private invoice creation only for `zama_private`, webhook signature verification, webhook receipt, release policy, and wallet-scoped owned-card persistence in its own Postgres database.
 - ZamaPay remains the platform of record for merchant login, invoice truth, hosted checkout, payment state, finality, and settlement.
 - The dependency direction is one-way: `frontend -> backend -> ZamaPay`. No ZamaPay component, route, or server config is imported into the frontend.
 
@@ -27,3 +27,4 @@ demo/cardforge
 - Switched checkout creation from merchant-session forwarding to project secret auth.
 - Added wallet-scoped local persistence so a completed checkout visibly unlocks cards in the storefront sidebar.
 - Moved CardForge-owned demo state from JSON/in-memory stores to an independent Postgres database for Supabase-style deployment.
+- Added `CARDFORGE_PAYMENT_RAIL` so the same merchant demo can exercise either Zama private checkout or ordinary EVM ERC20 payment intents without creating a second integration path.

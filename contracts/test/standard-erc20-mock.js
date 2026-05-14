@@ -2,7 +2,7 @@ const { expect } = require('chai')
 const { ethers } = require('hardhat')
 
 describe('StandardERC20Mock', function () {
-  it('emits canonical Transfer logs for local ERC20 rail indexing', async function () {
+  it('emits canonical Transfer events for transparent ERC20 behavior', async function () {
     const [owner, buyer, receiver] = await ethers.getSigners()
     const Token = await ethers.getContractFactory('StandardERC20Mock')
     const token = await Token.deploy('Local USDT', 'USDT', 6)

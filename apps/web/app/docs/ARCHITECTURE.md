@@ -8,7 +8,7 @@ apps/web/app/docs
 |-- page.tsx         # Docs index with first-viewport guide map and primary article entries
 |-- DocsArticle.tsx  # Server-rendered article renderer, guide figures, tables, flow diagrams, and code blocks
 |-- MermaidDiagram.tsx # Client renderer that dynamically loads Mermaid for docs diagrams
-|-- docs-content.ts  # Static documentation truth for quickstart, API, Svix-style webhooks, CardForge, privacy checkout, and environments
+|-- docs-content.ts  # Static documentation truth for SDK preview, raw HTTP, rails, API, webhooks, examples, CardForge, privacy checkout, and environments
 `-- [slug]/
     |-- page.tsx         # Static docs article route selected by slug
     `-- ARCHITECTURE.md  # Dynamic article route note
@@ -26,3 +26,5 @@ apps/web/app/docs
 - Guide figures render only when a section declares one; text/table-only sections stay single-column and do not receive placeholder cards.
 - API examples document the project/API-key checkout boundary and deliberately exclude browser cookie checkout creation.
 - Webhook docs use the public Svix-style HMAC contract only; retired operator dispatch headers and replayable signing material stay out of browser docs.
+- Server SDK docs describe only the Node backend preview package, keep `@zamapay/server/webhooks` as a subpath, and require explicit `paymentRail` in every checkout example.
+- CardForge docs remain a Rust raw HTTP baseline, not TypeScript SDK dogfood.

@@ -1,4 +1,4 @@
-import { createPublicClient, http, parseAbiItem, webSocket } from 'viem'
+import { createPublicClient, getAddress, http, parseAbiItem, webSocket } from 'viem'
 
 const API_BASE_URL = cleanBaseUrl(process.env.ZAMAPAY_API_URL ?? 'http://127.0.0.1:18080')
 const OPERATOR_KEY = process.env.ZAMAPAY_OPERATOR_KEY ?? 'local-operator-dev-key'
@@ -6,7 +6,9 @@ const FROM_BLOCKS = Number.parseInt(process.env.ZAMAPAY_EVM_INDEXER_FROM_BLOCKS 
 const REORG_WINDOW_BLOCKS = Number.parseInt(process.env.ZAMAPAY_EVM_INDEXER_REORG_WINDOW_BLOCKS ?? '12', 10)
 const POLL_MS = Number.parseInt(process.env.ZAMAPAY_EVM_INDEXER_POLL_MS ?? '5000', 10)
 const ONCE = process.argv.includes('--once')
-const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)')
+const PAYMENT_ACCEPTED_EVENT = parseAbiItem(
+  'event EvmPaymentAccepted(bytes32 indexed intentId, bytes32 indexed projectId, address indexed payer, address token, uint256 grossAmount, uint256 merchantNetAmount, uint256 platformFeeAmount)',
+)
 
 function cleanBaseUrl(value) {
   return value.trim().replace(/\/+$/, '')
@@ -47,22 +49,31 @@ function toSafeNumber(value, label) {
   return Number(bigint)
 }
 
-async function projectTransfer(asset, log, latestBlock) {
-  const amount = log.args?.value
-  assert(amount !== undefined, 'Transfer log is missing value')
+async function projectSettlementEvent(asset, log, latestBlock) {
+  const grossAmount = log.args?.grossAmount
+  const merchantNetAmount = log.args?.merchantNetAmount
+  const platformFeeAmount = log.args?.platformFeeAmount
+  assert(grossAmount !== undefined, 'EvmPaymentAccepted log is missing grossAmount')
+  assert(merchantNetAmount !== undefined, 'EvmPaymentAccepted log is missing merchantNetAmount')
+  assert(platformFeeAmount !== undefined, 'EvmPaymentAccepted log is missing platformFeeAmount')
 
-  return apiJson('/api/operator/evm/transfers', {
+  return apiJson('/api/operator/evm/settlement-events', {
     method: 'POST',
     body: JSON.stringify({
+      settlementIntentId: log.args.intentId,
+      settlementProjectId: log.args.projectId,
+      settlementContract: asset.settlementContract,
       chainId: asset.chainId,
-      tokenContract: asset.tokenContract,
+      tokenContract: getAddress(log.args.token),
       txHash: log.transactionHash,
       logIndex: Number(log.logIndex ?? 0),
       blockNumber: toSafeNumber(log.blockNumber ?? 0n, 'blockNumber'),
       blockHash: log.blockHash ?? null,
-      fromAddress: log.args.from,
-      toAddress: log.args.to,
-      amountMinorUnits: toSafeNumber(amount, 'amountMinorUnits'),
+      fromAddress: log.args.payer,
+      toAddress: asset.settlementContract,
+      amountMinorUnits: toSafeNumber(grossAmount, 'amountMinorUnits'),
+      merchantNetMinorUnits: toSafeNumber(merchantNetAmount, 'merchantNetMinorUnits'),
+      platformFeeMinorUnits: toSafeNumber(platformFeeAmount, 'platformFeeMinorUnits'),
       confirmations: toSafeNumber(latestBlock - (log.blockNumber ?? latestBlock) + 1n, 'confirmations'),
     }),
   })
@@ -73,8 +84,7 @@ async function projectCursor(asset, lastScannedBlock, lastFinalizedBlock) {
     method: 'POST',
     body: JSON.stringify({
       chainId: asset.chainId,
-      tokenContract: asset.tokenContract,
-      receiverAddress: asset.receiverAddress,
+      settlementContract: asset.settlementContract,
       lastScannedBlock: toSafeNumber(lastScannedBlock, 'lastScannedBlock'),
       lastFinalizedBlock: toSafeNumber(lastFinalizedBlock, 'lastFinalizedBlock'),
     }),
@@ -96,16 +106,21 @@ async function scanAsset(asset) {
       ? latestBlock - BigInt(FROM_BLOCKS)
       : 0n
   const logs = await client.getLogs({
-    address: asset.tokenContract,
-    event: TRANSFER_EVENT,
-    args: { to: asset.receiverAddress },
+    address: asset.settlementContract,
+    event: PAYMENT_ACCEPTED_EVENT,
     fromBlock,
     toBlock: latestBlock,
   })
 
   let projected = 0
   for (const log of logs) {
-    await projectTransfer(asset, log, latestBlock)
+    if (!asset.openIntentIds.includes(String(log.args.intentId))) {
+      continue
+    }
+    if (getAddress(log.args.token).toLowerCase() !== getAddress(asset.tokenContract).toLowerCase()) {
+      continue
+    }
+    await projectSettlementEvent(asset, log, latestBlock)
     projected += 1
   }
 

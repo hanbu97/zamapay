@@ -1,0 +1,14 @@
+{
+  "name": "zamapay-install-shape-ts-esm",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zamapay/server": "file:../.."
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0"
+  },
+  "scripts": {
+    "runtestproject": "tsx index.ts"
+  }
+}

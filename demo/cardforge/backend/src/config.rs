@@ -2,6 +2,8 @@ use std::{env, net::SocketAddr};
 
 use serde::Deserialize;
 
+use crate::types::{LOCAL_CHAIN_ID, PaymentRail};
+
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1:8092";
 const DEFAULT_API_URL: &str = "http://127.0.0.1:18080";
 const DEFAULT_CHAIN_INVOICE_API_URL: &str = "http://127.0.0.1:3001";
@@ -10,6 +12,7 @@ const DEFAULT_LOGIN_URL: &str = "http://127.0.0.1:3001/login";
 const DEFAULT_MERCHANT_LABEL: &str = "CardForge Demo Store";
 const DEFAULT_STORE_KEY: &str = "local-dev";
 const DEFAULT_WEBHOOK_ENDPOINT: &str = "http://127.0.0.1:8092/api/zamapay/webhook";
+const DEFAULT_EVM_TOKEN_SYMBOL: &str = "USDT";
 
 #[derive(Clone)]
 pub(crate) struct Config {
@@ -27,6 +30,9 @@ pub(crate) struct Config {
     pub(crate) webhook_endpoint: String,
     pub(crate) webhook_endpoint_id: String,
     pub(crate) webhook_secret: String,
+    pub(crate) payment_rail: PaymentRail,
+    pub(crate) evm_chain_id: u64,
+    pub(crate) evm_token_symbol: String,
 }
 
 impl Config {
@@ -54,6 +60,9 @@ impl Config {
             webhook_endpoint: env_value("CARDFORGE_WEBHOOK_ENDPOINT", DEFAULT_WEBHOOK_ENDPOINT),
             webhook_endpoint_id: credentials.webhook_endpoint_id,
             webhook_secret: credentials.webhook_secret,
+            payment_rail: payment_rail()?,
+            evm_chain_id: env_u64("CARDFORGE_EVM_CHAIN_ID", LOCAL_CHAIN_ID)?,
+            evm_token_symbol: env_value("CARDFORGE_EVM_TOKEN_SYMBOL", DEFAULT_EVM_TOKEN_SYMBOL),
         })
     }
 }
@@ -160,6 +169,26 @@ fn list_env(key: &str) -> Vec<String> {
         .collect()
 }
 
+fn payment_rail() -> Result<PaymentRail, Box<dyn std::error::Error>> {
+    let raw = env_value("CARDFORGE_PAYMENT_RAIL", "zama_private");
+    PaymentRail::from_env(&raw).ok_or_else(|| {
+        Box::new(ConfigMessage(format!(
+            "CARDFORGE_PAYMENT_RAIL must be zama_private or evm_erc20, got {raw}"
+        ))) as Box<dyn std::error::Error>
+    })
+}
+
+fn env_u64(key: &str, fallback: u64) -> Result<u64, Box<dyn std::error::Error>> {
+    let Some(raw) = env::var(key).ok().filter(|value| !value.trim().is_empty()) else {
+        return Ok(fallback);
+    };
+    raw.trim().parse::<u64>().map_err(|error| {
+        Box::new(ConfigMessage(format!(
+            "{key} must be an unsigned integer: {error}"
+        ))) as Box<dyn std::error::Error>
+    })
+}
+
 fn clean_base_url(value: String) -> String {
     value.trim_end_matches('/').to_string()
 }
@@ -207,6 +236,17 @@ impl std::fmt::Display for BootstrapError {
 }
 
 impl std::error::Error for BootstrapError {}
+
+#[derive(Debug)]
+struct ConfigMessage(String);
+
+impl std::fmt::Display for ConfigMessage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ConfigMessage {}
 
 #[cfg(test)]
 mod tests {

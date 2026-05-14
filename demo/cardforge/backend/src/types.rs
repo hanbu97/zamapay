@@ -5,6 +5,43 @@ use serde_json::Value;
 
 pub(crate) const LOCAL_CHAIN_ID: u64 = 31337;
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PaymentRail {
+    ZamaPrivate,
+    EvmErc20,
+}
+
+impl PaymentRail {
+    pub(crate) fn from_env(value: &str) -> Option<Self> {
+        match value.trim() {
+            "zama_private" => Some(Self::ZamaPrivate),
+            "evm_erc20" => Some(Self::EvmErc20),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::ZamaPrivate => "Zama private",
+            Self::EvmErc20 => "EVM ERC20",
+        }
+    }
+
+    pub(crate) fn message(self) -> &'static str {
+        match self {
+            Self::ZamaPrivate => "Private cUSDT checkout",
+            Self::EvmErc20 => "Ordinary ERC20 transfer",
+        }
+    }
+}
+
+impl Default for PaymentRail {
+    fn default() -> Self {
+        Self::ZamaPrivate
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Product {
@@ -44,6 +81,9 @@ pub(crate) struct ReleasedCard {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StorefrontResponse {
     pub(crate) merchant_label: String,
+    pub(crate) payment_rail: PaymentRail,
+    pub(crate) payment_rail_label: &'static str,
+    pub(crate) payment_rail_message: &'static str,
     pub(crate) zamapay_console_url: String,
     pub(crate) zamapay_login_url: String,
     pub(crate) product: Product,
@@ -57,10 +97,11 @@ pub(crate) struct StorefrontResponse {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CheckoutResponse {
     pub(crate) billing: CheckoutBillingSnapshot,
-    pub(crate) chain_invoice_id: u64,
+    pub(crate) chain_invoice_id: Option<u64>,
     pub(crate) checkout_url: String,
     pub(crate) checkout_session_id: String,
     pub(crate) invoice_id: String,
+    pub(crate) payment_rail: PaymentRail,
 }
 
 #[derive(Clone, Deserialize)]
@@ -102,9 +143,14 @@ pub(crate) struct CreateCheckoutSessionRequest {
     pub(crate) chain_invoice_id: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) chain_tx_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) evm_chain_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) evm_token_symbol: Option<String>,
     pub(crate) merchant_order_id: String,
     pub(crate) metadata: std::collections::BTreeMap<String, String>,
     pub(crate) note: String,
+    pub(crate) payment_rail: PaymentRail,
     pub(crate) success_url: Option<String>,
     pub(crate) title: String,
 }
@@ -132,10 +178,12 @@ pub(crate) struct CheckoutQuoteResponse {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ZamaPayCheckoutSessionResponse {
     pub(crate) billing: CheckoutBillingSnapshot,
-    pub(crate) chain_invoice_id: u64,
+    pub(crate) chain_invoice_id: Option<u64>,
     pub(crate) checkout_session_id: String,
     pub(crate) checkout_url: String,
     pub(crate) invoice_id: String,
+    #[serde(default)]
+    pub(crate) payment_rail: PaymentRail,
 }
 
 #[derive(Clone, Deserialize)]
@@ -174,7 +222,7 @@ pub(crate) struct PendingOrder {
     pub(crate) amount_label: String,
     pub(crate) amount_minor_units: u64,
     pub(crate) buyer_wallet_address: Option<String>,
-    pub(crate) chain_invoice_id: u64,
+    pub(crate) chain_invoice_id: Option<u64>,
     pub(crate) checkout_session_id: String,
     pub(crate) created_at: String,
     pub(crate) invoice_id: String,
@@ -188,7 +236,7 @@ pub(crate) struct OwnedCard {
     pub(crate) amount_label: String,
     pub(crate) amount_minor_units: u64,
     pub(crate) cards: Vec<ReleasedCard>,
-    pub(crate) chain_invoice_id: u64,
+    pub(crate) chain_invoice_id: Option<u64>,
     pub(crate) checkout_session_id: String,
     pub(crate) id: String,
     pub(crate) invoice_id: String,
@@ -205,7 +253,7 @@ impl OwnedCard {
             amount_label: self.amount_label.clone(),
             amount_minor_units: self.amount_minor_units.to_string(),
             chain_id: LOCAL_CHAIN_ID,
-            chain_invoice_id: Some(self.chain_invoice_id),
+            chain_invoice_id: self.chain_invoice_id,
             checkout_session_id: Some(self.checkout_session_id.clone()),
             recorded_at: self.purchased_at.clone(),
             status: "confirmed",

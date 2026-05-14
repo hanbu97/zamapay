@@ -6,7 +6,8 @@
     "ConfidentialUSDMock": "0xa22cb3a087B478535e2eFf389d89b2bF434B962F",
     "SubscriptionPass": "0x62CCD2ca573d6da8e60c8FEcB5241754DA89D946",
     "PrivateSubscriptionRegistry": "0x0C3E7F3cdd82775e9Dd52a97AC152aCF12BdA7fB",
-    "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE"
+    "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE",
+    "EvmCheckoutSettlement": null
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",

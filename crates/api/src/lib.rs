@@ -100,7 +100,14 @@ pub fn app(state: AppState) -> Router {
         .route("/api/invoices/{invoice_id}", get(invoice_detail))
         .route("/api/operator/diagnostics", get(operator_diagnostics))
         .route("/api/operator/evm/watchlist", get(evm_indexer_watchlist))
-        .route("/api/operator/evm/transfers", post(project_evm_transfer))
+        .route(
+            "/api/operator/evm/transfers",
+            post(retired_evm_transfer_projection),
+        )
+        .route(
+            "/api/operator/evm/settlement-events",
+            post(project_evm_transfer),
+        )
         .route(
             "/api/operator/evm/cursors",
             post(project_evm_indexer_cursor),
@@ -387,6 +394,15 @@ async fn evm_indexer_watchlist(
     Ok(Json(state.portal.evm_indexer_watchlist(Utc::now()).await))
 }
 
+async fn retired_evm_transfer_projection() -> impl IntoResponse {
+    (
+        StatusCode::GONE,
+        Json(serde_json::json!({
+            "error": "ordinary EVM payments are settled through EvmCheckoutSettlement events"
+        })),
+    )
+}
+
 async fn project_evm_transfer(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -616,7 +632,22 @@ fn validate_evm_transfer_projection(
             "amountMinorUnits must be greater than zero",
         ));
     }
+    if payload
+        .merchant_net_minor_units
+        .checked_add(payload.platform_fee_minor_units)
+        != Some(payload.amount_minor_units)
+    {
+        return Err(ApiError::bad_request(
+            "merchantNetMinorUnits plus platformFeeMinorUnits must equal amountMinorUnits",
+        ));
+    }
     for (label, value) in [
+        ("settlementIntentId", payload.settlement_intent_id.as_str()),
+        (
+            "settlementProjectId",
+            payload.settlement_project_id.as_str(),
+        ),
+        ("settlementContract", payload.settlement_contract.as_str()),
         ("tokenContract", payload.token_contract.as_str()),
         ("txHash", payload.tx_hash.as_str()),
         ("fromAddress", payload.from_address.as_str()),
@@ -627,12 +658,23 @@ fn validate_evm_transfer_projection(
         }
     }
     validate_evm_hash("txHash", &payload.tx_hash)?;
+    validate_evm_hash("settlementIntentId", &payload.settlement_intent_id)?;
+    validate_evm_hash("settlementProjectId", &payload.settlement_project_id)?;
     if let Some(block_hash) = payload.block_hash.as_deref() {
         validate_evm_hash("blockHash", block_hash)?;
     }
+    validate_evm_address("settlementContract", &payload.settlement_contract)?;
     validate_evm_address("tokenContract", &payload.token_contract)?;
     validate_evm_address("fromAddress", &payload.from_address)?;
     validate_evm_address("toAddress", &payload.to_address)?;
+    if !payload
+        .to_address
+        .eq_ignore_ascii_case(&payload.settlement_contract)
+    {
+        return Err(ApiError::bad_request(
+            "toAddress must equal settlementContract",
+        ));
+    }
     Ok(())
 }
 
@@ -647,8 +689,7 @@ fn validate_evm_cursor_projection(
             "lastFinalizedBlock cannot exceed lastScannedBlock",
         ));
     }
-    validate_evm_address("tokenContract", &payload.token_contract)?;
-    validate_evm_address("receiverAddress", &payload.receiver_address)?;
+    validate_evm_address("settlementContract", &payload.settlement_contract)?;
     Ok(())
 }
 

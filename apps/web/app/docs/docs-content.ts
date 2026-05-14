@@ -47,7 +47,7 @@ export type DocsPage = {
 export const docsPages: DocsPage[] = [
   {
     badge: "Start here",
-    description: "Create a payment project, issue one project secret key, and hand CardForge a hosted checkout contract.",
+    description: "Create a payment project, issue one server-side secret key, and create hosted checkout sessions with an explicit payment rail.",
     icon: BookOpenIcon,
     slug: "quickstart",
     title: "Quickstart",
@@ -55,7 +55,7 @@ export const docsPages: DocsPage[] = [
       {
         body: [
           "ZamaPay starts from a merchant payment project. The browser console creates the project and reveals one-time secrets; the merchant backend uses those secrets to create checkout sessions.",
-          "The buyer-facing hosted checkout URL is returned only after ZamaPay has assigned a non-null chain invoice id.",
+          "The buyer-facing hosted checkout URL is returned only after ZamaPay has created the rail-specific payment truth: a Zama private invoice or an ordinary EVM ERC20 payment intent.",
         ],
         figure: "project-console",
         id: "project-first",
@@ -118,6 +118,212 @@ just cardforge-api-supabase-local`,
     ],
   },
   {
+    badge: "Preview SDK",
+    description: "Use the server-side TypeScript SDK from a merchant backend without leaking project secrets to the browser.",
+    icon: BracesIcon,
+    slug: "server-sdk-preview",
+    title: "Server SDK Preview",
+    sections: [
+      {
+        body: [
+          "`@zamapay/server` is a Node/server package for merchant backends. It uses native `fetch`, `node:crypto`, project-secret Bearer auth, and a fixed preview API version header.",
+          "Do not import this package from browser code and do not place `ZAMAPAY_SECRET_KEY` or webhook `whsec_...` values in `NEXT_PUBLIC_*` variables.",
+        ],
+        code: `import { PaymentRail, ZamaPayClient } from "@zamapay/server"
+
+const zamapay = new ZamaPayClient({
+  baseUrl: process.env.ZAMAPAY_API_URL ?? "https://api.zamapay.org",
+  secretKey: process.env.ZAMAPAY_SECRET_KEY!,
+})
+
+const project = await zamapay.bootstrapProject()
+
+const session = await zamapay.checkoutSessions.create({
+  idempotencyKey: "order_1001",
+  merchantOrderId: "order_1001",
+  title: "Prepaid card bundle",
+  amountLabel: "120 USDT",
+  amountMinorUnits: 120000000,
+  note: "Release after finality-safe payment",
+  paymentRail: PaymentRail.EvmErc20,
+  evmChainId: 31337,
+  evmTokenSymbol: "USDT",
+  successUrl: "https://merchant.example/success",
+  cancelUrl: "https://merchant.example/cancel",
+  metadata: { source: "merchant-backend" },
+})
+
+console.log(project.projectId, session.checkoutUrl)`,
+        id: "server-sdk-create",
+        title: "Create a checkout",
+      },
+      {
+        body: [
+          "The SDK defaults to `ZamaPay-Version: 2026-05-14`. This preview date version locks the request/response contract used by the shared contract fixtures.",
+          "Checkout creation requires `paymentRail`. There is no SDK-side default because the private rail and ordinary ERC20 rail have different payment truth sources.",
+        ],
+        table: {
+          headers: ["Input", "Required", "Meaning"],
+          rows: [
+            ["secretKey", "yes", "`zms_...` project secret used only on the merchant backend."],
+            ["baseUrl", "deployment", "ZamaPay API base URL. It is shared by a deployment, not unique per project."],
+            ["paymentRail", "yes", "`zama_private` or `evm_erc20`; the SDK refuses missing or unknown values."],
+            ["idempotencyKey", "yes", "Stable merchant request key sent as the `idempotency-key` header."],
+            ["evmChainId / evmTokenSymbol", "ERC20 rail", "Selects the ordinary EVM token settlement intent."],
+            ["chainInvoiceId / chainTxHash", "private rail", "Evidence from the Zama private invoice creation path."],
+          ],
+        },
+        id: "server-sdk-contract",
+        title: "Contract boundary",
+      },
+      {
+        body: [
+          "Webhook helpers are exported as a subpath of the server package. They verify the raw request body before JSON parsing and use the same Svix-style HMAC protocol as the Rust verifier.",
+          "`generateTestHeaders()` creates deterministic test headers for local receiver tests; production receivers must still use the platform-sent headers.",
+        ],
+        code: `import { constructWebhookEvent, generateTestHeaders } from "@zamapay/server/webhooks"
+
+export async function POST(request: Request) {
+  const rawBody = await request.text()
+  const event = constructWebhookEvent(rawBody, request.headers, {
+    secret: process.env.ZAMAPAY_WEBHOOK_SECRET!,
+  })
+
+  await persistWebhookEvent(event)
+  return new Response("ok")
+}
+
+const testHeaders = generateTestHeaders({
+  messageId: "msg_test",
+  payload: '{"type":"checkout.paid"}',
+  secret: process.env.ZAMAPAY_WEBHOOK_SECRET!,
+  timestamp: 1778767200,
+})`,
+        id: "server-sdk-webhooks",
+        title: "Verify webhooks",
+      },
+    ],
+  },
+  {
+    badge: "HTTP",
+    description: "Use raw HTTP when your backend is not Node or when you want the smallest possible integration surface.",
+    icon: BracesIcon,
+    slug: "raw-http-fallback",
+    title: "Raw HTTP Fallback",
+    sections: [
+      {
+        body: [
+          "Raw HTTP remains the baseline protocol. The server SDK is a convenience wrapper around these endpoints, not a second API.",
+          "Always send Bearer project-secret auth, the preview version header, and an idempotency key on checkout creation.",
+        ],
+        code: `curl -X GET \\
+  http://127.0.0.1:18080/api/project-secret/bootstrap \\
+  -H "authorization: Bearer zms_test_..." \\
+  -H "ZamaPay-Version: 2026-05-14"`,
+        id: "raw-bootstrap",
+        title: "Bootstrap project context",
+      },
+      {
+        body: [
+          "Ordinary EVM checkout creation returns a hosted checkout session plus an ERC20 settlement payment intent. The settlement contract event, not the merchant browser, is the payment truth.",
+        ],
+        code: `curl -X POST \\
+  http://127.0.0.1:18080/api/projects/proj_123/checkout-sessions \\
+  -H "authorization: Bearer zms_test_..." \\
+  -H "ZamaPay-Version: 2026-05-14" \\
+  -H "idempotency-key: order_1001" \\
+  -H "content-type: application/json" \\
+  -d '{
+    "merchantOrderId": "order_1001",
+    "title": "Prepaid card bundle",
+    "amountLabel": "120 USDT",
+    "amountMinorUnits": 120000000,
+    "note": "Release after finality-safe payment",
+    "paymentRail": "evm_erc20",
+    "evmChainId": 31337,
+    "evmTokenSymbol": "USDT",
+    "successUrl": "https://merchant.example/success",
+    "cancelUrl": "https://merchant.example/cancel",
+    "metadata": { "source": "raw-http" }
+  }'`,
+        id: "raw-evm-checkout",
+        title: "Create ERC20 checkout",
+      },
+      {
+        body: [
+          "Private checkout creation is still explicit. It uses `paymentRail: zama_private` and carries the private chain invoice evidence created by the Zama rail path.",
+        ],
+        code: `{
+  "merchantOrderId": "order_1002",
+  "title": "Private checkout",
+  "amountLabel": "120 cUSDT",
+  "amountMinorUnits": 120000000,
+  "note": "Private rail",
+  "paymentRail": "zama_private",
+  "chainInvoiceId": 42,
+  "chainTxHash": "0x..."
+}`,
+        id: "raw-private-checkout",
+        title: "Create private checkout",
+      },
+    ],
+  },
+  {
+    badge: "Rails",
+    description: "Choose between Zama private checkout truth and ordinary EVM settlement-contract truth.",
+    icon: BoxesIcon,
+    slug: "payment-rails",
+    title: "Payment Rails",
+    sections: [
+      {
+        body: [
+          "A payment rail is not a UI button. It decides which system owns payment truth, which fields are required at checkout creation, and which worker advances finality.",
+          "Projects can enable or disable rails, but every checkout request still names the intended rail explicitly.",
+        ],
+        id: "rail-model",
+        table: {
+          headers: ["Rail", "Payment truth", "Checkout inputs", "Finality path"],
+          rows: [
+            [
+              "zama_private",
+              "Private checkout settlement and encrypted equality result.",
+              "`paymentRail`, amount, private chain invoice id, chain transaction hash.",
+              "Zama private checkout projection and fulfillment webhook.",
+            ],
+            [
+              "evm_erc20",
+              "`EvmCheckoutSettlement.EvmPaymentAccepted` event matched by settlement intent id, project id, chain, token contract, settlement contract, gross amount, merchant net, platform fee, and confirmations.",
+              "`paymentRail`, amount, `evmChainId`, `evmTokenSymbol`.",
+              "EVM indexer, settlement ledger, payment intent finality, merchant balance.",
+            ],
+          ],
+        },
+        title: "Rail model",
+      },
+      {
+        body: [
+          "Do not collapse both rails into one hidden default. A private invoice and a public ERC20 settlement intent have different failure modes, different buyer instructions, and different accounting evidence.",
+        ],
+        id: "rail-discipline",
+        steps: [
+          {
+            detail: "Create the merchant project once and issue one server-side project secret.",
+            title: "Project identity is shared",
+          },
+          {
+            detail: "Enable or disable each rail from the merchant control plane.",
+            title: "Rail policy is managed",
+          },
+          {
+            detail: "Create each checkout with `paymentRail` so SDK, API, UI, indexer, and docs agree on payment truth.",
+            title: "Checkout truth is explicit",
+          },
+        ],
+        title: "Operational discipline",
+      },
+    ],
+  },
+  {
     badge: "API",
     description: "Use project secret auth for external merchant checkout creation. Dashboard cookies are not part of this boundary.",
     icon: BracesIcon,
@@ -148,18 +354,23 @@ just cardforge-api-supabase-local`,
       {
         body: [
           "Send checkout creation from your merchant backend. The request must include `Authorization: Bearer <project secret key>` and `idempotency-key`.",
+          "The request must also include the preview version header and an explicit `paymentRail`.",
         ],
         code: `curl -X POST \\
   http://127.0.0.1:18080/api/projects/proj_123/checkout-sessions \\
   -H "authorization: Bearer zms_test_..." \\
+  -H "ZamaPay-Version: 2026-05-14" \\
   -H "idempotency-key: order_1001" \\
   -H "content-type: application/json" \\
   -d '{
     "merchantOrderId": "order_1001",
     "title": "Prepaid card bundle",
-    "amountLabel": "120 cUSDT",
+    "amountLabel": "120 USDT",
     "amountMinorUnits": 120000000,
     "note": "Release after finality-safe payment",
+    "paymentRail": "evm_erc20",
+    "evmChainId": 31337,
+    "evmTokenSymbol": "USDT",
     "successUrl": "http://127.0.0.1:8093/success",
     "cancelUrl": "http://127.0.0.1:8093/cancel",
     "metadata": { "source": "cardforge" }
@@ -196,7 +407,8 @@ just cardforge-api-supabase-local`,
       },
       {
         body: [
-          "Verification uses the raw HTTP body bytes, builds `svixId.timestamp.rawBody`, and checks the HMAC-SHA256 proof with the endpoint secret. Reject missing or stale headers before reading business fields.",
+          "Verification uses the raw HTTP body bytes, builds `svixId.timestamp.rawBody`, and checks the HMAC-SHA256 proof with the endpoint secret. Read the raw body before JSON parsing; reserialized JSON must be rejected.",
+          "Node merchant backends can use `@zamapay/server/webhooks`. Other languages should implement the same raw-body HMAC contract.",
         ],
         code: `import { createHmac, timingSafeEqual } from "node:crypto"
 
@@ -231,6 +443,65 @@ function safeEqual(left, right) {
     ],
   },
   {
+    badge: "Examples",
+    description: "Copy minimal backend patterns for creating checkout sessions and handling signed webhooks.",
+    icon: ReceiptTextIcon,
+    slug: "examples",
+    title: "Examples",
+    sections: [
+      {
+        body: [
+          "This Express-style handler creates an ordinary ERC20 checkout from server code. It keeps `ZAMAPAY_SECRET_KEY` on the server and sends only the returned hosted checkout URL to the browser.",
+        ],
+        code: `import { PaymentRail, ZamaPayClient } from "@zamapay/server"
+
+const zamapay = new ZamaPayClient({
+  baseUrl: process.env.ZAMAPAY_API_URL,
+  secretKey: process.env.ZAMAPAY_SECRET_KEY!,
+})
+
+app.post("/orders/:orderId/checkout", async (req, res) => {
+  const order = await loadOrder(req.params.orderId)
+  const session = await zamapay.checkoutSessions.create({
+    idempotencyKey: order.id,
+    merchantOrderId: order.id,
+    title: order.title,
+    amountLabel: order.amountLabel,
+    amountMinorUnits: order.amountMinorUnits,
+    note: "Pay with USDT",
+    paymentRail: PaymentRail.EvmErc20,
+    evmChainId: 31337,
+    evmTokenSymbol: "USDT",
+    successUrl: "https://merchant.example/success",
+    cancelUrl: "https://merchant.example/cancel",
+    metadata: { customerId: order.customerId },
+  })
+
+  res.json({ checkoutUrl: session.checkoutUrl })
+})`,
+        id: "example-create-checkout",
+        title: "Checkout creation",
+      },
+      {
+        body: [
+          "This webhook pattern reads raw bytes first, verifies the signature, stores the event id for idempotency, then parses business fields.",
+        ],
+        code: `import { constructWebhookEvent } from "@zamapay/server/webhooks"
+
+app.post("/webhooks/zamapay", rawBodyMiddleware, async (req, res) => {
+  const event = constructWebhookEvent(req.rawBody, req.headers, {
+    secret: process.env.ZAMAPAY_WEBHOOK_SECRET!,
+  })
+
+  await recordWebhookOnce(req.headers["svix-id"], event)
+  res.status(204).end()
+})`,
+        id: "example-webhook",
+        title: "Webhook receiver",
+      },
+    ],
+  },
+  {
     badge: "Demo",
     description: "Run CardForge as a separate merchant template that consumes ZamaPay configuration.",
     icon: BoxesIcon,
@@ -240,6 +511,7 @@ function safeEqual(left, right) {
       {
         body: [
           "CardForge is not part of the ZamaPay platform app. It is a standalone merchant template under `demo/cardforge` and receives only project configuration.",
+          "CardForge is a Rust raw HTTP baseline, not TypeScript SDK dogfood. A future Rust client should be a separate V1.5 decision.",
           "The browser talks to CardForge. CardForge talks to ZamaPay with its project secret key. Browser cookies from ZamaPay must not be forwarded.",
         ],
         figure: "cardforge",

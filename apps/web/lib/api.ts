@@ -113,6 +113,7 @@ export type ContractManifest = {
     SubscriptionPass: string | null
     PrivateSubscriptionRegistry: string | null
     PrivateCheckoutSettlement: string | null
+    EvmCheckoutSettlement: string | null
   }
   billing?: {
     source: string | null
@@ -265,7 +266,6 @@ export type ProjectPaymentRailSetting = {
 }
 
 export type SupportedEvmAsset = {
-  receiverId: string
   chainId: number
   network: string
   chainName: string
@@ -276,7 +276,7 @@ export type SupportedEvmAsset = {
   minAmountMinorUnits: number
   finalityThreshold: number
   rpcUrl: string
-  receiverAddress: string
+  settlementContract: string
 }
 
 export type EvmPaymentIntentStatus =
@@ -292,15 +292,18 @@ export type EvmPaymentIntent = {
   intentId: string
   projectId: string
   checkoutSessionId: string
+  settlementIntentId: string
+  settlementProjectId: string
   chainId: number
   network: string
   tokenSymbol: string
   tokenContract: string
   tokenDecimals: number
-  receiverId: string
   expectedAmountMinorUnits: number
+  merchantNetMinorUnits: number
+  platformFeeMinorUnits: number
   matchedAmountMinorUnits: number
-  receiverAddress: string
+  settlementContract: string
   finalityThreshold: number
   status: EvmPaymentIntentStatus
   detectedTxHash: string | null

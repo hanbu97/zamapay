@@ -1,4 +1,5 @@
 pub mod contracts;
+pub mod merchant_contract;
 pub mod webhook;
 
 use std::collections::BTreeMap;
@@ -15,6 +16,7 @@ pub use contracts::{
     AddressManifest, BillingPlanProtocolTerms, BillingProtocolManifest, ContractAddresses,
     contract_manifest, local_dev_contract_manifest, normalize_contract_environment,
 };
+pub use merchant_contract::*;
 pub use webhook::*;
 
 pub const DEFAULT_FINALITY_THRESHOLD: u64 = 2;
@@ -458,12 +460,6 @@ pub struct EvmReceiverAddress {
     pub network: String,
     pub address: String,
     pub status: ReceiverAddressStatus,
-    #[serde(default)]
-    pub lease_intent_id: Option<String>,
-    #[serde(default)]
-    pub leased_until: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub available_after: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -485,14 +481,26 @@ pub struct EvmPaymentIntent {
     pub intent_id: String,
     pub checkout_session_id: String,
     pub project_id: String,
+    #[serde(default)]
+    pub settlement_intent_id: String,
+    #[serde(default)]
+    pub settlement_project_id: String,
     pub chain_id: u64,
     pub network: String,
     pub token_symbol: String,
     pub token_contract: String,
     pub token_decimals: u8,
+    #[serde(default, skip_serializing)]
     pub receiver_id: String,
+    #[serde(default, skip_serializing)]
     pub receiver_address: String,
+    #[serde(default)]
+    pub settlement_contract: String,
     pub expected_amount_minor_units: u64,
+    #[serde(default)]
+    pub merchant_net_minor_units: u64,
+    #[serde(default)]
+    pub platform_fee_minor_units: u64,
     pub matched_amount_minor_units: u64,
     pub status: EvmPaymentIntentStatus,
     pub detected_tx_hash: Option<String>,
@@ -542,6 +550,7 @@ pub struct EvmTransferLedgerEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SupportedEvmAsset {
+    #[serde(default, skip_serializing)]
     pub receiver_id: String,
     pub chain_id: u64,
     pub network: String,
@@ -553,12 +562,17 @@ pub struct SupportedEvmAsset {
     pub min_amount_minor_units: u64,
     pub finality_threshold: u64,
     pub rpc_url: String,
+    #[serde(default, skip_serializing)]
     pub receiver_address: String,
+    pub settlement_contract: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EvmTransferProjectionRequest {
+    pub settlement_intent_id: String,
+    pub settlement_project_id: String,
+    pub settlement_contract: String,
     pub chain_id: u64,
     pub token_contract: String,
     pub tx_hash: String,
@@ -569,6 +583,8 @@ pub struct EvmTransferProjectionRequest {
     pub from_address: String,
     pub to_address: String,
     pub amount_minor_units: u64,
+    pub merchant_net_minor_units: u64,
+    pub platform_fee_minor_units: u64,
     pub confirmations: u64,
 }
 
@@ -585,8 +601,7 @@ pub struct EvmTransferProjectionResponse {
 pub struct EvmIndexerCursor {
     pub cursor_id: String,
     pub chain_id: u64,
-    pub token_contract: String,
-    pub receiver_address: String,
+    pub settlement_contract: String,
     pub last_scanned_block: u64,
     pub last_finalized_block: u64,
     pub updated_at: DateTime<Utc>,
@@ -596,8 +611,7 @@ pub struct EvmIndexerCursor {
 #[serde(rename_all = "camelCase")]
 pub struct EvmIndexerCursorProjectionRequest {
     pub chain_id: u64,
-    pub token_contract: String,
-    pub receiver_address: String,
+    pub settlement_contract: String,
     pub last_scanned_block: u64,
     pub last_finalized_block: u64,
 }

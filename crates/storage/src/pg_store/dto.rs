@@ -578,9 +578,6 @@ pub(crate) struct EvmReceiverAddressRow {
     pub(crate) network: String,
     pub(crate) address: String,
     pub(crate) status: String,
-    pub(crate) lease_intent_id: Option<String>,
-    pub(crate) leased_until: Option<DateTime<Utc>>,
-    pub(crate) available_after: Option<DateTime<Utc>>,
 }
 
 impl EvmReceiverAddressRow {
@@ -591,9 +588,6 @@ impl EvmReceiverAddressRow {
             network: self.network,
             address: self.address,
             status: decode_enum(&self.status),
-            lease_intent_id: self.lease_intent_id,
-            leased_until: self.leased_until,
-            available_after: self.available_after,
         }
     }
 }
@@ -603,6 +597,8 @@ pub(crate) struct EvmPaymentIntentRow {
     pub(crate) intent_id: String,
     pub(crate) checkout_session_id: String,
     pub(crate) project_id: String,
+    pub(crate) settlement_intent_id: String,
+    pub(crate) settlement_project_id: String,
     pub(crate) chain_id: i64,
     pub(crate) network: String,
     pub(crate) token_symbol: String,
@@ -611,6 +607,8 @@ pub(crate) struct EvmPaymentIntentRow {
     pub(crate) receiver_id: String,
     pub(crate) receiver_address: String,
     pub(crate) expected_amount_minor_units: i64,
+    pub(crate) merchant_net_minor_units: i64,
+    pub(crate) platform_fee_minor_units: i64,
     pub(crate) matched_amount_minor_units: i64,
     pub(crate) status: String,
     pub(crate) detected_tx_hash: Option<String>,
@@ -628,16 +626,27 @@ impl EvmPaymentIntentRow {
             intent_id: self.intent_id,
             checkout_session_id: self.checkout_session_id,
             project_id: self.project_id,
+            settlement_intent_id: self.settlement_intent_id,
+            settlement_project_id: self.settlement_project_id,
             chain_id: u64_from_i64(self.chain_id, "evm_payment_intent.chain_id"),
             network: self.network,
             token_symbol: self.token_symbol,
             token_contract: self.token_contract,
             token_decimals: u8_from_i32(self.token_decimals, "evm_payment_intent.token_decimals"),
             receiver_id: self.receiver_id,
+            settlement_contract: self.receiver_address.clone(),
             receiver_address: self.receiver_address,
             expected_amount_minor_units: u64_from_i64(
                 self.expected_amount_minor_units,
                 "evm_payment_intent.expected_amount_minor_units",
+            ),
+            merchant_net_minor_units: u64_from_i64(
+                self.merchant_net_minor_units,
+                "evm_payment_intent.merchant_net_minor_units",
+            ),
+            platform_fee_minor_units: u64_from_i64(
+                self.platform_fee_minor_units,
+                "evm_payment_intent.platform_fee_minor_units",
             ),
             matched_amount_minor_units: u64_from_i64(
                 self.matched_amount_minor_units,
@@ -706,8 +715,7 @@ impl EvmTransferLedgerRow {
 pub(crate) struct EvmIndexerCursorRow {
     pub(crate) cursor_id: String,
     pub(crate) chain_id: i64,
-    pub(crate) token_contract: String,
-    pub(crate) receiver_address: String,
+    pub(crate) settlement_contract: String,
     pub(crate) last_scanned_block: i64,
     pub(crate) last_finalized_block: i64,
     pub(crate) updated_at: DateTime<Utc>,
@@ -718,8 +726,7 @@ impl EvmIndexerCursorRow {
         EvmIndexerCursor {
             cursor_id: self.cursor_id,
             chain_id: u64_from_i64(self.chain_id, "evm_indexer_cursor.chain_id"),
-            token_contract: self.token_contract,
-            receiver_address: self.receiver_address,
+            settlement_contract: self.settlement_contract,
             last_scanned_block: u64_from_i64(
                 self.last_scanned_block,
                 "evm_indexer_cursor.last_scanned_block",

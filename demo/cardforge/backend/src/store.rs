@@ -60,7 +60,7 @@ impl CardForgeStore {
                 pending.amount_label.into(),
                 i64_from_u64(pending.amount_minor_units, "amount_minor_units").into(),
                 pending.buyer_wallet_address.into(),
-                i64_from_u64(pending.chain_invoice_id, "chain_invoice_id").into(),
+                optional_i64_from_u64(pending.chain_invoice_id, "chain_invoice_id").into(),
                 pending.created_at.into(),
                 pending.invoice_id.into(),
                 pending.product_id.into(),
@@ -290,7 +290,7 @@ impl CardForgeStore {
                 owned.amount_label.into(),
                 i64_from_u64(owned.amount_minor_units, "amount_minor_units").into(),
                 cards_json.into(),
-                i64_from_u64(owned.chain_invoice_id, "chain_invoice_id").into(),
+                optional_i64_from_u64(owned.chain_invoice_id, "chain_invoice_id").into(),
                 owned.payment_tx_hash.into(),
                 owned.purchased_at.into(),
                 owned.wallet_address.into(),
@@ -370,7 +370,7 @@ struct PendingOrderRow {
     amount_label: String,
     amount_minor_units: i64,
     buyer_wallet_address: Option<String>,
-    chain_invoice_id: i64,
+    chain_invoice_id: Option<i64>,
     checkout_session_id: String,
     created_at: String,
     invoice_id: String,
@@ -384,7 +384,9 @@ impl PendingOrderRow {
             amount_label: self.amount_label,
             amount_minor_units: u64_from_i64(self.amount_minor_units, "amount_minor_units"),
             buyer_wallet_address: self.buyer_wallet_address,
-            chain_invoice_id: u64_from_i64(self.chain_invoice_id, "chain_invoice_id"),
+            chain_invoice_id: self
+                .chain_invoice_id
+                .map(|value| u64_from_i64(value, "chain_invoice_id")),
             checkout_session_id: self.checkout_session_id,
             created_at: self.created_at,
             invoice_id: self.invoice_id,
@@ -399,7 +401,7 @@ struct OwnedCardRow {
     amount_label: String,
     amount_minor_units: i64,
     cards_json: String,
-    chain_invoice_id: i64,
+    chain_invoice_id: Option<i64>,
     checkout_session_id: String,
     id: String,
     invoice_id: String,
@@ -416,7 +418,9 @@ impl OwnedCardRow {
             amount_label: self.amount_label,
             amount_minor_units: u64_from_i64(self.amount_minor_units, "amount_minor_units"),
             cards: serde_json::from_str(&self.cards_json).unwrap_or_default(),
-            chain_invoice_id: u64_from_i64(self.chain_invoice_id, "chain_invoice_id"),
+            chain_invoice_id: self
+                .chain_invoice_id
+                .map(|value| u64_from_i64(value, "chain_invoice_id")),
             checkout_session_id: self.checkout_session_id,
             id: self.id,
             invoice_id: self.invoice_id,
@@ -485,7 +489,7 @@ static SCHEMA_SQL: &[&str] = &[
         amount_label text not null,
         amount_minor_units bigint not null check (amount_minor_units >= 0),
         buyer_wallet_address text,
-        chain_invoice_id bigint not null check (chain_invoice_id >= 0),
+        chain_invoice_id bigint check (chain_invoice_id >= 0),
         created_at text not null,
         invoice_id text not null,
         product_id text not null,
@@ -518,7 +522,7 @@ static SCHEMA_SQL: &[&str] = &[
         amount_label text not null,
         amount_minor_units bigint not null check (amount_minor_units >= 0),
         cards_json jsonb not null,
-        chain_invoice_id bigint not null check (chain_invoice_id >= 0),
+        chain_invoice_id bigint check (chain_invoice_id >= 0),
         payment_tx_hash text,
         purchased_at text not null,
         wallet_address text not null,
@@ -538,6 +542,8 @@ static SCHEMA_SQL: &[&str] = &[
     )
     "#,
     "create index if not exists cardforge_webhook_receipts_store_idx on cardforge_webhook_receipts (store_key, receipt_id asc)",
+    "alter table cardforge_pending_orders alter column chain_invoice_id drop not null",
+    "alter table cardforge_owned_cards alter column chain_invoice_id drop not null",
 ];
 
 async fn exec(db: &DatabaseConnection, sql: &str, values: Vec<DbValue>) -> Result<(), DbErr> {
@@ -550,6 +556,10 @@ fn stmt(sql: &str, values: Vec<DbValue>) -> Statement {
 
 fn i64_from_u64(value: u64, field: &str) -> i64 {
     i64::try_from(value).unwrap_or_else(|_| panic!("{field} does not fit in postgres bigint"))
+}
+
+fn optional_i64_from_u64(value: Option<u64>, field: &str) -> Option<i64> {
+    value.map(|value| i64_from_u64(value, field))
 }
 
 fn u64_from_i64(value: i64, field: &str) -> u64 {

@@ -22,6 +22,10 @@ const CONTRACTS = [
     name: 'PrivateCheckoutSettlement',
     artifactPath: 'artifacts/contracts/PrivateCheckoutSettlement.sol/PrivateCheckoutSettlement.json',
   },
+  {
+    name: 'EvmCheckoutSettlement',
+    artifactPath: 'artifacts/contracts/EvmCheckoutSettlement.sol/EvmCheckoutSettlement.json',
+  },
 ]
 
 function ensureDir(dirPath) {
@@ -43,6 +47,7 @@ function defaultManifest() {
       SubscriptionPass: null,
       PrivateSubscriptionRegistry: null,
       PrivateCheckoutSettlement: null,
+      EvmCheckoutSettlement: null,
     },
     billing: {
       source: null,
@@ -175,7 +180,7 @@ function writeGeneratedClients(projectRoot, artifacts, manifest) {
     })
     .join('\n')
 
-  const tsSource = `export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'PrivateCheckoutSettlement'] as const
+  const tsSource = `export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'PrivateCheckoutSettlement', 'EvmCheckoutSettlement'] as const
 
 export type ContractName = (typeof contractNames)[number]
 
@@ -200,6 +205,7 @@ export type AddressManifest = {
   generatedAt: string
   deployer?: \`0x\${string}\` | null
   platformFeeWallet?: \`0x\${string}\` | null
+  evmWithdrawAuthorizer?: \`0x\${string}\` | null
   testTokenFaucet?: {
     token: \`0x\${string}\`
     claimAmountMinorUnits: string
@@ -218,6 +224,7 @@ export const confidentialUsdMockAbi = ${JSON.stringify(artifacts.ConfidentialUSD
 export const subscriptionPassAbi = ${JSON.stringify(artifacts.SubscriptionPass.abi, null, 2)} as const
 export const privateSubscriptionRegistryAbi = ${JSON.stringify(artifacts.PrivateSubscriptionRegistry.abi, null, 2)} as const
 export const privateCheckoutSettlementAbi = ${JSON.stringify(artifacts.PrivateCheckoutSettlement.abi, null, 2)} as const
+export const evmCheckoutSettlementAbi = ${JSON.stringify(artifacts.EvmCheckoutSettlement.abi, null, 2)} as const
 
 export const abis = {
   MerchantRegistry: merchantRegistryAbi,
@@ -225,6 +232,7 @@ export const abis = {
   SubscriptionPass: subscriptionPassAbi,
   PrivateSubscriptionRegistry: privateSubscriptionRegistryAbi,
   PrivateCheckoutSettlement: privateCheckoutSettlementAbi,
+  EvmCheckoutSettlement: evmCheckoutSettlementAbi,
 } as const
 
 export const addressManifests = {
@@ -269,6 +277,10 @@ ${JSON.stringify(artifacts.PrivateSubscriptionRegistry.abi, null, 2)}
 
 pub const PRIVATE_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
 ${JSON.stringify(artifacts.PrivateCheckoutSettlement.abi, null, 2)}
+"#;
+
+pub const EVM_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
+${JSON.stringify(artifacts.EvmCheckoutSettlement.abi, null, 2)}
 "#;
 `
 

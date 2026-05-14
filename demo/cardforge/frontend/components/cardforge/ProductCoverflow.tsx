@@ -120,7 +120,7 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
       const message =
         caught instanceof CardForgeApiError
           ? caught.message
-          : 'CardForge could not create the encrypted checkout.'
+          : 'CardForge could not create the hosted checkout.'
       setBusyProductId(null)
       window.alert(message)
     }
@@ -128,6 +128,11 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
 
   return (
     <section className="relative flex min-h-[calc(100vh-8.5rem)] w-full min-w-0 items-center overflow-hidden py-8">
+      <div className="absolute left-0 top-0 z-10 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1 text-xs font-semibold text-white/72">
+        <span>{config.paymentRailLabel}</span>
+        <span className="text-white/38">/</span>
+        <span>{config.paymentRailMessage}</span>
+      </div>
       <Swiper
         centeredSlides
         className="cardforge-coverflow !overflow-visible w-full min-w-0 pb-10"
@@ -188,7 +193,9 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
                       <p className="text-xs uppercase tracking-normal text-white/55">Price</p>
                       <p className="mt-1 text-4xl font-semibold leading-none tracking-normal">
                         {product.price}
-                        <span className="ml-2 align-baseline text-lg font-semibold text-white/70">cUSDT</span>
+                        <span className="ml-2 align-baseline text-lg font-semibold text-white/70">
+                          {config.paymentAssetSymbol}
+                        </span>
                       </p>
                     </div>
                     <button
@@ -233,13 +240,19 @@ export function ProductCoverflow({ buyerWalletAddress, config }: ProductCoverflo
               <div className="h-full w-full animate-pulse rounded-full bg-[#f4ff00]" />
             </div>
             <p className="mt-4 text-sm leading-5 text-white/70">
-              Creating the hosted checkout. Sepolia invoice anchoring is warmed in the background.
+              {checkoutPreparationCopy(config)}
             </p>
           </div>
         </div>
       ) : null}
     </section>
   )
+}
+
+function checkoutPreparationCopy(config: CardForgeConfig) {
+  return config.paymentRail === 'evm_erc20'
+    ? `Creating the hosted checkout and preparing ${config.paymentAssetSymbol} settlement.`
+    : 'Creating the hosted checkout. Sepolia invoice anchoring is warmed in the background.'
 }
 
 async function readActiveWalletAddress(): Promise<null | string> {

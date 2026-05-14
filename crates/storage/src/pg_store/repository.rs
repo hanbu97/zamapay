@@ -922,8 +922,8 @@ async fn insert_evm_receiver_addresses<'a>(
             tx,
             r#"
             insert into zamapay_evm_receiver_addresses
-                (state_key, receiver_id, chain_id, network, address, status, lease_intent_id, leased_until, available_after)
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                (state_key, receiver_id, chain_id, network, address, status)
+            values ($1,$2,$3,$4,$5,$6)
             "#,
             vec![
                 state_key.into(),
@@ -932,9 +932,6 @@ async fn insert_evm_receiver_addresses<'a>(
                 address.network.clone().into(),
                 address.address.clone().into(),
                 encode_enum(&address.status).into(),
-                address.lease_intent_id.clone().into(),
-                address.leased_until.into(),
-                address.available_after.into(),
             ],
         )
         .await?;
@@ -950,14 +947,17 @@ async fn insert_evm_payment_intents<'a>(
     for intent in intents {
         exec(tx, r#"
             insert into zamapay_evm_payment_intents
-                (state_key, intent_id, checkout_session_id, project_id, chain_id, network, token_symbol, token_contract, token_decimals, receiver_id, receiver_address, expected_amount_minor_units, matched_amount_minor_units, status, detected_tx_hash, payer_address, confirmations, finality_threshold, created_at, updated_at, expires_at)
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+                (state_key, intent_id, checkout_session_id, project_id, settlement_intent_id, settlement_project_id, chain_id, network, token_symbol, token_contract, token_decimals, receiver_id, receiver_address, expected_amount_minor_units, merchant_net_minor_units, platform_fee_minor_units, matched_amount_minor_units, status, detected_tx_hash, payer_address, confirmations, finality_threshold, created_at, updated_at, expires_at)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
             "#, vec![
                 state_key.into(), intent.intent_id.clone().into(), intent.checkout_session_id.clone().into(),
-                intent.project_id.clone().into(), i64_from_u64(intent.chain_id, "evm_payment_intent.chain_id").into(),
+                intent.project_id.clone().into(), intent.settlement_intent_id.clone().into(), intent.settlement_project_id.clone().into(),
+                i64_from_u64(intent.chain_id, "evm_payment_intent.chain_id").into(),
                 intent.network.clone().into(), intent.token_symbol.clone().into(), intent.token_contract.clone().into(),
                 i32_from_u8(intent.token_decimals).into(), intent.receiver_id.clone().into(), intent.receiver_address.clone().into(),
                 i64_from_u64(intent.expected_amount_minor_units, "evm_payment_intent.expected_amount_minor_units").into(),
+                i64_from_u64(intent.merchant_net_minor_units, "evm_payment_intent.merchant_net_minor_units").into(),
+                i64_from_u64(intent.platform_fee_minor_units, "evm_payment_intent.platform_fee_minor_units").into(),
                 i64_from_u64(intent.matched_amount_minor_units, "evm_payment_intent.matched_amount_minor_units").into(),
                 encode_enum(&intent.status).into(), intent.detected_tx_hash.clone().into(), intent.payer_address.clone().into(),
                 i64_from_u64(intent.confirmations, "evm_payment_intent.confirmations").into(),
@@ -1003,14 +1003,13 @@ async fn insert_evm_indexer_cursors<'a>(
     for cursor in cursors {
         exec(tx, r#"
             insert into zamapay_evm_indexer_cursors
-                (state_key, cursor_id, chain_id, token_contract, receiver_address, last_scanned_block, last_finalized_block, updated_at)
-            values ($1,$2,$3,$4,$5,$6,$7,$8)
+                (state_key, cursor_id, chain_id, settlement_contract, last_scanned_block, last_finalized_block, updated_at)
+            values ($1,$2,$3,$4,$5,$6,$7)
             "#, vec![
                 state_key.into(),
                 cursor.cursor_id.clone().into(),
                 i64_from_u64(cursor.chain_id, "evm_indexer_cursor.chain_id").into(),
-                cursor.token_contract.clone().into(),
-                cursor.receiver_address.clone().into(),
+                cursor.settlement_contract.clone().into(),
                 i64_from_u64(cursor.last_scanned_block, "evm_indexer_cursor.last_scanned_block").into(),
                 i64_from_u64(cursor.last_finalized_block, "evm_indexer_cursor.last_finalized_block").into(),
                 cursor.updated_at.into(),

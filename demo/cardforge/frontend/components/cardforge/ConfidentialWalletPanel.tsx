@@ -89,11 +89,11 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
   const [isBusy, setIsBusy] = useState(false)
   const [ownedCards, setOwnedCards] = useState<OwnedCardRecord[]>([])
   const [paymentActivity, setPaymentActivity] = useState<PaymentActivityRecord[]>([])
-  const [status, setStatus] = useState('Connect wallet to reveal balance')
+  const [status, setStatus] = useState(() => defaultWalletStatus(config))
   const [wallet, setWallet] = useState<ConfidentialWalletSnapshot | null>(null)
   const didHydrateWallet = useRef(false)
 
-  function setConnectedWallet(selected: string, nextStatus = 'Private balance locked. Reveal it when you are ready.') {
+  function setConnectedWallet(selected: string, nextStatus = defaultConnectedWalletStatus(config)) {
     setAddress(selected)
     setWallet(null)
     setActivity([])
@@ -151,16 +151,21 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
   }
 
   async function claimTestTokens() {
+    if (config.paymentRail === 'evm_erc20') {
+      setStatus('Use the local ERC20 test harness or faucet to fund this wallet before paying.')
+      return
+    }
+
     setIsBusy(true)
     setError(null)
-    setStatus(`Confirm the 1000 cUSDT test-token transaction on ${walletNetwork.label}...`)
+    setStatus(`Confirm the 1000 ${config.paymentAssetSymbol} test-token transaction on ${walletNetwork.label}...`)
 
     try {
       const provider = ensureProvider()
       await ensureWalletNetwork(provider)
       const selected = address ?? (await requestSelectedAccount(provider))
       if (!selected) {
-        throw new Error('Connect a wallet before claiming test cUSDT.')
+        throw new Error(`Connect a wallet before claiming test ${config.paymentAssetSymbol}.`)
       }
 
       if (selected !== address) {
@@ -172,13 +177,13 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
       setWallet(null)
       setStatus(
         claim.receiptStatus === 'success'
-          ? `Claimed ${formatMinorUnits(claim.amountMinorUnits)}. Reveal balance when ready.`
-          : `cUSDT claim transaction reverted. Hash ${shortHex(claim.txHash)} is recorded.`,
+          ? `Claimed ${formatMinorUnits(claim.amountMinorUnits, config.paymentAssetSymbol)}. Reveal balance when ready.`
+          : `${config.paymentAssetSymbol} claim transaction reverted. Hash ${shortHex(claim.txHash)} is recorded.`,
       )
       await refreshWalletRecords(selected).catch(() => undefined)
     } catch (caught) {
       setError(readableError(caught))
-      setStatus('Test cUSDT claim did not complete.')
+      setStatus(`Test ${config.paymentAssetSymbol} claim did not complete.`)
     } finally {
       setIsBusy(false)
     }
@@ -207,7 +212,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
       setStatus(
         BigInt(snapshot.balanceMinorUnits) > 0n
           ? 'Confidential wallet balance is ready for encrypted checkout.'
-          : `No ${walletNetwork.label} cUSDT balance is available for this wallet.`,
+          : `No ${walletNetwork.label} ${config.paymentAssetSymbol} balance is available for this wallet.`,
       )
     } catch (caught) {
       setStatus(`Browser could not read the confidential balance from ${walletNetwork.label}.`)
@@ -339,7 +344,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
         setActivity([])
         setOwnedCards([])
         setPaymentActivity([])
-        setStatus('Connect wallet to reveal balance')
+        setStatus(defaultWalletStatus(config))
       }
     }
 
@@ -372,16 +377,21 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
     }
   }, [address])
 
-  const balanceLabel = wallet ? formatMinorUnits(wallet.balanceMinorUnits) : '-- cUSDT'
+  const isEvmRail = config.paymentRail === 'evm_erc20'
+  const balanceLabel = isEvmRail
+    ? config.paymentAssetSymbol
+    : wallet
+      ? formatMinorUnits(wallet.balanceMinorUnits, config.paymentAssetSymbol)
+      : `-- ${config.paymentAssetSymbol}`
   const hasWallet = Boolean(address)
   const canConnectWallet = !isBusy
-  const canRevealWallet = hasWallet && !isBusy
-  const canClaimTokens = !isBusy
-  const balanceActionLabel = wallet ? 'Refresh' : 'Reveal'
+  const canRevealWallet = hasWallet && !isBusy && !isEvmRail
+  const canClaimTokens = !isBusy && !isEvmRail
+  const balanceActionLabel = isEvmRail ? 'ERC20' : wallet ? 'Refresh' : 'Reveal'
   const walletHandle = address ? shortHex(address) : 'Not connected'
   const walletActionLabel = hasWallet ? walletHandle : 'Connect wallet'
   const visibleActivity = mergeActivityRecords(activity, paymentActivity)
-  const visibleOwnedCards = groupOwnedCards(ownedCards)
+  const visibleOwnedCards = groupOwnedCards(ownedCards, config)
 
   return (
     <Card className={cn('flex min-w-0 flex-col', className)}>
@@ -405,14 +415,14 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
             </button>
             <Badge className="shrink-0 border-black/10 bg-black/10 text-black hover:bg-black/10" variant="outline">
               <EyeOffIcon data-icon="inline-start" />
-              private
+              {config.paymentRail === 'evm_erc20' ? 'ERC20' : 'private'}
             </Badge>
           </div>
 
           <div className="mt-5 flex min-w-0 items-center gap-2 text-sm font-medium text-black/70">
             <span>Total balance</span>
             <button
-              aria-label={`${balanceActionLabel} confidential balance`}
+              aria-label={isEvmRail ? 'ERC20 transfer rail' : `${balanceActionLabel} confidential balance`}
               className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-black/5 px-2.5 text-xs font-semibold text-black/75 transition-colors hover:bg-black/10 disabled:opacity-50"
               disabled={!canRevealWallet}
               onClick={() => void revealWalletBalance()}
@@ -445,7 +455,13 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
             </div>
 
             <button
-              aria-label={hasWallet ? 'Claim 1000 test cUSDT' : 'Connect wallet'}
+              aria-label={
+                isEvmRail
+                  ? 'Local ERC20 funding is handled by the test harness'
+                  : hasWallet
+                    ? `Claim 1000 test ${config.paymentAssetSymbol}`
+                    : 'Connect wallet'
+              }
               className="inline-flex size-11 shrink-0 items-center justify-center rounded-full bg-black text-[#f4ff00] shadow-sm transition-colors hover:bg-black/85 disabled:opacity-50"
               disabled={!canClaimTokens}
               onClick={() => void (hasWallet ? claimTestTokens() : connectWallet())}
@@ -554,7 +570,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
                               {record.status}
                             </span>
                           </div>
-                          <p className="mt-1 truncate text-xs text-white/55">{activityDescription(record)}</p>
+                          <p className="mt-1 truncate text-xs text-white/55">{activityDescription(record, config)}</p>
                           <div className="mt-3 flex min-w-0 items-center justify-between gap-2">
                             <code className="min-w-0 truncate rounded-full bg-white/[0.06] px-2.5 py-1 text-[11px] text-white/65">
                               {shortHex(record.txHash)}
@@ -597,7 +613,7 @@ export function ConfidentialWalletPanel({ className, config, onWalletChange }: C
                 <CoinsIcon className="size-7 text-white/30" />
                 <p className="mt-3 text-sm font-medium text-white/75">No wallet transactions yet</p>
                 <p className="mt-1 max-w-52 text-xs leading-5 text-white/45">
-                  Mint test cUSDT or complete a checkout. Confirmed chain hashes will appear here.
+                  Complete a checkout. Confirmed chain hashes will appear here.
                 </p>
               </div>
             )}
@@ -614,6 +630,18 @@ function ensureProvider(): EthereumProvider {
   }
 
   return window.ethereum
+}
+
+function defaultWalletStatus(config: CardForgeConfig): string {
+  return config.paymentRail === 'evm_erc20'
+    ? 'Connect wallet to track ERC20 checkout fulfillment.'
+    : 'Connect wallet to reveal balance'
+}
+
+function defaultConnectedWalletStatus(config: CardForgeConfig): string {
+  return config.paymentRail === 'evm_erc20'
+    ? 'ERC20 transfer records sync after checkout confirmation.'
+    : 'Private balance locked. Reveal it when you are ready.'
 }
 
 async function requestAccounts(provider: EthereumProvider): Promise<string[]> {
@@ -764,19 +792,23 @@ function mergeActivityRecords(
 }
 
 function activityTitle(record: WalletActivityRecord): string {
-  return record.type === 'mint' ? 'Mint test cUSDT' : 'Private checkout payment'
-}
-
-function activityDescription(record: WalletActivityRecord): string {
   if (record.type === 'mint') {
-    return `${formatMinorUnits(record.amountMinorUnits)} on block #${record.blockNumber}`
+    return 'Mint test token'
   }
 
-  const invoice = record.chainInvoiceId === null ? 'local invoice' : `invoice #${record.chainInvoiceId}`
-  return `${record.amountLabel} paid on ${invoice}`
+  return record.chainInvoiceId === null ? 'ERC20 checkout payment' : 'Private checkout payment'
 }
 
-function groupOwnedCards(cards: OwnedCardRecord[]): OwnedCardGroup[] {
+function activityDescription(record: WalletActivityRecord, config: CardForgeConfig): string {
+  if (record.type === 'mint') {
+    return `${formatMinorUnits(record.amountMinorUnits, config.paymentAssetSymbol)} on block #${record.blockNumber}`
+  }
+
+  const invoice = record.chainInvoiceId === null ? 'ERC20 rail' : `invoice #${record.chainInvoiceId}`
+  return `${activityAmountLabel(record, config)} paid on ${invoice}`
+}
+
+function groupOwnedCards(cards: OwnedCardRecord[], config: CardForgeConfig): OwnedCardGroup[] {
   const grouped = new Map<string, OwnedCardGroup>()
   for (const card of cards) {
     const key = card.productId || card.title
@@ -787,7 +819,7 @@ function groupOwnedCards(cards: OwnedCardRecord[]): OwnedCardGroup[] {
     }
 
     grouped.set(key, {
-      amountLabel: card.amountLabel,
+      amountLabel: ownedCardAmountLabel(card, config),
       count: 1,
       Icon: ownedCardIcon(card.productId),
       productId: key,
@@ -796,6 +828,26 @@ function groupOwnedCards(cards: OwnedCardRecord[]): OwnedCardGroup[] {
   }
 
   return [...grouped.values()]
+}
+
+function activityAmountLabel(record: PaymentActivityRecord, config: CardForgeConfig): string {
+  if (record.chainInvoiceId !== null) {
+    return record.amountLabel
+  }
+
+  return normalizeRailAmountLabel(record.amountLabel, config.paymentAssetSymbol)
+}
+
+function ownedCardAmountLabel(card: OwnedCardRecord, config: CardForgeConfig): string {
+  if (card.chainInvoiceId !== null) {
+    return card.amountLabel
+  }
+
+  return normalizeRailAmountLabel(card.amountLabel, config.paymentAssetSymbol)
+}
+
+function normalizeRailAmountLabel(label: string, symbol: string): string {
+  return label.replace(/\bcUSDT\b/g, symbol)
 }
 
 function ownedCardIcon(productId: string): LucideIcon {
@@ -843,11 +895,11 @@ function shortHex(value: string): string {
   return value.length > 18 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value
 }
 
-function formatMinorUnits(value: string): string {
+function formatMinorUnits(value: string, symbol: string): string {
   const raw = BigInt(value)
   const whole = raw / 1_000_000n
   const fraction = raw % 1_000_000n
   const fractionText = fraction.toString().padStart(6, '0').replace(/0+$/, '')
 
-  return `${whole.toLocaleString()}${fractionText ? `.${fractionText}` : ''} cUSDT`
+  return `${whole.toLocaleString()}${fractionText ? `.${fractionText}` : ''} ${symbol}`
 }

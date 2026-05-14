@@ -2,7 +2,7 @@
 
 ## Scope
 
-- `src/lib.rs` owns the Axum router, nonce/signature auth, merchant session issue/delete, protected merchant write paths, public invoice/checkout reads, supported ERC20 asset discovery, operator diagnostics auth boundary, Zama indexer cursor exposure, EVM transfer/cursor projection, and generated contract-manifest reads.
+- `src/lib.rs` owns the Axum router, nonce/signature auth, merchant session issue/delete, protected merchant write paths, public invoice/checkout reads, supported ERC20 asset discovery, operator diagnostics auth boundary, Zama indexer cursor exposure, EVM settlement-event/cursor projection, and generated contract-manifest reads.
 - `src/billing.rs` owns session-authenticated subscription reads, cycle-aware private upgrade intents, and the operator-only entitlement projection path that turns verified registry events into the backend billing read model.
 - `src/http_policy.rs` owns deploy-time HTTP edge policy: CORS origins, operator preflight headers, and session cookie attributes.
 - `src/projects.rs` owns payment-project routes, merchant payment rail settings, project-secret bootstrap, API-key checkout quote/session creation, webhook endpoint management, secret rotation, Svix-style outbox delivery dispatch, test webhook, manual resend, withdraw read-model protection, and the single public demo-project overview exception.
@@ -12,8 +12,8 @@
 - Merchant invoice creation validates a positive minor-unit amount before persisting the read model and projecting the chain invoice metadata.
 - Payment-project creation derives its billing projection from the active subscription; checkout-session responses return the immutable billing snapshot created by storage.
 - Operator payment projection is guarded by the operator key and can target either the merchant invoice id or the chain invoice id emitted by finalized settlement events.
-- Operator EVM transfer projection is guarded by the operator key and accepts only normalized ERC20 `Transfer` evidence with 20-byte addresses and 32-byte tx/block hashes; it writes the transfer ledger before invoice payment truth moves.
-- Operator EVM cursor projection is guarded by the same key and stores chain/token/receiver scan progress so workers can resume from backend truth instead of local process memory.
+- Operator EVM settlement-event projection is guarded by the operator key and accepts only normalized `EvmPaymentAccepted` evidence with 20-byte addresses, bytes32 settlement ids, 32-byte tx/block hashes, and exact fee-split math; it writes the ledger before invoice payment truth moves.
+- Operator EVM cursor projection is guarded by the same key and stores chain/settlement-contract scan progress so workers can resume from backend truth instead of local process memory.
 - Operator subscription entitlement projection is guarded by the same operator key; dashboard sessions can request upgrade intents but cannot write paid fee entitlement.
 - Operator confirmation projection stores the observed confirmation count and threshold on the invoice record before checkout or ops pages render finality-safe state.
 - Operator-key failures are counted in process-local API state before 401 responses leave the boundary, then exposed through authorized diagnostics.
@@ -35,8 +35,8 @@
 - Subscription upgrade is split: dashboard sessions can create encrypted chain intents, but only the operator/indexer can project anchored chain entitlement into Rust.
 - Upgrade intent responses expose registry/token coordinates plus manifest-projected plan code, charge amount, period length, and expected fee needed for the merchant wallet to encrypt the subscription change; the resulting tier is read from chain in the browser.
 - Project checkout API responses include buyer-payable hosted checkout URL only after chain invoice authority and billing split have both been recorded.
-- Public checkout reads expose the invoice, optional checkout session, optional EVM payment intent, and intent-specific EVM asset so the hosted buyer page can render leased receiver payments without falling back to the available-address catalog.
-- Supported ERC20 assets are exposed as a derived public read model; disabled chains, missing RPC nodes, missing receiver addresses, or disabled tokens disappear from the response.
+- Public checkout reads expose the invoice, optional checkout session, optional EVM payment intent, and intent-specific EVM asset so the hosted buyer page can render settlement-contract payments without falling back to the generic asset catalog.
+- Supported ERC20 assets are exposed as a derived public read model; disabled chains, missing RPC nodes, missing settlement contracts, or disabled tokens disappear from the response.
 - Project checkout quote responses expose the immutable fee split and merchant owner wallet needed by the local-dev chain invoice bridge before the checkout session is persisted.
 - Project withdraw writes are blocked until a wallet-signed settlement contract transaction exists; the API may display historic read-model rows but must not create payout records from session auth alone.
 - Project overview reads stay owner-session protected except for the env-selectable public demo project id; all project mutation routes still require the owner session or project-secret path already assigned to them.

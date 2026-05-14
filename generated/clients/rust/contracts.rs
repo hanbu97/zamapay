@@ -8,7 +8,8 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
       "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
       "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
       "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-      "PrivateCheckoutSettlement": "0x0165878A594ca255338adfa4d48449f69242Eb8F"
+      "PrivateCheckoutSettlement": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+      "EvmCheckoutSettlement": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e"
     },
     "billing": {
       "source": "PrivateSubscriptionRegistry",
@@ -61,9 +62,10 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
         "faucetFunctionName": "claimTestTokens"
       }
     ],
-    "generatedAt": "2026-05-14T03:19:33.810Z",
+    "generatedAt": "2026-05-14T09:06:36.412Z",
     "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+    "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "evmWithdrawAuthorizer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
   },
   "sepolia": {
     "network": "sepolia",
@@ -73,7 +75,8 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
       "ConfidentialUSDMock": "0xa22cb3a087B478535e2eFf389d89b2bF434B962F",
       "SubscriptionPass": "0x62CCD2ca573d6da8e60c8FEcB5241754DA89D946",
       "PrivateSubscriptionRegistry": "0x0C3E7F3cdd82775e9Dd52a97AC152aCF12BdA7fB",
-      "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE"
+      "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE",
+      "EvmCheckoutSettlement": null
     },
     "billing": {
       "source": "PrivateSubscriptionRegistry",
@@ -129,7 +132,8 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
     "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
     "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
     "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-    "PrivateCheckoutSettlement": "0x0165878A594ca255338adfa4d48449f69242Eb8F"
+    "PrivateCheckoutSettlement": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
+    "EvmCheckoutSettlement": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e"
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -182,9 +186,10 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
       "faucetFunctionName": "claimTestTokens"
     }
   ],
-  "generatedAt": "2026-05-14T03:19:33.810Z",
+  "generatedAt": "2026-05-14T09:06:36.412Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-  "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+  "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "evmWithdrawAuthorizer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 }
 "#;
 
@@ -197,7 +202,8 @@ pub const SEPOLIA_MANIFEST_JSON: &str = r#"
     "ConfidentialUSDMock": "0xa22cb3a087B478535e2eFf389d89b2bF434B962F",
     "SubscriptionPass": "0x62CCD2ca573d6da8e60c8FEcB5241754DA89D946",
     "PrivateSubscriptionRegistry": "0x0C3E7F3cdd82775e9Dd52a97AC152aCF12BdA7fB",
-    "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE"
+    "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE",
+    "EvmCheckoutSettlement": null
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -2716,6 +2722,441 @@ pub const PRIVATE_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
       }
     ],
     "name": "withdrawalNonceUsed",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
+"#;
+
+pub const EVM_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "initialWithdrawAuthorizer",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "initialPlatformFeeWallet",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "projectId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes32",
+        "name": "withdrawalId",
+        "type": "bytes32"
+      }
+    ],
+    "name": "EvmMerchantWithdrawn",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "intentId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "projectId",
+        "type": "bytes32"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "payer",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "grossAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "merchantNetAmount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "platformFeeAmount",
+        "type": "uint256"
+      }
+    ],
+    "name": "EvmPaymentAccepted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "EvmPlatformFeeWithdrawn",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "domainSeparator",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "merchantBalanceOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "intentId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "projectId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "grossAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "merchantNetAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "platformFeeAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "expiresAt",
+        "type": "uint256"
+      }
+    ],
+    "name": "pay",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "payments",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "payer",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "projectId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "grossAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "merchantNetAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "platformFeeAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "paidAt",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "platformBalanceOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "platformFeeWallet",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "withdrawAuthorizer",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "projectId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "withdrawalId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      }
+    ],
+    "name": "withdrawDigest",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "projectId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "withdrawalId",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bytes",
+        "name": "signature",
+        "type": "bytes"
+      }
+    ],
+    "name": "withdrawMerchant",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "recipient",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "withdrawPlatformFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "withdrawalUsed",
     "outputs": [
       {
         "internalType": "bool",

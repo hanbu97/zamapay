@@ -76,8 +76,23 @@ verify-full:
 verify-evm-local *args:
     scripts/run-with-env.sh env/local-dev.zamapay-api.env -- env ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/local-evm-erc20-verify.mjs {{args}}
 
-# Check web, contracts, and Rust workspaces.
+# Verify the server SDK against a running local API and seeded project secret.
+verify-sdk-local:
+    scripts/run-with-env.sh env/local-dev.cardforge-backend.env -- env ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/sdk-local-smoke.mjs
+
+# Build server SDK publish artifacts.
+build-sdk:
+    mise exec -- npm run build:sdk
+
+# Install the built server SDK into standalone Node projects and run import-shape checks.
+verify-sdk-install-shape:
+    mise exec -- npm run test:sdk-install-shape
+
+# Check SDK, web, contracts, and Rust workspaces.
 check:
+    mise exec -- npm run test:sdk
+    mise exec -- npm run lint:sdk
+    just build-sdk
     mise exec -- npm run test:web
     mise exec -- npm run lint:web
     mise exec -- npm run test:contracts
@@ -96,11 +111,11 @@ build-web:
 api-local:
     scripts/run-with-env.sh env/local-dev.zamapay-api.env -- env ZAMAPAY_API_BIND=127.0.0.1:{{local_api_port}} ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} cargo run -p api
 
-# Poll enabled ERC20 rails and project matching Transfer logs into ZamaPay.
+# Poll enabled ERC20 rails and project matching settlement-contract events into ZamaPay.
 evm-indexer-local:
     scripts/run-with-env.sh env/local-dev.zamapay-api.env -- env ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/evm-erc20-indexer.mjs
 
-# Run one ERC20 indexer pass for local debugging.
+# Run one ERC20 settlement indexer pass for local debugging.
 evm-indexer-local-once:
     scripts/run-with-env.sh env/local-dev.zamapay-api.env -- env ZAMAPAY_API_BASE_URL=http://127.0.0.1:{{local_api_port}} ZAMAPAY_API_URL=http://127.0.0.1:{{local_api_port}} mise exec -- node scripts/evm-erc20-indexer.mjs --once
 

@@ -13,7 +13,10 @@ export type LocalProjectEvmWithdrawSubmission = {
   chainTxHash: string
   receiverAddress: string
   recipientAddress: string
+  settlementContract: string
+  settlementProjectId: string
   tokenContract: string
+  withdrawalId: string
 }
 
 export function localProjectEvmWithdrawAsset(overview: ProjectDashboardOverview, amountMinorUnits: number) {
@@ -28,29 +31,31 @@ export async function runLocalProjectEvmWithdraw(
 ): Promise<LocalProjectEvmWithdrawSubmission> {
   const asset = localProjectEvmWithdrawAsset(input.overview, input.amountMinorUnits)
   if (!asset) {
-    throw new Error('No local ERC20 receiver balance can satisfy this withdraw.')
+    throw new Error('No local ERC20 settlement balance can satisfy this withdraw.')
   }
 
-  const receiverAddress = input.overview.evmPaymentIntents.find(
+  const settlementIntent = input.overview.evmPaymentIntents.find(
     (intent) =>
       intent.chainId === asset.chainId &&
       intent.tokenContract.toLowerCase() === asset.tokenContract.toLowerCase(),
-  )?.receiverAddress ?? input.overview.supportedEvmAssets.find(
+  )
+  const settlementContract = settlementIntent?.settlementContract ?? input.overview.supportedEvmAssets.find(
     (supported) =>
       supported.chainId === asset.chainId &&
       supported.tokenContract.toLowerCase() === asset.tokenContract.toLowerCase(),
-  )?.receiverAddress
-  if (!receiverAddress) {
-    throw new Error('No local ERC20 receiver address is available for this withdraw.')
+  )?.settlementContract
+  if (!settlementContract || !settlementIntent?.settlementProjectId) {
+    throw new Error('No local ERC20 settlement contract is available for this withdraw.')
   }
 
-  input.setStatus('Submitting local ERC20 receiver withdraw...')
+  input.setStatus('Submitting local ERC20 settlement withdraw...')
   const response = await fetch('/api/dev/local-evm-withdraw', {
     body: JSON.stringify({
       amountMinorUnits: input.amountMinorUnits,
       chainId: asset.chainId,
-      receiverAddress,
       recipientAddress: input.recipientAddress,
+      settlementContract,
+      settlementProjectId: settlementIntent.settlementProjectId,
       tokenContract: asset.tokenContract,
     }),
     headers: { 'content-type': 'application/json' },

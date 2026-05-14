@@ -276,7 +276,7 @@ export function PaymentProjectConsole({
           tokenContract: submitted.tokenContract,
         })
         setOverview(projected)
-        setStatus('Local ERC20 receiver withdraw completed and projected into the project balance.')
+        setStatus('Local ERC20 settlement withdraw completed and projected into the project balance.')
         router.refresh()
         return
       }
@@ -592,29 +592,29 @@ export function PaymentProjectConsole({
                 <CardAction>
                   <Badge variant="secondary">{overview.supportedEvmAssets.length}</Badge>
                 </CardAction>
-                <CardTitle>ERC20 rails</CardTitle>
-                <CardDescription>Enabled network, token, RPC, and receiver combinations.</CardDescription>
+                <CardTitle>ERC20 settlement rails</CardTitle>
+                <CardDescription>Enabled network, token, RPC, and settlement contract combinations.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Asset</TableHead>
-                      <TableHead className="hidden md:table-cell">Receiver</TableHead>
+                      <TableHead className="hidden md:table-cell">Settlement</TableHead>
                       <TableHead className="text-right">Finality</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {overview.supportedEvmAssets.length > 0 ? (
                       overview.supportedEvmAssets.map((asset) => (
-                        <TableRow key={`${asset.chainId}-${asset.tokenContract}-${asset.receiverAddress}`}>
+                        <TableRow key={`${asset.chainId}-${asset.tokenContract}-${asset.settlementContract}`}>
                           <TableCell>
                             <div className="flex max-w-[360px] flex-col gap-1">
                               <span className="font-medium">{asset.network} / {asset.tokenSymbol}</span>
                               <span className="truncate font-mono text-xs text-muted-foreground">{asset.tokenContract}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="hidden font-mono text-xs md:table-cell">{compact(asset.receiverAddress)}</TableCell>
+                          <TableCell className="hidden font-mono text-xs md:table-cell">{compact(asset.settlementContract)}</TableCell>
                           <TableCell className="text-right">{asset.finalityThreshold}</TableCell>
                         </TableRow>
                       ))
@@ -627,7 +627,7 @@ export function PaymentProjectConsole({
                                 <RadioTowerIcon />
                               </EmptyMedia>
                               <EmptyTitle>No ERC20 rails</EmptyTitle>
-                              <EmptyDescription>Enable a chain, token, RPC node, and receiver address first.</EmptyDescription>
+                              <EmptyDescription>Enable a chain, token, RPC node, and settlement contract first.</EmptyDescription>
                             </EmptyHeader>
                           </Empty>
                         </TableCell>
@@ -711,16 +711,16 @@ export function PaymentProjectConsole({
                 <CardAction>
                   <Badge variant="secondary">{overview.evmTransferLedger.length}</Badge>
                 </CardAction>
-                <CardTitle>ERC20 transfer ledger</CardTitle>
-                <CardDescription>Observed Transfer logs matched to project payment intents.</CardDescription>
+                <CardTitle>ERC20 settlement ledger</CardTitle>
+                <CardDescription>Settlement contract payment events matched to project payment intents.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Transfer</TableHead>
+                      <TableHead>Settlement tx</TableHead>
                       <TableHead>Amount</TableHead>
-                      <TableHead className="hidden md:table-cell">To</TableHead>
+                      <TableHead className="hidden md:table-cell">Contract</TableHead>
                       <TableHead className="text-right">Confirmations</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -747,8 +747,8 @@ export function PaymentProjectConsole({
                               <EmptyMedia variant="icon">
                                 <RadioTowerIcon />
                               </EmptyMedia>
-                              <EmptyTitle>No ERC20 transfers</EmptyTitle>
-                              <EmptyDescription>The indexer has not matched a Transfer log for this project.</EmptyDescription>
+                              <EmptyTitle>No ERC20 settlements</EmptyTitle>
+                              <EmptyDescription>The indexer has not matched a settlement payment event for this project.</EmptyDescription>
                             </EmptyHeader>
                           </Empty>
                         </TableCell>

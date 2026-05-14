@@ -5,7 +5,7 @@
 - `src/lib.rs` owns async process-local auth/session stores, session deletion, portal read-model projections, operator/indexer projection methods, diagnostics counters, the shared Postgres connection pool, and the `PortalStore` cache surface.
 - `src/billing.rs` owns the merchant billing read model, subscription payment history, self-serve upgrade intent projection, operator-projected chain entitlement, and contract-manifest fee-term lookup; dashboard/project-secret callers still cannot write paid entitlement.
 - `src/projects.rs` owns payment-project state transitions: project creation, payment rail settings, project secrets, project-secret bootstrap, hosted checkout quote snapshots, hosted checkout sessions, project-scoped invoice projection, webhook outbox records, endpoint secret rotation, delivery attempts, retries, local withdraw records, and dashboard overview reads.
-- `src/evm_rail.rs` owns ordinary EVM ERC20 receiver lease allocation, intent-specific checkout asset reads, payment-intent creation, transfer-ledger matching, indexer cursors, balance aggregation, and chain-event payment projection.
+- `src/evm_rail.rs` owns ordinary EVM ERC20 settlement-contract asset reads, payment-intent creation, settlement-ledger matching, indexer cursors, balance aggregation, and chain-event payment projection.
 - `src/evm_rail/` owns the ERC20 rail seed catalog and pure matching/status helpers kept out of the projection state machine.
 - `src/projections.rs` owns pure invoice projection and diagnostics helpers shared by the store surface.
 - `src/project_support.rs` owns project-only support types and pure helpers: stored project-secret hash records, checkout-session errors, payment rail defaults, environment manifests, signer metadata, secret hashing, AES-GCM webhook endpoint secret encryption, deterministic-secret migration only, billing/withdraw totals, and dashboard counters.
@@ -18,7 +18,7 @@
 src/
 ├── lib.rs              # async Postgres-backed portal store surface and projections
 ├── billing.rs          # subscription state and contract fee-term projection
-├── evm_rail.rs         # ERC20 receiver leases, intents, cursor, ledger projection
+├── evm_rail.rs         # ERC20 settlement intents, cursor, ledger projection
 ├── evm_rail/
 │   ├── catalog.rs      # default chain/token/RPC/receiver catalog seed data
 │   └── support.rs      # pure ERC20 matching/status/id helper functions
@@ -43,12 +43,12 @@ src/
 - Diagnostics are computed from invoice snapshots plus the API-owned operator auth rejection count; indexer cursor state is derived from projected chain invoice ids and payment tx hashes, so operator pages do not become a parallel incident database.
 - Amount truth is stored with the invoice record; checkout and chain calls consume it instead of accepting buyer-supplied payment amounts.
 - Project checkout quotes expose the active fee split and merchant owner wallet before local chain invoice creation, so merchant backends cannot invent net/fee math.
-- Project checkout sessions branch by merchant-enabled `PaymentRail`: `zama_private` requires private chain invoice id/hash, while `evm_erc20` creates a platform-owned payment intent and waits for ERC20 `Transfer` ledger evidence.
+- Project checkout sessions branch by merchant-enabled `PaymentRail`: `zama_private` requires private chain invoice id/hash, while `evm_erc20` creates a platform-owned settlement intent and waits for `EvmCheckoutSettlement` event evidence.
 - Project payment rail settings are stored as project policy. Disabling a rail prevents new checkout sessions for that rail without rewriting old checkout or ledger truth.
-- Ordinary ERC20 payment truth comes only from `evm_transfer_ledger` matched by chain, token contract, receiver, and amount semantics; exact transfers can progress finality, while underpay, overpay, expiry, duplicate, and reorg evidence stay as exception ledger states.
-- Receiver addresses are leased to one open EVM payment intent at a time, then held behind a reuse delay after settlement so late transfers cannot collide with a newer checkout.
-- Indexer cursors are stored per chain/token/receiver and carry the last scanned/finalized block; workers must project cursors instead of rescanning an arbitrary recent block range forever.
-- Supported EVM assets are derived from enabled chain, token, RPC node, and currently available receiver rows; public checkout reads expose the already-leased intent asset separately so buyer pages never lose payability after receiver allocation.
+- Ordinary ERC20 payment truth comes only from settlement-contract events matched by settlement intent id, project id, chain, token contract, settlement contract, gross amount, merchant net, and platform fee; forged or mismatched evidence is ignored instead of paying invoices.
+- Settlement contracts replace address allocation. One contract can safely carry many open payment intents because the on-chain `intentId` and `projectId` separate payments.
+- Indexer cursors are stored per chain/settlement contract and carry the last scanned/finalized block; workers must project cursors instead of rescanning an arbitrary recent block range forever.
+- Supported EVM assets are derived from enabled chain, token, RPC node, and active settlement-contract catalog rows; public checkout reads expose the intent-specific asset so buyer pages pay the same contract that the backend will index.
 - The contract manifest is the catalog source; storage applies the free `contract_default` plan until an operator-projected anchored entitlement supplies non-empty pass, tx, handle, and version evidence.
 - Subscription payments are stored as an owner-scoped ledger for historical read-model display and are appended idempotently from operator entitlement projection.
 - Project withdrawals are read-model records for contract-proven payouts; storage can project them, but API/UI code must not create them without a wallet-signed settlement transaction.
@@ -56,7 +56,7 @@ src/
 - Private entitlement metadata is accepted only from the operator projection boundary after chain verification; the chain registry remains the authority for encrypted fee terms.
 - `DATABASE_URL` is required for portal invoices, projects, checkout sessions, webhook state, subscriptions, and withdrawal read models; this is the shared local Docker and hosted Postgres/Supabase contract.
 - `ZAMAPAY_PORTAL_STATE_KEY` may namespace isolated local verification rows, but it stays inside the same normalized Postgres schema and does not introduce a second storage backend.
-- Portal durability is normalized into purpose-named tables: projects, project payment rails, environments, invoice authorities, project secrets, subscriptions, billing payments, EVM chain/token/RPC/receiver catalog, EVM payment intents, EVM transfer ledger, EVM indexer cursors, invoices, checkout sessions, metadata, idempotency keys, webhook events, webhook deliveries, withdrawals, and counters.
+- Portal durability is normalized into purpose-named tables: projects, project payment rails, environments, invoice authorities, project secrets, subscriptions, billing payments, EVM chain/token/RPC/settlement catalog, EVM payment intents, EVM settlement ledger, EVM indexer cursors, invoices, checkout sessions, metadata, idempotency keys, webhook events, webhook deliveries, withdrawals, and counters.
 - Runtime truth must live in normalized Postgres tables; there is no JSONB snapshot backend or memory-store fallback for portal data.
 - The portal store opens the SeaORM/Postgres pool once at startup and reuses it for saves; request-time persistence must not rebuild remote Supabase connections or rerun schema DDL.
 - Project support helpers are outside `projects.rs` so the state machine stays readable and does not hide policy inside formatting or hashing code.

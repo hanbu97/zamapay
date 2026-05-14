@@ -20,13 +20,13 @@ just api-local
 | `local-dev.cardforge-frontend.env` | CardForge Next.js storefront | no | Browser-safe CardForge API and ZamaPay console URLs. |
 | `supabase.zamapay-api.env` | ZamaPay Rust API | yes | Replaces local Docker `DATABASE_URL` with Supabase Postgres. |
 | `supabase.cardforge-backend.env` | CardForge Rust backend | yes | Replaces local Docker `CARDFORGE_DATABASE_URL` with CardForge Supabase Postgres. |
-| `sepolia.contracts.env` | Hardhat deployer | yes | Sepolia RPC, deployer key, and optional platform fee wallet. |
+| `sepolia.contracts.env` | Hardhat deployer | yes | Sepolia RPC, deployer key, optional platform fee wallet, and ordinary EVM withdraw authorizer. |
 | `sepolia.zamapay-api.env` | ZamaPay Rust API | no | Selects the Sepolia contract manifest. |
 | `sepolia.zamapay-web.env` | ZamaPay Next.js web | yes for chain invoice signer | Selects Sepolia wallet/manifest config and lets the local demo server create private checkout invoices. |
 | `sepolia.cardforge-backend.env` | CardForge Rust backend | yes | Merchant project secret for a Sepolia ZamaPay project. |
 | `sepolia.cardforge-frontend.env` | CardForge Next.js storefront | no | Browser-safe Sepolia demo links. |
 
-Optional ERC20 rail overrides belong to the API process env: `ZAMAPAY_LOCAL_EVM_RPC_URL`, `ZAMAPAY_LOCAL_EVM_RECEIVER_ADDRESS`, `ZAMAPAY_LOCAL_EVM_USDT_CONTRACT`, `ZAMAPAY_LOCAL_EVM_USDC_CONTRACT`, and public `ZAMAPAY_EVM_RECEIVER_ADDRESS`. Local defaults come from the generated contract manifest after `just reset-local`; public receivers must be explicit.
+Optional ERC20 rail overrides belong to the API process env: `ZAMAPAY_LOCAL_EVM_RPC_URL`, `ZAMAPAY_LOCAL_EVM_SETTLEMENT_CONTRACT`, `ZAMAPAY_LOCAL_EVM_USDT_CONTRACT`, `ZAMAPAY_LOCAL_EVM_USDC_CONTRACT`, and public `ZAMAPAY_EVM_SETTLEMENT_CONTRACT`. Local defaults come from the generated contract manifest after `just reset-local`; public settlement contracts must be explicit.
 
 ## Runtime Profiles
 
@@ -48,7 +48,9 @@ just preview-check
 
 When a profile changes, update `env/runtime-profiles.json`, run `just verify-runtime <profile>`, regenerate CardForge snapshots with `just sync-cardforge-generated`, and restart the affected web process through its `just *web*` recipe so stale `.next` state cannot hide the change.
 
-CardForge backend env files are templates. The ZamaPay console export fills only `ZAMAPAY_SECRET_KEY`, a `zms_test_...` server-side project secret. CardForge sends it to `/api/project-secret/bootstrap` at startup, then uses the returned project id and current webhook verifier secret internally. Invalid placeholders must fail verification instead of becoming raw HMAC keys. `ZAMAPAY_API_URL`, CardForge database/store variables, and local private-chain helper URLs stay owned by the selected env template. `ZAMAPAY_SECRET_ENCRYPTION_KEY` is a ZamaPay API server secret; it is required outside local-dev/test and must never be copied into merchant env files.
+CardForge backend env files are templates. The ZamaPay console export fills only `ZAMAPAY_SECRET_KEY`, a `zms_test_...` server-side project secret. CardForge sends it to `/api/project-secret/bootstrap` at startup, then uses the returned project id and current webhook verifier secret internally. Invalid placeholders must fail verification instead of becoming raw HMAC keys. `ZAMAPAY_API_URL`, CardForge database/store variables, `CARDFORGE_PAYMENT_RAIL`, EVM asset selectors, and local private-chain helper URLs stay owned by the selected env template. `ZAMAPAY_SECRET_ENCRYPTION_KEY` is a ZamaPay API server secret; it is required outside local-dev/test and must never be copied into merchant env files.
+
+`CARDFORGE_PAYMENT_RAIL=zama_private` keeps the original private cUSDT checkout. `CARDFORGE_PAYMENT_RAIL=evm_erc20` creates ordinary ERC20 payment intents and requires `CARDFORGE_EVM_CHAIN_ID` plus `CARDFORGE_EVM_TOKEN_SYMBOL`. Mirror the browser-safe display with `NEXT_PUBLIC_CARDFORGE_PAYMENT_RAIL` and `NEXT_PUBLIC_CARDFORGE_PAYMENT_ASSET`; these values are labels, not credentials.
 
 ## Secret Rule
 
@@ -67,7 +69,9 @@ Secret variables:
 - `ZAMAPAY_OPERATOR_KEY`
 - `ZAMAPAY_GATEWAY_CALLBACK_KEY`
 - `ZAMAPAY_LOCAL_LOGIN_PRIVATE_KEY`
-- `ZAMAPAY_LOCAL_EVM_RECEIVER_ADDRESS`
+- `ZAMAPAY_LOCAL_EVM_WITHDRAW_AUTHORIZER_PRIVATE_KEY`
+- `ZAMAPAY_LOCAL_EVM_SETTLEMENT_CONTRACT`
+- `ZAMAPAY_EVM_WITHDRAW_AUTHORIZER`
 
 Public browser variables:
 
@@ -75,6 +79,8 @@ Public browser variables:
 - `NEXT_PUBLIC_RUNTIME_PROFILE`
 - `NEXT_PUBLIC_CARDFORGE_DEMO_URL`
 - `NEXT_PUBLIC_CARDFORGE_API_URL`
+- `NEXT_PUBLIC_CARDFORGE_PAYMENT_RAIL`
+- `NEXT_PUBLIC_CARDFORGE_PAYMENT_ASSET`
 - `NEXT_PUBLIC_ZAMAPAY_CONSOLE_URL`
 - `NEXT_PUBLIC_LOCAL_EXPLORER_URL`
 - `NEXT_PUBLIC_SEPOLIA_RPC_URL`
@@ -88,7 +94,7 @@ ZamaPay API:
 just api-local
 ```
 
-Ordinary ERC20 transfer indexer:
+Ordinary ERC20 settlement indexer:
 
 ```bash
 just evm-indexer-local

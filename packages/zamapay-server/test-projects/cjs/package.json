@@ -1,0 +1,11 @@
+{
+  "name": "zamapay-install-shape-cjs",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "@zamapay/server": "file:../.."
+  },
+  "scripts": {
+    "runtestproject": "node index.cjs"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "zamapay-install-shape-types",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@zamapay/server": "file:../.."
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "runtestproject": "tsc --noEmit"
+  }
+}

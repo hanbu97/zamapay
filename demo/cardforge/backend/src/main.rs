@@ -30,8 +30,8 @@ mod tests;
 mod types;
 
 use catalog::{
-    ProductDefinition, checkout_payload, default_product, product, product_for_amount_minor_units,
-    products, released_cards, selected_product,
+    ProductDefinition, amount_label, checkout_payload, default_product, product,
+    product_for_amount_minor_units, products, released_cards, selected_product,
 };
 use config::Config;
 use error::ApiError;
@@ -41,9 +41,10 @@ use process::{is_cardforge_backend_command, parse_lsof_pids};
 use store::CardForgeStore;
 use types::{
     CheckoutQuoteRequest, CheckoutQuoteResponse, CheckoutResponse, CreateCheckoutRequest,
-    CreateCheckoutSessionRequest, FulfillmentSnapshot, LocalChainInvoiceResponse, PendingOrder,
-    PreparedCheckoutResponse, ReleasedOrder, StorefrontResponse, WalletActivityResponse,
-    WebhookAck, WebhookLog, WebhookReceipt, ZamaPayCheckoutSessionResponse, epoch_millis,
+    CreateCheckoutSessionRequest, FulfillmentSnapshot, LocalChainInvoiceResponse, PaymentRail,
+    PendingOrder, PreparedCheckoutResponse, ReleasedOrder, StorefrontResponse,
+    WalletActivityResponse, WebhookAck, WebhookLog, WebhookReceipt, ZamaPayCheckoutSessionResponse,
+    epoch_millis,
 };
 
 #[derive(Clone)]
@@ -115,10 +116,13 @@ async fn health() -> &'static str {
 async fn storefront(State(state): State<AppState>) -> Json<StorefrontResponse> {
     Json(StorefrontResponse {
         merchant_label: state.config.merchant_label.clone(),
+        payment_rail: state.config.payment_rail,
+        payment_rail_label: state.config.payment_rail.label(),
+        payment_rail_message: state.config.payment_rail.message(),
         zamapay_console_url: state.config.zamapay_console_url.clone(),
         zamapay_login_url: state.config.login_url.clone(),
-        product: product(default_product()),
-        products: products().collect(),
+        product: product(default_product(), &state.config),
+        products: products(&state.config).collect(),
         project_id: state.config.project_id.clone(),
         webhook_endpoint: state.config.webhook_endpoint.clone(),
         webhook_endpoint_id: state.config.webhook_endpoint_id.clone(),
@@ -158,6 +162,7 @@ async fn create_checkout(
         checkout_session_id: checkout.checkout_session_id,
         checkout_url: checkout.checkout_url,
         invoice_id: checkout.invoice_id,
+        payment_rail: checkout.payment_rail,
     }))
 }
 
@@ -172,6 +177,9 @@ async fn prepare_checkout(
     let selected = selected_product(product_id)?;
 
     if has_prepared_checkout(&state, selected).await {
+        return Ok(Json(PreparedCheckoutResponse { prepared: true }));
+    }
+    if state.config.payment_rail == PaymentRail::EvmErc20 {
         return Ok(Json(PreparedCheckoutResponse { prepared: true }));
     }
 
@@ -243,6 +251,11 @@ async fn create_zamapay_checkout_session(
     state: &AppState,
     selected: &ProductDefinition,
 ) -> Result<ZamaPayCheckoutSessionResponse, ApiError> {
+    if state.config.payment_rail == PaymentRail::EvmErc20 {
+        let payload = checkout_payload(selected, &state.config);
+        return post_zamapay_checkout_session(state, &payload).await;
+    }
+
     let prepared = match reusable_prepared_checkout(state, selected).await? {
         Some(prepared) => prepared,
         None => create_prepared_checkout(state, selected).await?,
@@ -252,6 +265,13 @@ async fn create_zamapay_checkout_session(
     payload.chain_invoice_id = Some(chain_invoice.chain_invoice_id);
     payload.chain_tx_hash = Some(chain_invoice.chain_tx_hash);
 
+    post_zamapay_checkout_session(state, &payload).await
+}
+
+async fn post_zamapay_checkout_session(
+    state: &AppState,
+    payload: &CreateCheckoutSessionRequest,
+) -> Result<ZamaPayCheckoutSessionResponse, ApiError> {
     let response = state
         .client
         .post(format!(
@@ -289,7 +309,7 @@ async fn create_prepared_checkout(
     state: &AppState,
     selected: &ProductDefinition,
 ) -> Result<PreparedCheckout, ApiError> {
-    let payload = checkout_payload(selected);
+    let payload = checkout_payload(selected, &state.config);
     let quote = create_zamapay_checkout_quote(state, selected.amount_minor_units).await?;
     let chain_invoice = create_local_chain_invoice(state, &payload, &quote).await?;
 
@@ -437,7 +457,7 @@ async fn record_pending_checkout(
     buyer_wallet_address: Option<String>,
 ) -> Result<(), ApiError> {
     let pending = PendingOrder {
-        amount_label: selected.amount_label.to_string(),
+        amount_label: amount_label(selected, &state.config),
         amount_minor_units: selected.amount_minor_units,
         buyer_wallet_address,
         chain_invoice_id: checkout.chain_invoice_id,
