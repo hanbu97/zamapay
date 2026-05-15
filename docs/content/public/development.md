@@ -42,8 +42,9 @@ Run the smallest gate that proves the changed surface, then run the broader gate
 
 | Change surface | Primary command | What it proves |
 | --- | --- | --- |
-| Public docs content or docs routing | `just docs-check` | Markdoc parses, frontmatter is valid, slugs and sections are unique. |
+| Public docs content or docs routing | `just docs-check` | Markdoc parses, frontmatter is valid, slugs, sections, AI-readable outputs, and skill guardrails are covered. |
 | Server SDK package | `just build-sdk` and `just verify-sdk-install-shape` | Published ESM/CJS/import/type/webhook shapes still work. |
+| Rust merchant CLI | `just build-cli` and `just verify-cli` | The `zamapay` binary compiles and command helpers preserve rail and webhook safety rules. |
 | Local merchant API and hosted checkout | `just verify-local` | API, Next pages, dashboard auth, and hosted checkout rendering are alive. |
 | Ordinary ERC20 rail | `just verify-evm-local` | Checkout creation, settlement contract payment, indexer finality, and merchant balances agree. |
 | Broad release branch | `just check` and `just build-web` | SDK, web, contracts, Rust tests, and app build pass together. |
@@ -54,7 +55,64 @@ Public documentation content lives under `docs/content/public/*.md`. The Next.js
 
 When a runtime, credential, webhook, SDK, rail, or deployment contract changes, update the matching Markdoc page and the relevant internal runbook in the same patch.
 
+The docs route also exposes AI-readable integration surfaces from the same source:
+
+```text
+/llms.txt
+/llms-full.txt
+/docs/manifest.json
+/docs/{slug}.md
+/.well-known/skills/zamapay
+```
+
+`/llms.txt` is the compact agent entrypoint. `/llms-full.txt` is the full corpus. `/docs/{slug}.md` strips frontmatter and Markdoc-only UI tags so coding agents can cite one guide at a time. The skill endpoint mirrors `skills/zamapay/SKILL.md` and must keep the server-only secret, explicit `paymentRail`, raw-body webhook, rail-truth, and human-confirmation rules intact.
+
 ```bash
 just docs-check
 npm --workspace apps/web run lint
 ```
+
+## Agent integration surfaces {% #agent-integration-surfaces %}
+
+Use these URLs when asking an agent to integrate ZamaPay into a merchant app:
+
+| URL | Use |
+| --- | --- |
+| `/llms.txt` | Start here. It lists the public docs pages and the ZamaPay Skill URL. |
+| `/llms-full.txt` | Use when the agent needs the whole public docs corpus in one fetch. |
+| `/docs/manifest.json` | Use for structured navigation, page groups, Markdown URLs, and required guardrails. |
+| `/docs/{slug}.md` | Use for one clean guide without Markdoc frontmatter or UI-only tags. |
+| `/.well-known/skills/zamapay` | Use as the executable integration policy for skill-aware agents. |
+
+The manifest guardrails are part of the contract. They must continue to say that project secrets stay server-side, checkout creation names `paymentRail`, webhooks verify raw bytes, EVM and Zama truth sources stay separate, and withdraw or secret rotation needs explicit human confirmation.
+
+Before handoff, test the routes from a production Next build so absolute URLs use the request host:
+
+```bash
+just build-web
+npm --workspace apps/web run start -- --hostname 127.0.0.1 --port 3011
+curl -fsS http://127.0.0.1:3011/llms.txt
+curl -fsS http://127.0.0.1:3011/docs/manifest.json
+curl -fsS http://127.0.0.1:3011/.well-known/skills/index.json
+```
+
+## CLI workflow {% #cli-workflow %}
+
+The Rust `zamapay` CLI is the merchant control-plane for local and scripted configuration. It has two authority lanes:
+
+- Owner control session: `zamapay login` signs the normal wallet nonce with a local private key and stores only the resulting session id in `~/.zamapay/config.json`.
+- Project runtime secret: `ZAMAPAY_SECRET_KEY` stays in the merchant backend and is used only for checkout creation, checkout lookup, quote, and bootstrap.
+
+```bash
+just build-cli
+just verify-cli
+cargo run -p zamapay-cli -- login --private-key-stdin
+cargo run -p zamapay-cli -- project create --name "CardForge local" --link --create-secret
+cargo run -p zamapay-cli -- rail enable --payment-rail evm_erc20
+cargo run -p zamapay-cli -- webhook create --url http://127.0.0.1:8092/api/zamapay/webhook --export-env
+cargo run -p zamapay-cli -- checkout create --payment-rail evm_erc20 --merchant-order-id order_123 --title "Test order" --amount-label "10 USDT" --amount-minor-units 10000000 --evm-chain-id 31337 --evm-token-symbol USDT
+cargo run -p zamapay-cli -- verify-webhook --body-file webhook.json --svix-id msg_123 --svix-timestamp 1778760000 --svix-signature "v1,..." --secret "$ZAMAPAY_WEBHOOK_SECRET"
+cargo run -p zamapay-cli -- test-webhook --url http://127.0.0.1:8092/api/zamapay/webhook
+```
+
+Commands that revoke secrets, rotate webhook secrets, resend deliveries, or project withdrawals require `--yes`. Do not store owner private keys in repo files; pass them through stdin or a CI secret.

@@ -22,6 +22,7 @@ docs/content
 ## Decisions
 
 - `public/*.md` is the single source of truth for public docs copy. The Next.js app reads these files directly through Markdoc.
+- `/llms.txt`, `/llms-full.txt`, `/docs/{slug}.md`, and `/docs/manifest.json` are generated from this same source; do not add separate AI-doc copies.
 - Frontmatter owns title, description, badge, icon key, group, order, and featured state. Filenames own slugs.
 - Level-two headings own article anchors and the in-page section nav. Use explicit Markdoc ids when the generated slug would be unclear.
 - Public docs explain merchant-facing contracts only. Internal runbooks under `docs/runbooks` own operator recovery details, deeper environment setup, and implementation status.

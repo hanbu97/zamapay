@@ -6,12 +6,15 @@
 apps/web/app
 |-- layout.tsx              # Root HTML/font shell only
 |-- page.tsx                # Public ZamaPay website home with session-aware login/console entry and footer navigation
+|-- llms.txt/route.ts       # Compact AI-readable docs index generated from public Markdoc content
+|-- llms-full.txt/route.ts  # Full AI-readable docs corpus generated from public Markdoc content
 |-- login/page.tsx          # Dedicated wallet sign-in page for missing or expired sessions
 |-- pricing/page.tsx        # Public pricing strategy and fee schedule
 |-- checkout/[invoiceId]/page.tsx # Standalone buyer hosted checkout
 |-- icon.svg                # Browser tab icon
 |-- globals.css             # Tailwind v4 and shadcn tokens
 |-- docs/                   # Public integration documentation system
+|-- .well-known/            # Agent-readable skill discovery routes
 |-- (merchant)/
 |   |-- layout.tsx          # Merchant console sidebar/topbar shell with session and subscription chrome
 |   |-- billing/page.tsx    # Protected account subscription status and payment history
@@ -27,6 +30,8 @@ apps/web/app
 - `/` is the public website home; it reads session state only to decide whether CTA and footer workspace links point to login or console.
 - `/login` is standalone so expired or anonymous sessions get a focused wallet sign-in page rather than merchant console chrome.
 - `/pricing` publishes the adopted hybrid pricing model from `research/pricing.md`; plan fees and prices are rendered from the generated contract manifest so Solidity remains the fee source of truth.
+- `/llms.txt` and `/llms-full.txt` expose the public docs in AI-readable form without creating a second documentation source.
+- `/.well-known/skills/zamapay` publishes the committed ZamaPay Skill so coding agents inherit the same integration guardrails as the docs.
 - `components/marketing` owns public quick navigation, Zama references, and placeholder social entrances so public routes share one compact navbar/footer contract.
 - `/docs` is the public developer documentation system for quickstart, API, webhooks, CardForge, and environment proof.
 - `/checkout/[invoiceId]` is a standalone buyer surface with its own centered payment card and no merchant console chrome.

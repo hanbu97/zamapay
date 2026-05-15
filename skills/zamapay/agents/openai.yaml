@@ -1,0 +1,7 @@
+interface:
+  display_name: "ZamaPay"
+  short_description: "Integrate hosted payments safely"
+  brand_color: "#D8FF00"
+  default_prompt: "Use $zamapay to integrate ZamaPay hosted checkout, webhook verification, and explicit payment rails in my merchant backend."
+policy:
+  allow_implicit_invocation: true

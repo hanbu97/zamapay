@@ -78,6 +78,7 @@ export type DocsPage = {
   description: string
   featured: boolean
   group: string
+  iconKey: keyof typeof iconByKey
   icon: LucideIcon
   order: number
   sections: DocsSection[]
@@ -109,6 +110,26 @@ export type DocsBrowseSection = {
   title: string
 }
 
+export type DocsManifestPage = {
+  description: string
+  group: string
+  htmlUrl: string
+  markdownUrl: string
+  order: number
+  sections: DocsSection[]
+  slug: string
+  title: string
+}
+
+export type DocsManifest = {
+  generatedAt: string
+  llmsFullUrl: string
+  llmsUrl: string
+  pages: DocsManifestPage[]
+  rules: string[]
+  skillUrl: string
+}
+
 type MarkdocNode = {
   attributes?: Record<string, unknown>
   children?: MarkdocNode[]
@@ -122,6 +143,14 @@ export const docsGroups = groupDocsPages(docsPages)
 export const docsTopCategories = docsGroups.map(toTopCategory)
 export const docsEntryPoints = buildDocsEntryPoints()
 export const docsBrowseSections = buildDocsBrowseSections()
+
+export const aiIntegrationRules = [
+  "Keep ZAMAPAY_SECRET_KEY and webhook whsec_ values on the merchant server only; never expose them to browser code or NEXT_PUBLIC_* variables.",
+  "Every checkout create request must pass an explicit paymentRail of zama_private or evm_erc20.",
+  "Webhook receivers must verify svix-id, svix-timestamp, and svix-signature against the exact raw request body before JSON parsing.",
+  "The evm_erc20 rail and zama_private rail have different payment truth sources; never infer one rail's payment state from the other.",
+  "Withdraw, delivery resend, project secret revoke, and webhook secret rotation require explicit human confirmation; agents and scripts must not perform them silently.",
+]
 
 function loadDocsPages(): DocsPage[] {
   const files = fs
@@ -150,6 +179,7 @@ function loadDocsPage(file: string): DocsPage {
     description: frontmatter.description,
     featured: frontmatter.featured,
     group: frontmatter.group,
+    iconKey: frontmatter.icon,
     icon: iconByKey[frontmatter.icon],
     order: frontmatter.order,
     sections: extractSections(ast as MarkdocNode, file),
@@ -414,4 +444,92 @@ function pageBySlug(slug: string): DocsPage {
 
 function pagesBySlug(slugs: string[]): DocsPage[] {
   return slugs.map(pageBySlug)
+}
+
+export function buildLlmsTxt(baseUrl: string): string {
+  const origin = cleanBaseUrl(baseUrl)
+  const lines = [
+    "# ZamaPay",
+    "",
+    "ZamaPay is a hosted merchant checkout platform for ordinary EVM ERC20 settlement and Zama-backed private payment rails.",
+    "",
+    "Use these AI-readable docs when integrating ZamaPay into a merchant backend, coding agent workflow, or test project.",
+    "",
+    "## Integration rules",
+    ...aiIntegrationRules.map((rule) => `- ${rule}`),
+    "",
+    "## Core docs",
+    ...docsPages.map((page) => `- [${page.title}](${origin}/docs/${page.slug}.md): ${page.description}`),
+    "",
+    "## Machine-readable index",
+    `- [Docs manifest](${origin}/docs/manifest.json)`,
+    `- [Full docs corpus](${origin}/llms-full.txt)`,
+    `- [ZamaPay Skill](${origin}/.well-known/skills/zamapay)`,
+    "",
+  ]
+  return `${lines.join("\n")}\n`
+}
+
+export function buildLlmsFullTxt(baseUrl: string): string {
+  const origin = cleanBaseUrl(baseUrl)
+  const pages = docsPages.map((page) => markdownForDocsPage(page.slug, origin).trim()).join("\n\n---\n\n")
+  return `${buildLlmsTxt(origin).trim()}\n\n---\n\n${pages}\n`
+}
+
+export function buildDocsManifest(baseUrl: string): DocsManifest {
+  const origin = cleanBaseUrl(baseUrl)
+  return {
+    generatedAt: "static",
+    llmsFullUrl: `${origin}/llms-full.txt`,
+    llmsUrl: `${origin}/llms.txt`,
+    pages: docsPages.map((page) => ({
+      description: page.description,
+      group: page.group,
+      htmlUrl: `${origin}/docs/${page.slug}`,
+      markdownUrl: `${origin}/docs/${page.slug}.md`,
+      order: page.order,
+      sections: page.sections,
+      slug: page.slug,
+      title: page.title,
+    })),
+    rules: aiIntegrationRules,
+    skillUrl: `${origin}/.well-known/skills/zamapay`,
+  }
+}
+
+export function markdownForDocsPage(slug: string, baseUrl: string): string {
+  const page = pageBySlug(slug)
+  const origin = cleanBaseUrl(baseUrl)
+  const source = fs.readFileSync(path.join(docsContentRoot, `${page.slug}.md`), "utf8")
+  const { body } = parseFrontmatter(source, page.slug)
+  const normalizedBody = normalizeAiMarkdown(body).trim()
+  return [
+    `# ${page.title}`,
+    "",
+    page.description,
+    "",
+    `Canonical: ${origin}/docs/${page.slug}`,
+    `Markdown: ${origin}/docs/${page.slug}.md`,
+    "",
+    normalizedBody,
+    "",
+  ].join("\n")
+}
+
+export function docsMarkdownSlugs(): { slug: string }[] {
+  return docsPages.map((page) => ({ slug: page.slug }))
+}
+
+function cleanBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/+$/, "")
+}
+
+function normalizeAiMarkdown(markdown: string): string {
+  return markdown
+    .replace(/\s+\{%\s+#([a-zA-Z0-9_-]+)\s+%\}/g, "")
+    .replace(/\{% figure kind="([^"]+)" \/%\}/g, "> Figure: $1.")
+    .replace(/\{% callout title="([^"]+)" type="([^"]+)" %\}/g, "> $2: $1")
+    .replace(/\{% callout title="([^"]+)" %\}/g, "> Note: $1")
+    .replace(/\{% \/callout %\}/g, "")
+    .replace(/\n{3,}/g, "\n\n")
 }

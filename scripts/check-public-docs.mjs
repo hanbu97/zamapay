@@ -4,6 +4,7 @@ import path from "node:path"
 
 const repoRoot = path.resolve(import.meta.dirname, "..")
 const docsRoot = path.join(repoRoot, "docs", "content", "public")
+const skillPath = path.join(repoRoot, "skills", "zamapay", "SKILL.md")
 const deprecatedCredentialExports = [
   "ZAMAPAY_PROJECT_ID",
   "ZAMAPAY_API_KEY",
@@ -49,4 +50,28 @@ for (const file of markdownFiles) {
   }
 }
 
-console.log(`public docs ok: ${docs.docsPages.length} pages, ${docs.docsGroups.length} groups`)
+const baseUrl = "https://docs.example.test"
+const llms = docs.buildLlmsTxt(baseUrl)
+const full = docs.buildLlmsFullTxt(baseUrl)
+const manifest = docs.buildDocsManifest(baseUrl)
+assert.ok(llms.includes("/llms-full.txt"), "llms.txt must link the full docs corpus")
+assert.ok(llms.includes("/docs/quickstart.md"), "llms.txt must link per-page markdown")
+assert.ok(full.includes("# Quickstart"), "llms-full.txt must include public docs content")
+assert.equal(manifest.pages.length, docs.docsPages.length, "docs manifest must cover every docs page")
+assert.deepEqual(manifest.rules, docs.aiIntegrationRules, "docs manifest rules must match the AI guardrails")
+
+const skill = fs.readFileSync(skillPath, "utf8")
+for (const required of [
+  "ZAMAPAY_SECRET_KEY",
+  "paymentRail",
+  "raw request body",
+  "evm_erc20",
+  "zama_private",
+  "Withdrawals, delivery resend, project secret revoke, and webhook secret rotation require explicit human confirmation",
+]) {
+  assert.ok(skill.includes(required), `ZamaPay skill must include guardrail: ${required}`)
+}
+
+console.log(
+  `public docs ok: ${docs.docsPages.length} pages, ${docs.docsGroups.length} groups, AI outputs covered`,
+)

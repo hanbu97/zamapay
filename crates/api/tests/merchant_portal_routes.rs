@@ -909,8 +909,13 @@ async fn project_secret_checkout_uses_chain_invoice_authority() {
     let project = response_json(project).await;
     let project_id = project["project"]["projectId"].as_str().unwrap();
     let endpoint_id = project["webhookEndpoint"]["endpointId"].as_str().unwrap();
+    let create_webhook_secret = project["webhookSecret"].as_str().unwrap();
+    assert!(create_webhook_secret.starts_with("whsec_"));
     assert_eq!(project["project"]["billingPlan"], "free");
-    assert!(project.get("webhookSecret").is_none());
+    assert_ne!(
+        project["webhookEndpoint"]["secretPreview"],
+        project["webhookSecret"]
+    );
     assert_eq!(
         project["invoiceAuthority"]["mode"],
         "platform_hosted_signer"
@@ -981,7 +986,9 @@ async fn project_secret_checkout_uses_chain_invoice_authority() {
         .unwrap();
     assert_eq!(rotated.status(), StatusCode::OK);
     let rotated = response_json(rotated).await;
-    assert!(rotated.get("webhookSecret").is_none());
+    let rotated_webhook_secret = rotated["webhookSecret"].as_str().unwrap();
+    assert!(rotated_webhook_secret.starts_with("whsec_"));
+    assert_ne!(rotated_webhook_secret, first_webhook_secret);
 
     let bootstrap = app
         .clone()

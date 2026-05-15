@@ -803,7 +803,7 @@ pub struct CreatePaymentProjectResponse {
     pub environment: PaymentProjectEnvironment,
     pub invoice_authority: ProjectInvoiceAuthority,
     pub webhook_endpoint: Option<ProjectWebhookEndpoint>,
-    #[serde(default, skip_serializing)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_secret: Option<String>,
 }
 
@@ -850,7 +850,7 @@ pub struct UpdateProjectPaymentRailRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ConfigureWebhookEndpointResponse {
     pub endpoint: ProjectWebhookEndpoint,
-    #[serde(default, skip_serializing)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_secret: Option<String>,
 }
 

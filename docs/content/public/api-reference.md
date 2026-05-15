@@ -21,6 +21,28 @@ The browser dashboard and merchant server API are different trust domains.
 
 {% figure kind="api-handoff" /%}
 
+## Bootstrap project context {% #bootstrap-project %}
+
+Merchant backends can derive project id and webhook verifier context from the single project secret. This keeps project setup close to the Stripe-style "one server secret plus shared API URL" model.
+
+```http
+GET /api/project-secret/bootstrap
+Authorization: Bearer zms_test_...
+ZamaPay-Version: 2026-05-14
+```
+
+Response fields:
+
+| Field | Meaning |
+| --- | --- |
+| `projectId` | Project id used for project-scoped checkout routes. |
+| `environment` | Contract environment label for the project. |
+| `webhookEndpointId` | Current endpoint id when a webhook endpoint exists. |
+| `webhookEndpointUrl` | Endpoint URL registered by the merchant. |
+| `webhookSecret` | Current verifier secret only when the backend is allowed to reveal or bootstrap it. |
+
+Do not expose bootstrap responses to the browser. The response can contain webhook verification material for the merchant backend.
+
 ## Create a checkout session {% #create-checkout %}
 
 Checkout creation is project-scoped, idempotent, and rail-explicit.

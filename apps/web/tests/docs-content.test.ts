@@ -3,15 +3,22 @@ import test from 'node:test'
 
 import { highlightCode } from '../app/docs/code-highlighting.ts'
 import {
+  aiIntegrationRules,
+  buildDocsManifest,
+  buildLlmsFullTxt,
+  buildLlmsTxt,
   docsBrowseSections,
   docsBySlug,
   docsEntryPoints,
   docsGroups,
+  docsMarkdownSlugs,
   docsPages,
   docsTopCategories,
   featuredDocs,
+  markdownForDocsPage,
 } from '../app/docs/docs-content.ts'
 import { resolveDocsTagName } from '../app/docs/markdoc-rendering.ts'
+import { requestOrigin } from '../app/docs/request-origin.ts'
 
 test('public docs load from Markdoc files with stable route metadata', () => {
   assert.ok(docsPages.length >= 10)
@@ -91,6 +98,41 @@ test('docs code highlighter recognizes common integration snippets', () => {
   assert.ok(http[0].some((token) => token.kind === 'property' && token.value === 'ZamaPay-Version'))
   assert.ok(json[0].some((token) => token.kind === 'property' && token.value === '"paymentRail"'))
   assert.ok(json[0].some((token) => token.kind === 'number' && token.value === '120'))
+})
+
+test('AI-readable docs expose llms index, full corpus, per-page markdown, and manifest', () => {
+  const baseUrl = 'https://docs.example.test'
+  const llms = buildLlmsTxt(baseUrl)
+  const full = buildLlmsFullTxt(baseUrl)
+  const manifest = buildDocsManifest(baseUrl)
+  const quickstart = markdownForDocsPage('quickstart', baseUrl)
+
+  assert.ok(llms.includes('/llms-full.txt'))
+  assert.ok(llms.includes('/docs/quickstart.md'))
+  assert.ok(full.includes('# Quickstart'))
+  assert.ok(full.includes('# Webhooks'))
+  assert.ok(quickstart.startsWith('# Quickstart'))
+  assert.equal(quickstart.includes('---\ntitle:'), false)
+  assert.equal(quickstart.includes('{% callout'), false)
+  assert.equal(quickstart.includes('{% figure'), false)
+  assert.equal(manifest.pages.length, docsPages.length)
+  assert.deepEqual(
+    manifest.rules,
+    aiIntegrationRules,
+    'manifest rules must match the agent-facing integration guardrails',
+  )
+  assert.deepEqual(docsMarkdownSlugs().map((entry) => entry.slug), docsPages.map((page) => page.slug))
+})
+
+test('AI-readable docs use forwarded host when generating absolute URLs', () => {
+  const request = new Request('http://localhost:3000/llms.txt', {
+    headers: {
+      host: '127.0.0.1:3011',
+      'x-forwarded-proto': 'https',
+    },
+  })
+
+  assert.equal(requestOrigin(request), 'https://127.0.0.1:3011')
 })
 
 type RenderableNode = {

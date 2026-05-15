@@ -32,6 +32,27 @@ Public documentation is single-sourced from [`docs/content/public`](docs/content
 just docs-check
 ```
 
+The same Markdoc source feeds AI-readable integration surfaces:
+
+- `/llms.txt` is the compact agent entrypoint.
+- `/llms-full.txt` is the full public docs corpus.
+- `/docs/{slug}.md` exposes every guide as clean Markdown without frontmatter or Markdoc UI tags.
+- `/docs/manifest.json` lists docs pages, Markdown URLs, and required integration guardrails.
+- `/.well-known/skills/zamapay` serves the ZamaPay Skill for coding agents.
+
+The ZamaPay Skill is also committed under [`skills/zamapay`](skills/zamapay). It hard-codes the integration rules agents must not infer: `ZAMAPAY_SECRET_KEY` stays server-side, checkout creation always sends explicit `paymentRail`, webhook receivers verify raw bytes before JSON parsing, EVM and Zama rails keep separate truth sources, and withdraw, delivery resend, project secret revoke, or webhook secret rotation require human confirmation.
+
+Use the right integration surface for the job:
+
+| Surface | Best for | Contract |
+| --- | --- | --- |
+| `/docs` | Humans reading the product and workflow docs | Rendered Markdoc from `docs/content/public`. |
+| `/llms.txt` and `/docs/manifest.json` | Coding agents that need the shortest safe integration map | Absolute URLs plus guardrails derived from the same public docs source. |
+| `/.well-known/skills/zamapay` | Codex, Claude, Cursor, or other skill-aware agents | Hard rules for secrets, rails, webhooks, and human-confirmed money movement. |
+| `@zamapay/server` | Node merchant backends | Typed server SDK with project-secret auth, fixed API version, idempotency, rail-specific checkout inputs, and raw-body webhook helpers. |
+| Raw HTTP | Non-Node merchant backends | The stable protocol behind the SDK. |
+| `zamapay` Rust CLI | Local smoke tests and deterministic agent commands | Verifies env, checkout creation, and webhook signatures without becoming a custody tool. |
+
 Run these in separate terminals from the repo root.
 
 ```bash
@@ -81,6 +102,27 @@ just verify-sdk-local
 ```
 
 `just build-sdk` emits the ESM/CJS package `dist/` artifacts used by npm exports. `just verify-sdk-install-shape` installs that built package into standalone CJS, ESM, TS, type-only, esbuild, and webhook receiver projects. `just verify-sdk-local` reads the ignored local CardForge backend env, bootstraps the project through `ZAMAPAY_SECRET_KEY`, creates one `evm_erc20` checkout with explicit `paymentRail`, then retrieves it through the SDK. Contract tests cover both `zama_private` and `evm_erc20` rails.
+
+Use the Rust CLI for deterministic local merchant integration and control-plane checks:
+
+```bash
+just build-cli
+just verify-cli
+cargo run -p zamapay-cli -- doctor
+cargo run -p zamapay-cli -- init --api-url http://127.0.0.1:18080
+cargo run -p zamapay-cli -- login --private-key-stdin
+cargo run -p zamapay-cli -- project create --name "CardForge local" --link --create-secret
+cargo run -p zamapay-cli -- rail enable --payment-rail evm_erc20
+cargo run -p zamapay-cli -- webhook create --url http://127.0.0.1:8092/api/zamapay/webhook --export-env
+cargo run -p zamapay-cli -- checkout create --payment-rail evm_erc20 --merchant-order-id order_123 --title "Test order" --amount-label "10 USDT" --amount-minor-units 10000000 --evm-chain-id 31337 --evm-token-symbol USDT
+cargo run -p zamapay-cli -- delivery resend --delivery-id del_123 --yes
+cargo run -p zamapay-cli -- webhook rotate-secret --endpoint-id we_123 --yes --export-env
+cargo run -p zamapay-cli -- verify-webhook --body-file webhook.json --svix-id msg_123 --svix-timestamp 1778760000 --svix-signature "v1,..." --secret "$ZAMAPAY_WEBHOOK_SECRET"
+cargo run -p zamapay-cli -- test-webhook --url http://127.0.0.1:8092/api/zamapay/webhook
+```
+
+`zamapay login` signs the existing wallet nonce locally and stores only the resulting session id in `~/.zamapay/config.json`. `ZAMAPAY_SECRET_KEY` remains the merchant backend runtime secret and is not a control-plane owner credential.
+Money-moving or invalidating operations are CLI-supported but guarded: `withdraw`, `delivery resend`, `secret revoke`, and `webhook rotate-secret` require `--yes`.
 
 If a local browser page looks stale after branch churn, env changes, or a design-token rename, run:
 

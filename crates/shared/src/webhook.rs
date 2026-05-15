@@ -62,7 +62,6 @@ pub struct WebhookDeliveryAttemptRecord {
 #[serde(rename_all = "camelCase")]
 pub struct RotateWebhookEndpointSecretResponse {
     pub endpoint: crate::ProjectWebhookEndpoint,
-    #[serde(default, skip_serializing)]
     pub webhook_secret: String,
 }
 

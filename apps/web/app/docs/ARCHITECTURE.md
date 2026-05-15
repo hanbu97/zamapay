@@ -12,15 +12,19 @@ apps/web/app/docs
 |-- code-highlighting.ts # Dependency-free tokenizer for common docs snippets
 |-- docs-content.ts     # Server-side Markdoc loader for docs/content/public/*.md; no prose lives here
 |-- markdoc-rendering.ts # Markdoc React renderer glue for mapping every tag, including lowercase HTML tags, to local components
+|-- request-origin.ts   # Host/proxy-aware origin helper for generated AI-readable URLs
+|-- manifest.json/route.ts # AI-readable docs manifest generated from the same Markdoc source
 `-- [slug]/
     |-- page.tsx         # Static docs article route selected by Markdoc slug
+    |-- markdown/route.ts # Internal per-guide Markdown route, exposed externally by /docs/{slug}.md rewrite
     `-- ARCHITECTURE.md  # Dynamic article route note
 ```
 
 ## Decisions
 
 - Public docs prose is single-source under `docs/content/public/*.md`. TypeScript may parse and render it, but must not duplicate article copy.
-- `docs-content.ts` is a server-side content loader: it reads frontmatter, validates Markdoc tags, extracts h2 anchors, maps icon keys, and exposes route metadata plus task/capability navigation.
+- `docs-content.ts` is a server-side content loader: it reads frontmatter, validates Markdoc tags, extracts h2 anchors, maps icon keys, and exposes route metadata, AI-readable docs output, plus task/capability navigation.
+- `/docs/manifest.json` and rewritten `/docs/{slug}.md` are machine-readable surfaces for coding agents; they stay dynamic so absolute URLs follow the current host instead of a build-time origin.
 - `/docs` follows a Stripe-style docs home shape: start with user goals, expose top stage categories, then browse by capability.
 - The docs route uses the same public marketing footer as the homepage. Docs pages own content only; the layout owns the shared header, bottom breathing room, and footer.
 - Top navigation, docs home, and article sidebars all consume the same grouped docs model; page lists must not be re-flattened in individual components.

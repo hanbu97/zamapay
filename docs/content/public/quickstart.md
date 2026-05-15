@@ -26,6 +26,44 @@ The buyer-facing hosted checkout URL is returned only after ZamaPay has created 
 `ZAMAPAY_API_URL` is shared deployment configuration. The project-specific server credential is `ZAMAPAY_SECRET_KEY`. Project id and webhook verifier context are bootstrapped by the backend from `/api/project-secret/bootstrap`.
 {% /callout %}
 
+## Backend configuration {% #backend-configuration %}
+
+The merchant backend starts with two values. The API URL may be shared by every project in the same deployment. The secret key is project-specific and must stay on the server.
+
+```bash
+export ZAMAPAY_API_URL='http://127.0.0.1:18080'
+export ZAMAPAY_SECRET_KEY='zms_test_or_live_project_secret'
+```
+
+Do not copy `ZAMAPAY_SECRET_KEY` into browser code, mobile apps, `NEXT_PUBLIC_*`, or frontend build-time config. The frontend should call the merchant backend, receive a hosted checkout URL, and redirect the buyer.
+
+Use the Rust CLI to verify the environment before wiring business code:
+
+```bash
+cargo run -p zamapay-cli -- doctor
+cargo run -p zamapay-cli -- checkout create \
+  --payment-rail evm_erc20 \
+  --merchant-order-id order_1001 \
+  --title "Test order" \
+  --amount-label "10 USDT" \
+  --amount-minor-units 10000000 \
+  --evm-chain-id 31337 \
+  --evm-token-symbol USDT
+```
+
+The command prints the hosted checkout URL. The project secret stays in the backend shell and the checkout request still names the payment rail explicitly.
+
+To configure projects without the browser, sign in once with an owner wallet key and let the CLI store the resulting local session:
+
+```bash
+cargo run -p zamapay-cli -- login --private-key-stdin
+cargo run -p zamapay-cli -- project create --name "CardForge local" --link --create-secret
+cargo run -p zamapay-cli -- rail enable --payment-rail evm_erc20
+cargo run -p zamapay-cli -- webhook create --url http://127.0.0.1:8092/api/zamapay/webhook --export-env
+```
+
+The private key is used only to sign the login nonce. Do not commit it or place it in frontend env.
+
 ## Local stack {% #local-stack %}
 
 Use these services for the deterministic closed loop. After every Hardhat Local reset, run the root reset command once so the ZamaPay and CardForge databases match the fresh chain.

@@ -6,6 +6,9 @@
 apps/web
 |-- app/
 |   |-- docs/                         # Public integration docs
+|   |-- llms.txt/route.ts              # Compact AI-readable docs index
+|   |-- llms-full.txt/route.ts         # Full AI-readable docs corpus
+|   |-- .well-known/skills/            # Public coding-agent skill discovery
 |   |-- login/page.tsx                 # Dedicated wallet sign-in page
 |   |-- checkout/[invoiceId]/page.tsx  # Standalone buyer hosted checkout
 |   |-- api/billing/project-growth/route.ts
@@ -54,7 +57,9 @@ apps/web
 - Hosted checkout renders from Rust public checkout APIs in a standalone buyer shell and uses one centered payment card for either Zama private payment or ordinary ERC20 settlement intent; EVM pages consume the intent-specific asset from that same public checkout response so the buyer pays the indexed settlement contract.
 - Contract environments are selected through generated manifests. Local-dev uses Hardhat/FHEVM mock RPC; Sepolia uses deployed public-testnet manifests, wallet chain id `11155111`, and Zama official test relayer SDK calls for encrypted inputs and public decrypts.
 - Production builds use webpack because the current Zama browser SDK/WASM chunk stalls under Next 16 Turbopack during optimized builds.
-- Public docs content is Markdoc under repo-root `docs/content/public`; `next.config.ts` traces those Markdown files into server output because the shared public header and docs routes load route metadata at runtime.
+- Public docs content is Markdoc under repo-root `docs/content/public`; `next.config.ts` traces those Markdown files and `skills/zamapay/SKILL.md` into server output because docs, AI-readable routes, and skill routes read repo-root content at runtime.
+- `next.config.ts` rewrites `/docs/{slug}.md` to the typed internal `/docs/{slug}/markdown` route; do not reintroduce a literal `[slug].md` App Router segment.
+- `app/.well-known/skills` exposes the committed ZamaPay Skill for coding agents without accepting credentials or mutating platform state.
 - `app/api/billing/project-growth` verifies configured-chain `SubscriptionChangeFinalized` evidence, then projects the anchored entitlement into Rust.
 - `app/api/checkout/project-finalized-payment` verifies a supplied finalization transaction on the configured chain or finalizes a submitted local-dev checkout server-side, then calls Rust projection and confirmation endpoints.
 - `app/api/dev/project-local-growth` is the local-dev-only server finalization shim for Growth subscriptions.

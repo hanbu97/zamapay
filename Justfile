@@ -92,12 +92,37 @@ verify-sdk-install-shape:
 docs-check:
     mise exec -- node scripts/check-public-docs.mjs
 
+# Build the Rust merchant CLI binary.
+build-cli:
+    cargo build -p zamapay-cli
+
+# Test the Rust merchant CLI helpers.
+verify-cli:
+    cargo test -p zamapay-cli
+
+# Validate the Rust merchant CLI command surface without requiring a running API.
+verify-cli-shape:
+    cargo run -p zamapay-cli -- --help >/dev/null
+    cargo run -p zamapay-cli -- login --help >/dev/null
+    cargo run -p zamapay-cli -- project --help >/dev/null
+    cargo run -p zamapay-cli -- project create --help >/dev/null
+    cargo run -p zamapay-cli -- rail --help >/dev/null
+    cargo run -p zamapay-cli -- secret --help >/dev/null
+    cargo run -p zamapay-cli -- secret revoke --help >/dev/null
+    cargo run -p zamapay-cli -- webhook --help >/dev/null
+    cargo run -p zamapay-cli -- webhook rotate-secret --help >/dev/null
+    cargo run -p zamapay-cli -- checkout --help >/dev/null
+    cargo run -p zamapay-cli -- delivery resend --help >/dev/null
+    cargo run -p zamapay-cli -- withdraw --help >/dev/null
+
 # Check SDK, web, contracts, and Rust workspaces.
 check:
     just docs-check
     mise exec -- npm run test:sdk
     mise exec -- npm run lint:sdk
     just build-sdk
+    just verify-cli
+    just verify-cli-shape
     mise exec -- npm run test:web
     mise exec -- npm run lint:web
     mise exec -- npm run test:contracts

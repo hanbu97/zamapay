@@ -30,7 +30,7 @@ scripts
 - `run-with-env.sh` is the tiny process launcher used by `Justfile`; it sources one or more service env files, exports them, then `exec`s the target command.
 - `runtime-profile.js` is the Node reader for `env/runtime-profiles.json`; scripts must use it instead of repeating URL, RPC, chain id, or finality defaults.
 - `evm-erc20-indexer.mjs` is the ordinary EVM rail worker; it polls `EvmCheckoutSettlement.EvmPaymentAccepted` logs for watchlisted settlement contracts, posts block-hash-backed settlement projections, and advances backend-owned scan cursors with a reorg window.
-- `check-public-docs.mjs` is the public docs gate; it imports the Markdoc-backed docs loader, verifies file/slug/order/section uniqueness, and rejects deprecated credential export names.
+- `check-public-docs.mjs` is the public docs gate; it imports the Markdoc-backed docs loader, verifies file/slug/order/section uniqueness, rejects deprecated credential export names, and proves AI-readable docs plus the ZamaPay Skill expose the required guardrails.
 - `local-evm-erc20-verify.mjs` is the local ordinary ERC20 rail acceptance proof; it creates a project secret and checkout, verifies the hosted checkout route, approves exact local ERC20, pays through `EvmCheckoutSettlement`, runs one indexer pass, and asserts ledger plus merchant balance truth.
 - `seed-cardforge-local-project.js` logs in with the local dev signer, creates a fresh local-dev ZamaPay project secret and webhook endpoint, and writes only `ZAMAPAY_SECRET_KEY` into the ignored CardForge backend env.
 - `sdk-local-smoke.mjs` verifies `@zamapay/server` against a running local API by bootstrapping the project secret, creating one ERC20 checkout, and retrieving it.

@@ -14,6 +14,19 @@ featured: true
 
 Do not import this package from browser code. Do not place `ZAMAPAY_SECRET_KEY` or webhook `whsec_...` values in `NEXT_PUBLIC_*` variables.
 
+The preview package is private in this repository today. Once published, merchant projects install it like any other server SDK:
+
+```bash
+npm install @zamapay/server
+```
+
+Inside this repository, build and validate the preview package before using it from install-shape test projects:
+
+```bash
+just build-sdk
+just verify-sdk-install-shape
+```
+
 ```ts
 import { PaymentRail, ZamaPayClient } from "@zamapay/server"
 
@@ -42,6 +55,8 @@ const session = await zamapay.checkoutSessions.create({
 console.log(project.projectId, session.checkoutUrl)
 ```
 
+The merchant frontend should receive only `session.checkoutUrl`. It should not receive `project.projectId`, `ZAMAPAY_SECRET_KEY`, webhook secrets, or rail-specific settlement internals.
+
 ## Contract boundary {% #server-sdk-contract %}
 
 The SDK defaults to `ZamaPay-Version: 2026-05-14`. Checkout creation requires `paymentRail`. There is no SDK-side default because the private rail and ordinary ERC20 rail have different payment truth sources.
@@ -54,6 +69,31 @@ The SDK defaults to `ZamaPay-Version: 2026-05-14`. Checkout creation requires `p
 | `idempotencyKey` | yes | Stable merchant request key sent as the `idempotency-key` header. |
 | `evmChainId` and `evmTokenSymbol` | ERC20 rail | Selects the ordinary EVM token settlement intent. |
 | `chainInvoiceId` and `chainTxHash` | private rail | Evidence from the Zama private invoice creation path. |
+
+## Errors and diagnostics {% #server-sdk-errors %}
+
+SDK responses carry request metadata for server logs. Keep that metadata on the backend; it helps correlate merchant logs with ZamaPay delivery and API logs.
+
+```ts
+try {
+  const session = await zamapay.checkoutSessions.create({
+    idempotencyKey: "order_1001",
+    merchantOrderId: "order_1001",
+    title: "Prepaid card bundle",
+    amountLabel: "120 USDT",
+    amountMinorUnits: 120000000,
+    note: "Release after finality-safe payment",
+    paymentRail: PaymentRail.EvmErc20,
+    evmChainId: 31337,
+    evmTokenSymbol: "USDT",
+  })
+  console.log(session.lastResponse.requestId, session.checkoutUrl)
+} catch (error) {
+  console.error(error)
+}
+```
+
+Use one idempotency key per merchant order creation attempt. Retrying the same order with a different body and the same idempotency key must fail instead of silently changing payment truth.
 
 ## Verify webhooks {% #server-sdk-webhooks %}
 
