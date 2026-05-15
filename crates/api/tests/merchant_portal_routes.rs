@@ -153,6 +153,228 @@ async fn supported_evm_assets_are_public_but_watchlist_requires_operator_key() {
 }
 
 #[tokio::test]
+async fn evm_payment_actions_return_ranked_contract_descriptors_without_marking_paid() {
+    let state = test_state().await;
+    let seeded_session = state
+        .issue_dev_session("0x0000000000000000000000000000000000000009")
+        .await;
+    let cookie = format!("zamapay_session={}", seeded_session.session_id);
+    let app = app(state);
+
+    let project = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/projects")
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(Body::from(
+                    json!({
+                        "name": "Funding action merchant",
+                        "environment": "local_dev",
+                        "billingPlan": "free"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(project.status(), StatusCode::OK);
+    let project = response_json(project).await;
+    let project_id = project["project"]["projectId"].as_str().unwrap();
+
+    let key = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/projects/{project_id}/project-secrets"))
+                .header("content-type", "application/json")
+                .header("cookie", &cookie)
+                .body(Body::from(
+                    json!({
+                        "label": "Funding test",
+                        "environment": "local_dev"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(key.status(), StatusCode::OK);
+    let api_key = response_json(key).await["secretKey"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let checkout = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/projects/{project_id}/checkout-sessions"))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {api_key}"))
+                .header("idempotency-key", "funding-action-order")
+                .body(Body::from(
+                    json!({
+                        "merchantOrderId": "funding-action-order",
+                        "title": "Funding action checkout",
+                        "amountLabel": "120 USDT",
+                        "amountMinorUnits": 120000000,
+                        "note": "Descriptor test",
+                        "paymentRail": "evm_erc20",
+                        "evmChainId": 31337,
+                        "evmTokenSymbol": "USDT"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(checkout.status(), StatusCode::OK);
+    let checkout = response_json(checkout).await;
+    let checkout_id = checkout["checkoutSessionId"].as_str().unwrap();
+
+    let actions = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!("/api/checkout/{checkout_id}/evm-payment-actions"))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "payerAddress": "0x00000000000000000000000000000000000000b0"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(actions.status(), StatusCode::OK);
+    let actions = response_json(actions).await;
+    let methods: Vec<&str> = actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|action| action["method"].as_str().unwrap())
+        .collect();
+    assert_eq!(methods, vec!["permit2", "erc2612", "approve_pay"]);
+    assert_eq!(actions["actions"][0]["contractFunction"], "payWithPermit2");
+    assert_eq!(actions["actions"][0]["gasless"], true);
+    assert_eq!(actions["actions"][0]["requiresTransaction"], false);
+    assert_eq!(actions["actions"][0]["requiresTokenApproval"], true);
+    assert!(
+        actions["actions"][0]["approvalTarget"]
+            .as_str()
+            .unwrap()
+            .starts_with("0x")
+    );
+    assert_eq!(
+        actions["actions"][0]["authorization"]["typedData"]["domain"]["name"],
+        "Permit2"
+    );
+    assert_eq!(
+        actions["actions"][0]["authorization"]["typedData"]["message"]["spender"],
+        actions["settlementContract"]
+    );
+    assert!(
+        actions["actions"][0]["authorization"]["settlementArgs"]["permit2"]["witness"]
+            .as_str()
+            .unwrap()
+            .starts_with("0x")
+    );
+
+    let checkout_after_actions = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/checkout/{checkout_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(checkout_after_actions.status(), StatusCode::OK);
+    let checkout_after_actions = response_json(checkout_after_actions).await;
+    assert_eq!(
+        checkout_after_actions["invoice"]["snapshot"]["paymentTruth"],
+        "pending_payment"
+    );
+
+    let usdc_checkout = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/api/projects/{project_id}/checkout-sessions",
+                    project_id = project["project"]["projectId"].as_str().unwrap()
+                ))
+                .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {api_key}"))
+                .header("idempotency-key", "funding-action-usdc")
+                .body(Body::from(
+                    json!({
+                        "merchantOrderId": "funding-action-usdc",
+                        "title": "Funding action USDC checkout",
+                        "amountLabel": "120 USDC",
+                        "amountMinorUnits": 120000000,
+                        "note": "Descriptor test",
+                        "paymentRail": "evm_erc20",
+                        "evmChainId": 31337,
+                        "evmTokenSymbol": "USDC"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(usdc_checkout.status(), StatusCode::OK);
+    let usdc_checkout = response_json(usdc_checkout).await;
+    let usdc_checkout_id = usdc_checkout["checkoutSessionId"].as_str().unwrap();
+    let usdc_actions = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri(format!(
+                    "/api/checkout/{usdc_checkout_id}/evm-payment-actions"
+                ))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({
+                        "payerAddress": "0x00000000000000000000000000000000000000b0"
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(usdc_actions.status(), StatusCode::OK);
+    let usdc_actions = response_json(usdc_actions).await;
+    let usdc_methods: Vec<&str> = usdc_actions["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|action| action["method"].as_str().unwrap())
+        .collect();
+    assert_eq!(usdc_methods, vec!["eip3009", "erc2612", "approve_pay"]);
+    assert_eq!(
+        usdc_actions["actions"][0]["contractFunction"],
+        "payWithAuthorization"
+    );
+}
+
+#[tokio::test]
 async fn local_dev_contract_manifest_route_returns_generated_truth() {
     let app = app(test_state().await);
 

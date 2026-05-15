@@ -29,6 +29,10 @@ zamapay setup agent --source-file skills/zamapay/SKILL.md --target-dir .codex/sk
 - Every checkout create request must pass `paymentRail` explicitly: `evm_erc20` or `zama_private`.
 - Verify webhook signatures against the exact raw request body before JSON parsing. A parsed object is not a valid webhook body.
 - Do not mix payment truth across rails. `evm_erc20` is finalized by ERC20 settlement events; `zama_private` is finalized by the private checkout rail.
+- For `evm_erc20`, `EvmCheckoutSettlement.EvmPaymentAccepted` is the only payment truth. Token `Transfer` logs, relayer status, and browser state are evidence only.
+- Treat the EVM relayer as a gas-paying facilitator only. It submits buyer-signed EIP-3009 or Permit2 settlement calls, but it must not mark payment paid or bypass settlement custody.
+- Do not use plain Permit2 `permitTransferFrom` for checkout payment. Permit2 must use witness data bound to the ZamaPay payment intent.
+- Prefer USDC/EURC EIP-3009 when supported. USDT requires Permit2 witness funding; local-dev deploys a Permit2-compatible signature-transfer contract so tests do not use ad hoc Permit2 mocks.
 - Withdrawals, delivery resend, project secret revoke, and webhook secret rotation require explicit human confirmation. CLI commands for these operations must include `--yes`.
 - Do not store owner private keys in source files. Use `zamapay login --private-key-stdin` or a CI secret, then use the stored local control session.
 
@@ -71,5 +75,7 @@ Stop and repair the integration if code:
 - omits `paymentRail`,
 - reserializes JSON before webhook verification,
 - marks payment as paid from a webhook projection alone,
+- marks an ERC20 checkout paid from token `Transfer` logs, frontend optimistic state, or relayer submission state,
+- uses Permit2 without witness-bound intent data,
 - exposes project id, webhook endpoint id, or `whsec_...` as browser configuration,
 - performs withdraw, delivery resend, project secret revoke, or secret rotation without an explicit human action.

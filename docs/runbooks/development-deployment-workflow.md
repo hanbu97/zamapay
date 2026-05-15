@@ -80,6 +80,8 @@ Useful EVM rail knobs:
 - `ZAMAPAY_EVM_INDEXER_FROM_BLOCKS` controls the first scan window before a cursor exists.
 - `ZAMAPAY_EVM_INDEXER_REORG_WINDOW_BLOCKS` controls how many blocks are rescanned after the cursor.
 - `ZAMAPAY_LOCAL_EVM_SETTLEMENT_CONTRACT` pins local-dev to one `EvmCheckoutSettlement` address; when unset, local-dev reads the generated manifest from `just reset-local`.
+- `ZAMAPAY_ENABLE_EVM_RELAYER=1` enables the ordinary ERC20 facilitator outside localhost local-dev.
+- `ZAMAPAY_EVM_RELAYER_PRIVATE_KEY` is the gas-paying settlement submitter key. Localhost local-dev may fall back to Hardhat account 0; non-local profiles must set it explicitly.
 
 Start CardForge:
 
@@ -97,10 +99,12 @@ just verify-local
 Run the ordinary ERC20 rail gate after Hardhat, API, and web are running:
 
 ```bash
-just verify-evm-local
+just verify-evm-local --funding-method all
+just verify-evm-local --token USDC --funding-method relayed-eip3009
+just verify-evm-local --token USDT --funding-method relayed-permit2
 ```
 
-This is the local production-shape proof for the non-private EVM rail. It signs in with the local merchant key, creates a project secret, creates an `evm_erc20` checkout without `chainInvoiceId` or `chainTxHash`, verifies the hosted checkout page, approves exact local USDT from a Hardhat buyer account, calls `EvmCheckoutSettlement.pay`, runs one indexer pass, then checks public checkout truth and merchant EVM balances.
+This is the local production-shape proof for the non-private EVM rail. It signs in with the local merchant key, creates project secrets, creates `evm_erc20` checkouts without `chainInvoiceId` or `chainTxHash`, verifies the hosted checkout page, exercises EIP-3009, relayed EIP-3009 for USDC, Permit2 witness and relayed Permit2 for USDT, ERC-2612, and approve/pay funding paths, runs settlement-event indexing, then reads token, merchant, and platform balances directly from the chain.
 
 Run the server SDK gate after Hardhat, API, and the ignored CardForge backend env have a real project secret:
 
@@ -133,7 +137,7 @@ Open the printed `checkoutUrl`. The buyer entry is `http://127.0.0.1:3001/checko
 - network, token, settlement contract, status, and expiry
 - `Copy contract`
 - `Refresh status`
-- `Pay through settlement`
+- `Pay with best available method`
 
 Run the heavier gate when preparing a handoff:
 
@@ -194,14 +198,16 @@ Use UI evidence plus backend evidence. At minimum, record the checkout id, chain
 For local-dev ordinary ERC20 rail testing:
 
 1. Keep Hardhat, Postgres, API, web, and `just evm-indexer-local` running.
-2. `just reset-local` must have run after the latest contract changes so generated manifest includes local USDT/USDC mock addresses.
+2. `just reset-local` must have run after the latest contract changes so generated manifest includes local USDT/USDC mock addresses and the local Permit2-compatible signature-transfer contract.
 3. Run `just verify-evm-local --prepare-only` for the fastest local checkout seed, or set CardForge to `CARDFORGE_PAYMENT_RAIL=evm_erc20` so its storefront creates the same checkout with `paymentRail: "evm_erc20"`, `evmChainId: 31337`, and `evmTokenSymbol: "USDT"` or `"USDC"`; it must not send `chainInvoiceId` or `chainTxHash`.
-4. Hosted checkout renders the platform payment intent: network, token, exact amount, settlement contract, expiry, and copy/wallet pay action.
-5. Buyer wallet claims local standard ERC20 test tokens from the token mock if needed, approves the settlement contract for the exact amount, then calls `EvmCheckoutSettlement.pay`.
-6. The EVM indexer observes `EvmPaymentAccepted`, posts `/api/operator/evm/settlement-events`, and Rust matches by settlement intent id, project id, chain id, token contract, settlement contract, gross amount, merchant net, and platform fee.
-7. Merchant project overview shows the checkout as paid only for settlement events that satisfy finality; duplicate, expiry, and reorg evidence remains visible in the ERC20 settlement ledger and balance exceptions.
+4. Hosted checkout renders the platform payment intent: network, token, exact amount, settlement contract, expiry, selected funding method, and copy/wallet pay action.
+5. Buyer wallet follows the ranked action descriptor: USDC uses relayed EIP-3009 when supported; USDT uses relayed Permit2 witness after the one-time Permit2 allowance; ERC-2612 permit and approve/pay are fallbacks.
+6. For relayed EIP-3009 or Permit2, the buyer signs authorization data and the platform facilitator submits the settlement transaction with the relayer key. The relayer is gas payer only; it is not custody and not payment truth.
+7. Every method funds `EvmCheckoutSettlement`, performs an exact token balance delta check, stores only the accepted-intent replay guard plus merchant/platform balances, then emits the unchanged `EvmPaymentAccepted` event from the shared acceptance path.
+8. The EVM indexer observes only `EvmPaymentAccepted`, posts `/api/operator/evm/settlement-events`, and Rust matches by settlement intent id, project id, chain id, token contract, settlement contract, gross amount, merchant net, and platform fee.
+9. Merchant project overview shows the checkout as paid only for settlement events that satisfy finality; duplicate, expiry, and reorg evidence remains visible in the ERC20 settlement ledger and balance exceptions.
 
-ERC20 rail evidence is checkout id, payment intent id, settlement intent id, settlement project id, token contract, settlement contract, payment tx hash/log index, block hash, matched intent id, confirmation count, and indexer cursor. Do not use `/api/operator/chain-invoices/*/payment-projection` for ERC20 payment truth.
+ERC20 rail evidence is checkout id, payment intent id, funding method, settlement intent id, settlement project id, token contract, settlement contract, payment tx hash/log index, block hash, matched intent id, confirmation count, and indexer cursor. Token `Transfer` logs, relayer state, and browser optimistic state are not payment truth. Do not use `/api/operator/chain-invoices/*/payment-projection` for ERC20 payment truth.
 
 ## Supabase Local Run
 

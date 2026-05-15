@@ -527,6 +527,13 @@ pub(crate) struct EvmChainTokenRow {
     pub(crate) contract_address: String,
     pub(crate) decimals: i32,
     pub(crate) min_amount_minor_units: i64,
+    pub(crate) supports_eip3009: bool,
+    pub(crate) supports_permit2: bool,
+    pub(crate) supports_erc2612_permit: bool,
+    pub(crate) requires_standard_approve: bool,
+    pub(crate) permit2_contract: Option<String>,
+    pub(crate) eip712_domain_name: Option<String>,
+    pub(crate) eip712_domain_version: Option<String>,
     pub(crate) enabled: bool,
 }
 
@@ -543,6 +550,13 @@ impl EvmChainTokenRow {
                 self.min_amount_minor_units,
                 "evm_chain_token.min_amount_minor_units",
             ),
+            supports_eip3009: self.supports_eip3009,
+            supports_permit2: self.supports_permit2,
+            supports_erc2612_permit: self.supports_erc2612_permit,
+            requires_standard_approve: self.requires_standard_approve,
+            permit2_contract: self.permit2_contract,
+            eip712_domain_name: self.eip712_domain_name,
+            eip712_domain_version: self.eip712_domain_version,
             enabled: self.enabled,
         }
     }

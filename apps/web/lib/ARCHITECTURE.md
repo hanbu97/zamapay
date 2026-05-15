@@ -9,7 +9,7 @@ apps/web/lib
 |-- contract-environment.ts # Manifest, chain, and wallet environment map
 |-- contracts.ts            # Generated ABI/address bridge and chain definitions
 |-- demo-dashboard.ts       # Single public demo project id and merchant-console link contract
-|-- dev-signer-gate.ts      # Pure environment gates for local browser signer, local bridge, and project-key Sepolia bridge
+|-- dev-signer-gate.ts      # Pure environment gates for local browser signer, local bridge, EVM relayer, and project-key Sepolia bridge
 |-- local-fhevm-browser.ts  # Browser Hardhat/FHEVM mock RPC bridge for encrypted checkout and subscription inputs
 |-- local-fhevm-dev.ts      # Server-only Hardhat FHEVM mock bridge for checkout, withdraw submission, and subscription finalization
 |-- merchant-portal.ts      # Protected billing/project loader and failure mapping
@@ -41,6 +41,6 @@ apps/web/lib
 - `zama-relayer-browser.ts` is Sepolia only; it uses `@zama-fhe/relayer-sdk/web` with `SepoliaConfig`, which points at Zama's official test relayer, and never talks to Hardhat mock RPC methods.
 - `sepolia-fhevm-server.ts` is server-only and project-secret gated by the route; it creates Sepolia private checkouts with the immutable checkout creator key, while buyer payment and balance decrypt stay in the browser wallet flow.
 - `settlement-bucket.ts` keeps bucket derivation single-source so checkout creation and merchant-authorized withdraw read the same encrypted pending balance.
-- `dev-signer-gate.ts` is pure and unit-tested so the local browser signer stays explicit, the local bridge stays localhost-only, and production Sepolia bridge calls must carry the existing project secret for Rust API validation.
+- `dev-signer-gate.ts` is pure and unit-tested so the local browser signer stays explicit, the local bridge stays localhost-only, the EVM relayer is opt-in outside local-dev, and production Sepolia bridge calls must carry the existing project secret for Rust API validation.
 - Merchant checkout creation belongs to project-secret backends, not dashboard browser wallet helpers; the web app exposes project config and hosted checkout pages.
 - `wallet.ts` owns injected-wallet account probing, permission revocation, and wallet chain switching.

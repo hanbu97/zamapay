@@ -46,7 +46,8 @@ Run the smallest gate that proves the changed surface, then run the broader gate
 | Server SDK package | `just build-sdk` and `just verify-sdk-install-shape` | Published ESM/CJS/import/type/webhook shapes still work. |
 | Rust merchant CLI | `just build-cli` and `just verify-cli` | The `zamapay` binary compiles and command helpers preserve rail and webhook safety rules. |
 | Local merchant API and hosted checkout | `just verify-local` | API, Next pages, dashboard auth, and hosted checkout rendering are alive. |
-| Ordinary ERC20 rail | `just verify-evm-local` | Checkout creation, settlement contract payment, indexer finality, and merchant balances agree. |
+| Ordinary ERC20 rail | `just verify-evm-local --funding-method all` | Checkout creation, all direct funding entrypoints, settlement event indexing, on-chain settlement balances, and merchant balances agree. |
+| Gasless ERC20 facilitator | `just verify-evm-local --token USDC --funding-method relayed-eip3009` and `just verify-evm-local --token USDT --funding-method relayed-permit2` | Buyer signs once after any one-time Permit2 setup, the web relayer submits settlement, the indexer observes `EvmPaymentAccepted`, and dashboard balances agree. |
 | Broad release branch | `just check` and `just build-web` | SDK, web, contracts, Rust tests, and app build pass together. |
 
 ## Documentation workflow {% #documentation-workflow %}
@@ -128,3 +129,33 @@ cargo run -p zamapay-cli -- test-webhook --url http://127.0.0.1:8092/api/zamapay
 ```
 
 Commands that revoke secrets, rotate webhook secrets, resend deliveries, or project withdrawals require `--yes`. Do not store owner private keys in repo files; pass them through stdin or a CI secret.
+
+## ERC20 rail local proof {% #erc20-rail-local-proof %}
+
+The ordinary ERC20 verifier accepts a funding method selector:
+
+```bash
+just verify-evm-local --funding-method approve-pay
+just verify-evm-local --funding-method eip3009
+just verify-evm-local --token USDC --funding-method relayed-eip3009
+just verify-evm-local --funding-method permit2
+just verify-evm-local --token USDT --funding-method relayed-permit2
+just verify-evm-local --funding-method erc2612
+just verify-evm-local --funding-method all
+```
+
+`relayed-eip3009` signs the EIP-3009 authorization with the buyer key, posts it to the same-origin Next.js facilitator, and waits for the relayer-submitted settlement transaction. Localhost local-dev can use the Hardhat account-0 relayer fallback; non-local profiles must set `ZAMAPAY_ENABLE_EVM_RELAYER=1` and `ZAMAPAY_EVM_RELAYER_PRIVATE_KEY`.
+
+`relayed-permit2` is the required USDT local proof. The buyer wallet grants Permit2 token allowance once, signs the witness-bound checkout payment, and the relayer submits `payWithPermit2`. USDC local proof uses EIP-3009 instead, so the buyer does not need Permit2 for the best path.
+
+`--funding-method all` creates separate checkouts for each direct method, submits each through `EvmCheckoutSettlement`, runs the settlement-event indexer, and reads `token.balanceOf(settlement)`, `merchantBalanceOf(projectId, token)`, and `platformBalanceOf(token)` directly from the chain. Add `--withdraw-proof` when the local web server is running and you need to prove the local withdrawal projection path.
+
+The CLI exposes the same asset catalog used by checkout:
+
+```bash
+zamapay assets
+```
+
+Use the `funding=` column as the source of truth for EIP-3009, Permit2, ERC-2612, and approve/pay availability. Do not infer capabilities from token symbols.
+
+The verifier intentionally does not listen to token `Transfer` logs as payment truth. It only accepts the indexed `EvmPaymentAccepted` event.

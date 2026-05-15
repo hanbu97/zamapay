@@ -277,6 +277,17 @@ export type SupportedEvmAsset = {
   finalityThreshold: number
   rpcUrl: string
   settlementContract: string
+  fundingCapabilities: EvmFundingCapability[]
+}
+
+export type EvmFundingMethod = 'eip3009' | 'permit2' | 'erc2612' | 'approve_pay'
+
+export type EvmFundingCapability = {
+  method: EvmFundingMethod
+  rank: number
+  permit2Contract?: string | null
+  eip712DomainName?: string | null
+  eip712DomainVersion?: string | null
 }
 
 export type EvmPaymentIntentStatus =
@@ -512,6 +523,46 @@ export type PublicCheckoutResponse = {
   evmAsset: SupportedEvmAsset | null
 }
 
+export type EvmFundingAction = {
+  method: EvmFundingMethod
+  rank: number
+  title: string
+  description: string
+  buttonLabel: string
+  contractFunction: string
+  gasless: boolean
+  requiresWalletSignature: boolean
+  requiresTransaction: boolean
+  requiresTokenApproval: boolean
+  approvalTarget: string | null
+  disabledReason: string | null
+  authorization: null | {
+    typedData: unknown
+    settlementArgs: unknown
+  }
+}
+
+export type EvmPaymentActionsResponse = {
+  checkoutId: string
+  intentId: string
+  chainId: number
+  settlementContract: string
+  tokenContract: string
+  expectedAmountMinorUnits: number
+  actions: EvmFundingAction[]
+}
+
+export type EvmRelayedPaymentResponse = {
+  blockNumber: number
+  chainId: number
+  checkoutId: string
+  chainTxHash: string
+  gasUsed: string
+  method: 'eip3009' | 'permit2'
+  relayerAddress: string
+  status: 'success' | 'reverted'
+}
+
 export type CreatePaymentProjectPayload = {
   name: string
   environment?: ProjectEnvironmentKind
@@ -723,6 +774,32 @@ export async function getPublicCheckout(checkoutId: string): Promise<PublicCheck
   return fetchOptionalApiJson(platformApiUrl(`/api/checkout/${checkoutId}`), {
     cache: 'no-store',
     fallback: 'Checkout lookup failed.',
+  })
+}
+
+export async function getEvmPaymentActions(
+  checkoutId: string,
+  payerAddress: string,
+): Promise<EvmPaymentActionsResponse> {
+  return fetchApiJson(platformApiUrl(`/api/checkout/${checkoutId}/evm-payment-actions`), {
+    body: { payerAddress },
+    cache: 'no-store',
+    fallback: 'EVM payment action lookup failed.',
+  })
+}
+
+export async function submitEvmRelayedPayment(
+  checkoutId: string,
+  payload: {
+    method: 'eip3009' | 'permit2'
+    payerAddress: string
+    signature: string
+  },
+): Promise<EvmRelayedPaymentResponse> {
+  return fetchApiJson(`/api/checkout/${encodeURIComponent(checkoutId)}/evm-relay`, {
+    body: payload,
+    cache: 'no-store',
+    fallback: 'EVM relayer submission failed.',
   })
 }
 

@@ -176,6 +176,8 @@ export const aiIntegrationRules = [
   "Every checkout create request must pass an explicit paymentRail of zama_private or evm_erc20.",
   "Webhook receivers must verify svix-id, svix-timestamp, and svix-signature against the exact raw request body before JSON parsing.",
   "The evm_erc20 rail and zama_private rail have different payment truth sources; never infer one rail's payment state from the other.",
+  "For evm_erc20, the settlement contract's EvmPaymentAccepted event is the truth; token Transfer logs and relayer state are only evidence.",
+  "Permit2 checkout payments must use witness-bound transfer data; plain Permit2 transfer is not a payment intent.",
   "Withdraw, delivery resend, project secret revoke, and webhook secret rotation require explicit human confirmation; agents and scripts must not perform them silently.",
 ]
 

@@ -9,6 +9,7 @@ apps/web/app/api
 |-- auth/verify/route.ts
 |-- billing/[...path]/route.ts
 |-- billing/project-growth/route.ts
+|-- checkout/[checkoutId]/evm-relay/route.ts
 |-- checkout/project-finalized-payment/route.ts
 |-- dev/
 |   |-- local-session/route.ts
@@ -27,6 +28,7 @@ apps/web/app/api
 - `auth/nonce` and `auth/verify` keep wallet login same-origin so the browser session cookie belongs to the web host.
 - `billing/[...path]` and `projects/[[...path]]` proxy browser dashboard traffic to Rust with the same-origin cookie, while server components may still call Rust directly.
 - `billing/project-growth` verifies a `SubscriptionChangeFinalized` transaction from the configured manifest, then projects Growth entitlement into Rust without browser access to the operator key.
+- `checkout/[checkoutId]/evm-relay` is the ordinary EVM facilitator route: it accepts a buyer EIP-3009 or Permit2 witness signature, re-fetches the canonical Rust funding action, submits the settlement contract call with the platform relayer key, and returns only chain evidence. It never marks a checkout paid.
 - `project-finalized-payment` verifies a supplied `PrivatePaymentFinalized` transaction on the configured manifest or, for local-dev hosted checkout, finalizes a submitted private payment server-side; it returns after paid projection and lets finality/webhook projection continue in the background.
 - `dev/sign-message` delegates its environment decision to `lib/dev-signer-gate.ts`; it requires `ZAMAPAY_ENABLE_DEV_SIGNER=1`, is disabled outside local non-production mode, and exists only to verify the browser login path without a wallet extension.
 - `dev/local-session` uses the same local signer gate to mint a same-origin merchant session for browser QA when wallet UI automation is unavailable.

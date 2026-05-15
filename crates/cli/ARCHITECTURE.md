@@ -25,5 +25,6 @@ crates/cli
 - Webhook commands reuse `webhook-verifier`; raw-body HMAC logic must not be copied.
 - Control-plane commands use the existing wallet nonce protocol. The CLI signs the nonce locally with an EVM private key and stores only the resulting ZamaPay session id in `~/.zamapay/config.json`.
 - Project-secret commands remain separate from control-plane commands. `ZAMAPAY_SECRET_KEY` creates checkout sessions; the wallet session manages projects, rails, endpoint secrets, deliveries, balances, and withdrawal projections.
+- `zamapay assets` prints the same catalog capabilities that checkout uses, including ranked ERC20 funding methods, so CLI users do not guess EIP-3009, Permit2, ERC-2612, or approve/pay support from token symbols.
 - Setup commands are local bootstrap helpers. They may install docs/skill material, but they must not authenticate, mutate projects, or read merchant secrets.
 - Webhook secret rotation, delivery resend, project-secret revoke, and withdraw commands exist, but each requires `--yes`. The CLI must never move money or rotate verifier material silently.

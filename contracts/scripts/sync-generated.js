@@ -26,6 +26,10 @@ const CONTRACTS = [
     name: 'EvmCheckoutSettlement',
     artifactPath: 'artifacts/contracts/EvmCheckoutSettlement.sol/EvmCheckoutSettlement.json',
   },
+  {
+    name: 'Permit2',
+    artifactPath: 'artifacts/contracts/EvmFundingTestMocks.sol/Permit2SignatureTransferMock.json',
+  },
 ]
 
 function ensureDir(dirPath) {
@@ -48,6 +52,7 @@ function defaultManifest() {
       PrivateSubscriptionRegistry: null,
       PrivateCheckoutSettlement: null,
       EvmCheckoutSettlement: null,
+      Permit2: null,
     },
     billing: {
       source: null,
@@ -180,7 +185,7 @@ function writeGeneratedClients(projectRoot, artifacts, manifest) {
     })
     .join('\n')
 
-  const tsSource = `export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'PrivateCheckoutSettlement', 'EvmCheckoutSettlement'] as const
+  const tsSource = `export const contractNames = ['MerchantRegistry', 'ConfidentialUSDMock', 'SubscriptionPass', 'PrivateSubscriptionRegistry', 'PrivateCheckoutSettlement', 'EvmCheckoutSettlement', 'Permit2'] as const
 
 export type ContractName = (typeof contractNames)[number]
 
@@ -225,6 +230,7 @@ export const subscriptionPassAbi = ${JSON.stringify(artifacts.SubscriptionPass.a
 export const privateSubscriptionRegistryAbi = ${JSON.stringify(artifacts.PrivateSubscriptionRegistry.abi, null, 2)} as const
 export const privateCheckoutSettlementAbi = ${JSON.stringify(artifacts.PrivateCheckoutSettlement.abi, null, 2)} as const
 export const evmCheckoutSettlementAbi = ${JSON.stringify(artifacts.EvmCheckoutSettlement.abi, null, 2)} as const
+export const permit2Abi = ${JSON.stringify(artifacts.Permit2.abi, null, 2)} as const
 
 export const abis = {
   MerchantRegistry: merchantRegistryAbi,
@@ -233,6 +239,7 @@ export const abis = {
   PrivateSubscriptionRegistry: privateSubscriptionRegistryAbi,
   PrivateCheckoutSettlement: privateCheckoutSettlementAbi,
   EvmCheckoutSettlement: evmCheckoutSettlementAbi,
+  Permit2: permit2Abi,
 } as const
 
 export const addressManifests = {
@@ -281,6 +288,10 @@ ${JSON.stringify(artifacts.PrivateCheckoutSettlement.abi, null, 2)}
 
 pub const EVM_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
 ${JSON.stringify(artifacts.EvmCheckoutSettlement.abi, null, 2)}
+"#;
+
+pub const PERMIT2_ABI_JSON: &str = r#"
+${JSON.stringify(artifacts.Permit2.abi, null, 2)}
 "#;
 `
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  canUseEvmRelayer,
   canUseDevSigner,
   canUseLocalDevServerBridge,
   canUseSepoliaServerBridge,
@@ -83,6 +84,47 @@ test('local chain invoice bridge rejects production or remote hosts', () => {
       contractEnv: 'local-dev',
       nodeEnv: 'development',
       requestUrl: 'https://zamapay.example/api/dev/local-chain-invoice',
+    }),
+    false,
+  )
+})
+
+test('EVM relayer is available for local non-production settlement QA', () => {
+  assert.equal(
+    canUseEvmRelayer({
+      contractEnv: 'local-dev',
+      nodeEnv: 'development',
+      requestUrl: 'http://127.0.0.1:3001/api/checkout/cs_test/evm-relay',
+    }),
+    true,
+  )
+})
+
+test('EVM relayer requires explicit enablement outside local-dev', () => {
+  assert.equal(
+    canUseEvmRelayer({
+      contractEnv: 'sepolia',
+      enableRelayer: '0',
+      nodeEnv: 'development',
+      requestUrl: 'http://127.0.0.1:3001/api/checkout/cs_test/evm-relay',
+    }),
+    false,
+  )
+  assert.equal(
+    canUseEvmRelayer({
+      contractEnv: 'sepolia',
+      enableRelayer: '1',
+      nodeEnv: 'development',
+      requestUrl: 'http://127.0.0.1:3001/api/checkout/cs_test/evm-relay',
+    }),
+    true,
+  )
+  assert.equal(
+    canUseEvmRelayer({
+      contractEnv: 'unknown',
+      enableRelayer: '1',
+      nodeEnv: 'development',
+      requestUrl: 'http://127.0.0.1:3001/api/checkout/cs_test/evm-relay',
     }),
     false,
   )

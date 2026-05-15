@@ -4,12 +4,13 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
     "network": "localhost",
     "chainId": 31337,
     "contracts": {
-      "MerchantRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-      "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-      "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-      "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-      "PrivateCheckoutSettlement": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
-      "EvmCheckoutSettlement": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e"
+      "MerchantRegistry": "0x9E545E3C0baAB3E08CdfD552C960A1050f373042",
+      "ConfidentialUSDMock": "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
+      "SubscriptionPass": "0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8",
+      "PrivateSubscriptionRegistry": "0x851356ae760d987E095750cCeb3bC6014560891C",
+      "PrivateCheckoutSettlement": "0x998abeb3E57409262aE5b751f60747921B33613E",
+      "EvmCheckoutSettlement": "0x9d4454B023096f34B160D6B654540c56A1F81688",
+      "Permit2": "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf"
     },
     "billing": {
       "source": "PrivateSubscriptionRegistry",
@@ -44,25 +45,25 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
       ]
     },
     "testTokenFaucet": {
-      "token": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+      "token": "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
       "claimAmountMinorUnits": "1000000000",
       "functionName": "claimTestTokens"
     },
     "standardErc20Tokens": [
       {
         "symbol": "USDT",
-        "contract": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+        "contract": "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf",
         "decimals": 6,
         "faucetFunctionName": "claimTestTokens"
       },
       {
         "symbol": "USDC",
-        "contract": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+        "contract": "0x0E801D84Fa97b50751Dbf25036d067dCf18858bF",
         "decimals": 6,
         "faucetFunctionName": "claimTestTokens"
       }
     ],
-    "generatedAt": "2026-05-14T09:06:36.412Z",
+    "generatedAt": "2026-05-15T12:33:10.885Z",
     "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     "evmWithdrawAuthorizer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -76,7 +77,8 @@ pub const ADDRESS_MANIFESTS_JSON: &str = r#"
       "SubscriptionPass": "0x62CCD2ca573d6da8e60c8FEcB5241754DA89D946",
       "PrivateSubscriptionRegistry": "0x0C3E7F3cdd82775e9Dd52a97AC152aCF12BdA7fB",
       "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE",
-      "EvmCheckoutSettlement": null
+      "EvmCheckoutSettlement": null,
+      "Permit2": null
     },
     "billing": {
       "source": "PrivateSubscriptionRegistry",
@@ -128,12 +130,13 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
   "network": "localhost",
   "chainId": 31337,
   "contracts": {
-    "MerchantRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-    "ConfidentialUSDMock": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-    "SubscriptionPass": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-    "PrivateSubscriptionRegistry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-    "PrivateCheckoutSettlement": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
-    "EvmCheckoutSettlement": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e"
+    "MerchantRegistry": "0x9E545E3C0baAB3E08CdfD552C960A1050f373042",
+    "ConfidentialUSDMock": "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
+    "SubscriptionPass": "0x1613beB3B2C4f22Ee086B2b38C1476A3cE7f78E8",
+    "PrivateSubscriptionRegistry": "0x851356ae760d987E095750cCeb3bC6014560891C",
+    "PrivateCheckoutSettlement": "0x998abeb3E57409262aE5b751f60747921B33613E",
+    "EvmCheckoutSettlement": "0x9d4454B023096f34B160D6B654540c56A1F81688",
+    "Permit2": "0x8f86403A4DE0BB5791fa46B8e795C547942fE4Cf"
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -168,25 +171,25 @@ pub const LOCAL_DEV_MANIFEST_JSON: &str = r#"
     ]
   },
   "testTokenFaucet": {
-    "token": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "token": "0xa82fF9aFd8f496c3d6ac40E2a0F282E47488CFc9",
     "claimAmountMinorUnits": "1000000000",
     "functionName": "claimTestTokens"
   },
   "standardErc20Tokens": [
     {
       "symbol": "USDT",
-      "contract": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
+      "contract": "0x99bbA657f2BbC93c02D617f8bA121cB8Fc104Acf",
       "decimals": 6,
       "faucetFunctionName": "claimTestTokens"
     },
     {
       "symbol": "USDC",
-      "contract": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+      "contract": "0x0E801D84Fa97b50751Dbf25036d067dCf18858bF",
       "decimals": 6,
       "faucetFunctionName": "claimTestTokens"
     }
   ],
-  "generatedAt": "2026-05-14T09:06:36.412Z",
+  "generatedAt": "2026-05-15T12:33:10.885Z",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "platformFeeWallet": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "evmWithdrawAuthorizer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
@@ -203,7 +206,8 @@ pub const SEPOLIA_MANIFEST_JSON: &str = r#"
     "SubscriptionPass": "0x62CCD2ca573d6da8e60c8FEcB5241754DA89D946",
     "PrivateSubscriptionRegistry": "0x0C3E7F3cdd82775e9Dd52a97AC152aCF12BdA7fB",
     "PrivateCheckoutSettlement": "0xFC7fFC7661aa3d310C7C43f7623df02C98a4A9CE",
-    "EvmCheckoutSettlement": null
+    "EvmCheckoutSettlement": null,
+    "Permit2": null
   },
   "billing": {
     "source": "PrivateSubscriptionRegistry",
@@ -2866,6 +2870,51 @@ pub const EVM_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
   },
   {
     "inputs": [],
+    "name": "PAYMENT_AUTHORIZATION_TYPEHASH",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "PERMIT2_PAYMENT_WITNESS_TYPE_STRING",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "name": "acceptedIntent",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "domainSeparator",
     "outputs": [
       {
@@ -2947,47 +2996,349 @@ pub const EVM_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
   {
     "inputs": [
       {
-        "internalType": "bytes32",
-        "name": "",
-        "type": "bytes32"
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "intentId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "projectId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "grossAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "merchantNetAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "platformFeeAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "expiresAt",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct EvmCheckoutSettlement.PaymentParams",
+        "name": "params",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "payer",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "validAfter",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "validBefore",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "nonce",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint8",
+            "name": "v",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "r",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "s",
+            "type": "bytes32"
+          }
+        ],
+        "internalType": "struct EvmCheckoutSettlement.Eip3009Authorization",
+        "name": "authorization",
+        "type": "tuple"
       }
     ],
-    "name": "payments",
-    "outputs": [
+    "name": "payWithAuthorization",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "intentId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "projectId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "grossAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "merchantNetAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "platformFeeAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "expiresAt",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct EvmCheckoutSettlement.PaymentParams",
+        "name": "params",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "deadline",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "v",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "r",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "s",
+            "type": "bytes32"
+          }
+        ],
+        "internalType": "struct EvmCheckoutSettlement.Erc2612Permit",
+        "name": "permit",
+        "type": "tuple"
+      }
+    ],
+    "name": "payWithPermit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "intentId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "projectId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "grossAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "merchantNetAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "platformFeeAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "expiresAt",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct EvmCheckoutSettlement.PaymentParams",
+        "name": "params",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "permit2",
+            "type": "address"
+          },
+          {
+            "internalType": "address",
+            "name": "payer",
+            "type": "address"
+          },
+          {
+            "components": [
+              {
+                "components": [
+                  {
+                    "internalType": "address",
+                    "name": "token",
+                    "type": "address"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "amount",
+                    "type": "uint256"
+                  }
+                ],
+                "internalType": "struct Permit2TokenPermissions",
+                "name": "permitted",
+                "type": "tuple"
+              },
+              {
+                "internalType": "uint256",
+                "name": "nonce",
+                "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "deadline",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct Permit2TransferPermit",
+            "name": "permit",
+            "type": "tuple"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "witness",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "string",
+            "name": "witnessTypeString",
+            "type": "string"
+          },
+          {
+            "internalType": "bytes",
+            "name": "signature",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct EvmCheckoutSettlement.Permit2Payment",
+        "name": "permit2Payment",
+        "type": "tuple"
+      }
+    ],
+    "name": "payWithPermit2",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "bytes32",
+            "name": "intentId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "projectId",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "grossAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "merchantNetAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "platformFeeAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "expiresAt",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct EvmCheckoutSettlement.PaymentParams",
+        "name": "params",
+        "type": "tuple"
+      },
       {
         "internalType": "address",
         "name": "payer",
         "type": "address"
       },
       {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      },
+        "internalType": "uint256",
+        "name": "deadline",
+        "type": "uint256"
+      }
+    ],
+    "name": "paymentAuthorizationHash",
+    "outputs": [
       {
         "internalType": "bytes32",
-        "name": "projectId",
+        "name": "",
         "type": "bytes32"
-      },
-      {
-        "internalType": "uint256",
-        "name": "grossAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "merchantNetAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "platformFeeAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "paidAt",
-        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -3165,6 +3516,153 @@ pub const EVM_CHECKOUT_SETTLEMENT_ABI_JSON: &str = r#"
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  }
+]
+"#;
+
+pub const PERMIT2_ABI_JSON: &str = r#"
+[
+  {
+    "inputs": [],
+    "name": "DOMAIN_SEPARATOR",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastWitness",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "lastWitnessTypeHash",
+    "outputs": [
+      {
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "nonceBitmap",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "address",
+                "name": "token",
+                "type": "address"
+              },
+              {
+                "internalType": "uint256",
+                "name": "amount",
+                "type": "uint256"
+              }
+            ],
+            "internalType": "struct Permit2TokenPermissions",
+            "name": "permitted",
+            "type": "tuple"
+          },
+          {
+            "internalType": "uint256",
+            "name": "nonce",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "deadline",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct Permit2TransferPermit",
+        "name": "permit",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "to",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "requestedAmount",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct Permit2TransferDetails",
+        "name": "transferDetails",
+        "type": "tuple"
+      },
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "witness",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "string",
+        "name": "witnessTypeString",
+        "type": "string"
+      },
+      {
+        "internalType": "bytes",
+        "name": "signature",
+        "type": "bytes"
+      }
+    ],
+    "name": "permitWitnessTransferFrom",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   }
 ]

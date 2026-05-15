@@ -2,6 +2,15 @@
 pragma solidity ^0.8.24;
 
 contract StandardERC20Mock {
+    bytes32 private constant DOMAIN_TYPEHASH =
+        keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant PERMIT_TYPEHASH =
+        keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
+    bytes32 private constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH = keccak256(
+        "ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)"
+    );
+    bytes32 private constant VERSION_HASH = keccak256(bytes("1"));
+
     string public name;
     string public symbol;
     uint8 public immutable decimals;
@@ -10,6 +19,8 @@ contract StandardERC20Mock {
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
+    mapping(address => uint256) public nonces;
+    mapping(address => mapping(bytes32 => bool)) public authorizationUsed;
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -62,11 +73,62 @@ contract StandardERC20Mock {
         return true;
     }
 
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return _domainSeparator();
+    }
+
+    function permit(
+        address tokenOwner,
+        address spender,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        require(block.timestamp <= deadline, "permit expired");
+        bytes32 structHash = keccak256(abi.encode(PERMIT_TYPEHASH, tokenOwner, spender, value, nonces[tokenOwner]++, deadline));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        require(ecrecover(digest, v, r, s) == tokenOwner, "bad permit signature");
+
+        allowance[tokenOwner][spender] = value;
+        emit Approval(tokenOwner, spender, value);
+    }
+
+    function receiveWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        require(to == msg.sender, "receiver mismatch");
+        require(block.timestamp >= validAfter, "authorization not yet valid");
+        require(block.timestamp <= validBefore, "authorization expired");
+        require(!authorizationUsed[from][nonce], "authorization used");
+        bytes32 structHash = keccak256(
+            abi.encode(RECEIVE_WITH_AUTHORIZATION_TYPEHASH, from, to, value, validAfter, validBefore, nonce)
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", _domainSeparator(), structHash));
+        require(ecrecover(digest, v, r, s) == from, "bad authorization signature");
+
+        authorizationUsed[from][nonce] = true;
+        _transfer(from, to, value);
+    }
+
     function _transfer(address from, address to, uint256 amount) private {
         require(to != address(0), "to required");
         require(balanceOf[from] >= amount, "balance too low");
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
         emit Transfer(from, to, amount);
+    }
+
+    function _domainSeparator() private view returns (bytes32) {
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, keccak256(bytes(name)), VERSION_HASH, block.chainid, address(this)));
     }
 }

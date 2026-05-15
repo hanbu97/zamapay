@@ -46,6 +46,9 @@ pub struct ContractAddresses {
     #[serde(rename = "EvmCheckoutSettlement")]
     #[serde(default)]
     pub evm_checkout_settlement: Option<String>,
+    #[serde(rename = "Permit2")]
+    #[serde(default)]
+    pub permit2: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

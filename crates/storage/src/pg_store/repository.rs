@@ -873,14 +873,21 @@ async fn insert_evm_chain_tokens<'a>(
     for token in tokens {
         exec(tx, r#"
             insert into zamapay_evm_chain_tokens
-                (state_key, token_id, chain_id, network, symbol, contract_address, decimals, min_amount_minor_units, enabled)
-            values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                (state_key, token_id, chain_id, network, symbol, contract_address, decimals, min_amount_minor_units, supports_eip3009, supports_permit2, supports_erc2612_permit, requires_standard_approve, permit2_contract, eip712_domain_name, eip712_domain_version, enabled)
+            values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
             "#, vec![
                 state_key.into(), token.token_id.clone().into(),
                 i64_from_u64(token.chain_id, "evm_chain_token.chain_id").into(),
                 token.network.clone().into(), token.symbol.clone().into(), token.contract_address.clone().into(),
                 i32_from_u8(token.decimals).into(),
                 i64_from_u64(token.min_amount_minor_units, "evm_chain_token.min_amount_minor_units").into(),
+                token.supports_eip3009.into(),
+                token.supports_permit2.into(),
+                token.supports_erc2612_permit.into(),
+                token.requires_standard_approve.into(),
+                token.permit2_contract.clone().into(),
+                token.eip712_domain_name.clone().into(),
+                token.eip712_domain_version.clone().into(),
                 token.enabled.into(),
             ]).await?;
     }

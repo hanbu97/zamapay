@@ -10,6 +10,7 @@ const DEFAULT_LOCAL_RPC_URL: &str = "http://127.0.0.1:8545";
 const DEFAULT_LOCAL_SETTLEMENT: &str = "0x00000000000000000000000000000000000000f1";
 const DEFAULT_LOCAL_USDT: &str = "0x0000000000000000000000000000000000001001";
 const DEFAULT_LOCAL_USDC: &str = "0x0000000000000000000000000000000000001002";
+const DEFAULT_PERMIT2_CONTRACT: &str = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 
 pub(crate) fn seed_evm_catalog(records: &mut PortalRecordSet) {
     if records.evm_chains.is_empty() {
@@ -162,6 +163,38 @@ fn token(
     contract_address: impl Into<String>,
     decimals: u8,
 ) -> EvmChainToken {
+    let symbol_upper = symbol.to_ascii_uppercase();
+    let local = chain_id == LOCAL_CHAIN_ID;
+    let stablecoin_eip3009 = symbol_upper == "USDC" || symbol_upper == "EURC";
+    let supports_eip3009 = if local {
+        symbol_upper == "USDC"
+    } else {
+        stablecoin_eip3009
+    };
+    let eip712_domain_name = if local {
+        Some(format!("Local {symbol_upper}"))
+    } else if stablecoin_eip3009 {
+        Some(if symbol_upper == "USDC" {
+            "USD Coin".to_string()
+        } else {
+            symbol_upper.clone()
+        })
+    } else {
+        None
+    };
+    let supports_permit2_symbol = symbol_upper == "USDT";
+    let permit2_contract = if supports_permit2_symbol {
+        if local {
+            local_permit2_contract()
+        } else {
+            Some(DEFAULT_PERMIT2_CONTRACT.to_string())
+        }
+    } else {
+        None
+    };
+    let supports_permit2 = permit2_contract.is_some();
+    let eip712_domain_version = eip712_domain_name.as_ref().map(|_| "1".to_string());
+
     EvmChainToken {
         token_id: format!("tok_{chain_id}_{}", symbol.to_ascii_lowercase()),
         chain_id,
@@ -170,6 +203,13 @@ fn token(
         contract_address: contract_address.into(),
         decimals,
         min_amount_minor_units: 1,
+        supports_eip3009,
+        supports_permit2,
+        supports_erc2612_permit: local,
+        requires_standard_approve: true,
+        permit2_contract,
+        eip712_domain_name,
+        eip712_domain_version,
         enabled: true,
     }
 }
@@ -299,5 +339,13 @@ fn local_manifest_evm_settlement_contract() -> Option<String> {
         .ok()?
         .contracts
         .evm_checkout_settlement
+        .filter(|address| !address.trim().is_empty())
+}
+
+fn local_permit2_contract() -> Option<String> {
+    shared::local_dev_contract_manifest()
+        .ok()?
+        .contracts
+        .permit2
         .filter(|address| !address.trim().is_empty())
 }

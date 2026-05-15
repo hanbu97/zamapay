@@ -12,6 +12,7 @@ apps/web
 |   |-- login/page.tsx                 # Dedicated wallet sign-in page
 |   |-- checkout/[invoiceId]/page.tsx  # Standalone buyer hosted checkout
 |   |-- api/billing/project-growth/route.ts
+|   |-- api/checkout/[checkoutId]/evm-relay/route.ts
 |   |-- api/checkout/project-finalized-payment/route.ts
 |   |-- api/dev/sign-message/route.ts
 |   |-- api/dev/project-local-growth/route.ts
@@ -61,6 +62,7 @@ apps/web
 - `next.config.ts` rewrites `/docs/{slug}.md` to the typed internal `/docs/{slug}/markdown` route; do not reintroduce a literal `[slug].md` App Router segment.
 - `app/.well-known/skills` exposes the committed ZamaPay Skill for coding agents without accepting credentials or mutating platform state.
 - `app/api/billing/project-growth` verifies configured-chain `SubscriptionChangeFinalized` evidence, then projects the anchored entitlement into Rust.
+- `app/api/checkout/[checkoutId]/evm-relay` is the ordinary EVM facilitator: it submits buyer-signed EIP-3009 or Permit2 settlement calls with a platform relayer key, returns tx evidence, and leaves payment truth to the settlement-event indexer.
 - `app/api/checkout/project-finalized-payment` verifies a supplied finalization transaction on the configured chain or finalizes a submitted local-dev checkout server-side, then calls Rust projection and confirmation endpoints.
 - `app/api/dev/project-local-growth` is the local-dev-only server finalization shim for Growth subscriptions.
 - `app/api/dev/local-private-withdraw` is a local-dev submitter shim for merchant-signed withdraw packages; Sepolia must use Zama/chain relayer surfaces, not a ZamaPay platform relayer.

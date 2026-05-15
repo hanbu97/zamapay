@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use domain::{FinalityStatus, PaymentTruth};
 use shared::{
-    EvmChain, EvmChainToken, EvmPaymentIntent, EvmPaymentIntentStatus, EvmRpcNode,
-    EvmSettlementContract, EvmSettlementContractStatus, EvmSettlementEventProjectionRequest,
-    EvmSettlementEventStatus, SupportedEvmAsset,
+    EvmChain, EvmChainToken, EvmFundingCapability, EvmFundingMethod, EvmPaymentIntent,
+    EvmPaymentIntentStatus, EvmRpcNode, EvmSettlementContract, EvmSettlementContractStatus,
+    EvmSettlementEventProjectionRequest, EvmSettlementEventStatus, SupportedEvmAsset,
 };
 
 pub(crate) fn settlement_event_id(payload: &EvmSettlementEventProjectionRequest) -> String {
@@ -47,7 +47,49 @@ pub(crate) fn supported_asset(
         finality_threshold: chain.finality_threshold,
         rpc_url: rpc_node.url.clone(),
         settlement_contract: settlement_contract.contract_address.clone(),
+        funding_capabilities: funding_capabilities(token),
     }
+}
+
+fn funding_capabilities(token: &EvmChainToken) -> Vec<EvmFundingCapability> {
+    let mut capabilities = Vec::new();
+    if token.supports_eip3009 {
+        capabilities.push(EvmFundingCapability {
+            method: EvmFundingMethod::Eip3009,
+            rank: 10,
+            permit2_contract: None,
+            eip712_domain_name: token.eip712_domain_name.clone(),
+            eip712_domain_version: token.eip712_domain_version.clone(),
+        });
+    }
+    if token.supports_permit2 {
+        capabilities.push(EvmFundingCapability {
+            method: EvmFundingMethod::Permit2,
+            rank: 20,
+            permit2_contract: token.permit2_contract.clone(),
+            eip712_domain_name: None,
+            eip712_domain_version: None,
+        });
+    }
+    if token.supports_erc2612_permit {
+        capabilities.push(EvmFundingCapability {
+            method: EvmFundingMethod::Erc2612,
+            rank: 30,
+            permit2_contract: None,
+            eip712_domain_name: token.eip712_domain_name.clone(),
+            eip712_domain_version: token.eip712_domain_version.clone(),
+        });
+    }
+    if token.requires_standard_approve {
+        capabilities.push(EvmFundingCapability {
+            method: EvmFundingMethod::ApprovePay,
+            rank: 90,
+            permit2_contract: None,
+            eip712_domain_name: None,
+            eip712_domain_version: None,
+        });
+    }
+    capabilities
 }
 
 pub(crate) fn intent_supported_asset(

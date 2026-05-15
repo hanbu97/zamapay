@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use shared::{ConfigureWebhookEndpointRequest, CreateProjectWithdrawalRequest};
+use shared::{ConfigureWebhookEndpointRequest, CreateProjectWithdrawalRequest, EvmFundingMethod};
 use webhook_verifier::{sign_webhook_payload, verify_webhook_payload_result};
 
 use crate::client::ApiClient;
@@ -263,12 +263,30 @@ pub async fn assets(args: AssetsArgs) -> Result<()> {
     output(args.json, &assets, || {
         for asset in &assets {
             println!(
-                "{}  {}  {}  decimals={}",
-                asset.chain_id, asset.token_symbol, asset.token_contract, asset.token_decimals
+                "{}  {}  {}  decimals={}  funding={}",
+                asset.chain_id,
+                asset.token_symbol,
+                asset.token_contract,
+                asset.token_decimals,
+                asset
+                    .funding_capabilities
+                    .iter()
+                    .map(|capability| funding_method_label(capability.method))
+                    .collect::<Vec<_>>()
+                    .join(",")
             );
         }
         Ok(())
     })
+}
+
+fn funding_method_label(method: EvmFundingMethod) -> &'static str {
+    match method {
+        EvmFundingMethod::Eip3009 => "eip3009",
+        EvmFundingMethod::Permit2 => "permit2",
+        EvmFundingMethod::Erc2612 => "erc2612",
+        EvmFundingMethod::ApprovePay => "approve-pay",
+    }
 }
 
 pub async fn balance(args: BalanceArgs) -> Result<()> {

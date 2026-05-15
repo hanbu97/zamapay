@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CheckCircle2Icon, CopyIcon, CreditCardIcon, LockKeyholeIcon, RefreshCcwIcon, ShieldCheckIcon } from 'lucide-react'
-import { bytesToHex, createPublicClient, createWalletClient, custom, getAddress, http } from 'viem'
+import { createPublicClient, createWalletClient, custom, hexToSignature, http, maxUint256 } from 'viem'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,13 +11,49 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Spinner } from '@/components/ui/spinner'
 import { contractEnvironmentConfigs, contractEnvironmentForChainId } from '@/lib/contract-environment'
 import { evmCheckoutSettlementAbi, privateCheckoutSettlementAbi } from '@/lib/contracts'
-import { getInvoiceRecord, type EvmPaymentIntent, type PaymentRail, type SupportedEvmAsset } from '@/lib/api'
+import {
+  getEvmPaymentActions,
+  submitEvmRelayedPayment,
+  type EvmPaymentIntent,
+  type PaymentRail,
+  type SupportedEvmAsset,
+} from '@/lib/api'
 import { encryptLocalEuint64 } from '@/lib/local-fhevm-browser'
-import { ensureEthereumProvider, ensureWalletChain, type WalletChain } from '@/lib/wallet'
+import { ensureEthereumProvider, ensureWalletChain } from '@/lib/wallet'
 import { encryptSepoliaEuint64, publicDecryptSepoliaBool } from '@/lib/zama-relayer-browser'
-
-type HexAddress = `0x${string}`
-type HexValue = `0x${string}`
+import {
+  ensureHexAddress,
+  formatDateTime,
+  initialPaymentStatus,
+  isPaymentComplete,
+  projectFinalizedPayment,
+  randomNonce,
+  readableError,
+  readPreferredPayerFromLocation,
+  removePreferredPayerFromLocation,
+  resolvePayerAddress,
+  scheduleReturnToMerchant,
+  shortHex,
+  shortInvoiceId,
+  waitForEvmPaymentProjection,
+  waitForPaymentProjection,
+} from './checkout-helpers'
+import {
+  copyEvmAddress,
+  erc20AllowanceAbi,
+  erc20ApproveAbi,
+  erc20PermitNonceAbi,
+  evmAssetWalletChain,
+  evmSettlementPaymentParams,
+  estimateSettlementGas,
+  formatFundingMethod,
+  formatIntentStatus,
+  normalizeTypedData,
+  permit2PaymentArgs,
+  selectBrowserFundingAction,
+  type HexAddress,
+  type HexValue,
+} from './evm-funding'
 
 type CheckoutPaymentCardProps = {
   amountLabel: string
@@ -36,84 +72,7 @@ type CheckoutPaymentCardProps = {
   tokenAddress: string | null
 }
 
-const erc20ApproveAbi = [
-  {
-    type: 'function',
-    name: 'approve',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'spender', type: 'address' },
-      { name: 'amount', type: 'uint256' },
-    ],
-    outputs: [{ name: '', type: 'bool' }],
-  },
-] as const
-
 const checkoutStatus = { accepted: 3, created: 1, expired: 5, rejected: 4, submitted: 2 } as const
-
-function ensureHexAddress(address: string | null, label: string): HexAddress {
-  if (!address) {
-    throw new Error(`${label} is not deployed in the contract manifest.`)
-  }
-
-  try {
-    return getAddress(address) as HexAddress
-  } catch {
-    throw new Error(`${label} is not a valid EVM address.`)
-  }
-}
-
-function readableError(caught: unknown): string {
-  const message = caught instanceof Error ? caught.message : 'Payment failed.'
-
-  if (message.includes('User rejected')) {
-    return 'Wallet request was rejected. Confirm the next wallet prompt to continue.'
-  }
-
-  const revertReason = message.match(/reverted with the following reason:\s*([^\n]+)/i)
-  if (revertReason?.[1]) {
-    return revertReason[1].trim()
-  }
-
-  const firstLine = message.split('\n')[0]?.trim() || message
-  return firstLine.length > 180 ? `${firstLine.slice(0, 177)}...` : firstLine
-}
-
-function isPaymentComplete(paymentTruth: string, finalityStatus: string) {
-  return paymentTruth === 'paid' || finalityStatus === 'finality_safe'
-}
-
-function initialPaymentStatus(paymentTruth: string, finalityStatus: string, paymentRail: PaymentRail) {
-  if (isPaymentComplete(paymentTruth, finalityStatus)) {
-    return 'Payment complete.'
-  }
-
-  return paymentRail === 'evm_erc20'
-    ? 'Approve the exact ERC20 amount and pay through the settlement contract.'
-    : 'Confirm the private payment with your wallet.'
-}
-
-function parseProjectionError(text: string): string {
-  try {
-    const body = JSON.parse(text) as { error?: unknown }
-    return typeof body.error === 'string' ? body.error : text
-  } catch {
-    return text
-  }
-}
-
-async function projectFinalizedPayment(input: { chainInvoiceId: number; paymentTxHash?: HexValue }) {
-  const response = await fetch('/api/checkout/project-finalized-payment', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(input),
-  })
-  const text = await response.text()
-
-  if (!response.ok) {
-    throw new Error(parseProjectionError(text) || `Payment finalization failed with ${response.status}.`)
-  }
-}
 
 export function CheckoutPaymentCard({
   amountLabel,
@@ -137,6 +96,7 @@ export function CheckoutPaymentCard({
   const [isBusy, setIsBusy] = useState(false)
   const [optimisticPaid, setOptimisticPaid] = useState(false)
   const [preferredPayerAddress, setPreferredPayerAddress] = useState<HexAddress | null>(null)
+  const [selectedFundingMethod, setSelectedFundingMethod] = useState<string | null>(null)
   const [status, setStatus] = useState(() => initialPaymentStatus(paymentTruth, finalityStatus, paymentRail))
 
   const isEvmPayment = paymentRail === 'evm_erc20'
@@ -353,27 +313,199 @@ export function CheckoutPaymentCard({
     setStatus(`Switching wallet to ${walletChain.name}...`)
     await ensureWalletChain(provider, walletChain)
 
-    setStatus(`Approve ${amountLabel} ${evmPaymentIntent.tokenSymbol} for settlement.`)
+    setStatus(`Preparing ${amountLabel} ${evmPaymentIntent.tokenSymbol} settlement.`)
     const walletClient = createWalletClient({ transport: custom(provider) })
     const publicClient = createPublicClient({ transport: http(evmAsset.rpcUrl) })
-    const approveHash = await walletClient.writeContract({
-      account: payerAddress,
-      chain: null,
-      address: token,
-      abi: erc20ApproveAbi,
-      functionName: 'approve',
-      args: [settlement, BigInt(evmPaymentIntent.expectedAmountMinorUnits)],
-    })
+    setStatus('Resolving supported funding methods...')
+    const actions = await getEvmPaymentActions(invoiceId, payerAddress)
+    const action = selectBrowserFundingAction(actions.actions)
+    if (!action) {
+      throw new Error('No browser-supported ERC20 funding method is available for this asset.')
+    }
+    setSelectedFundingMethod(action.gasless ? `${action.method}_relayed` : action.method)
+    const paymentParams = evmSettlementPaymentParams(evmPaymentIntent, token)
 
-    await publicClient.waitForTransactionReceipt({ hash: approveHash })
-    setStatus('Confirm settlement payment.')
-    const paymentHash = await walletClient.writeContract({
-      account: payerAddress,
-      chain: null,
-      address: settlement,
-      abi: evmCheckoutSettlementAbi,
-      functionName: 'pay',
-      args: [
+    let paymentHash: HexValue | null = null
+    if (action.method === 'eip3009') {
+      setStatus('Sign the token authorization for this checkout.')
+      const typedData = normalizeTypedData(action)
+      const signature = await walletClient.signTypedData({
+        account: payerAddress,
+        domain: typedData.domain,
+        message: typedData.message,
+        primaryType: typedData.primaryType,
+        types: typedData.types,
+      })
+      const split = hexToSignature(signature)
+      setStatus(action.gasless ? 'Sending the signed authorization to the relayer.' : 'Submit the authorized payment to settlement.')
+      const authorization = {
+        payer: payerAddress,
+        validAfter: BigInt(typedData.message.validAfter),
+        validBefore: BigInt(typedData.message.validBefore),
+        nonce: typedData.message.nonce as HexValue,
+        v: Number(split.v),
+        r: split.r,
+        s: split.s,
+      }
+      if (action.gasless) {
+        try {
+          setStatus('Submitting authorized payment through the ZamaPay relayer.')
+          const relayed = await submitEvmRelayedPayment(invoiceId, {
+            method: 'eip3009',
+            payerAddress,
+            signature,
+          })
+          paymentHash = relayed.chainTxHash as HexValue
+        } catch (caught) {
+          setStatus(`Relayer unavailable (${readableError(caught)}). Confirm settlement directly in your wallet.`)
+        }
+      }
+      if (!paymentHash) {
+        const gas = await estimateSettlementGas('eip3009', () =>
+          publicClient.estimateContractGas({
+            account: payerAddress,
+            address: settlement,
+            abi: evmCheckoutSettlementAbi,
+            functionName: 'payWithAuthorization',
+            args: [paymentParams, authorization],
+          }),
+        )
+        paymentHash = await walletClient.writeContract({
+          account: payerAddress,
+          address: settlement,
+          abi: evmCheckoutSettlementAbi,
+          functionName: 'payWithAuthorization',
+          gas,
+          args: [paymentParams, authorization],
+          chain: null,
+        })
+      }
+    } else if (action.method === 'permit2') {
+      const permit2 = permit2PaymentArgs(action)
+      const approvalTarget = ensureHexAddress(action.approvalTarget, 'Permit2')
+      const currentAllowance = await publicClient.readContract({
+        address: token,
+        abi: erc20AllowanceAbi,
+        functionName: 'allowance',
+        args: [payerAddress, approvalTarget],
+      })
+      if (currentAllowance < BigInt(evmPaymentIntent.expectedAmountMinorUnits)) {
+        setStatus('Approve Permit2 token access for future settlement payments.')
+        const approveHash = await walletClient.writeContract({
+          account: payerAddress,
+          chain: null,
+          address: token,
+          abi: erc20ApproveAbi,
+          functionName: 'approve',
+          args: [approvalTarget, maxUint256],
+        })
+        await publicClient.waitForTransactionReceipt({ hash: approveHash })
+      }
+
+      setStatus('Sign the Permit2 witness for this checkout.')
+      const typedData = normalizeTypedData(action)
+      const signature = await walletClient.signTypedData({
+        account: payerAddress,
+        domain: typedData.domain,
+        message: typedData.message,
+        primaryType: typedData.primaryType,
+        types: typedData.types,
+      })
+      setStatus(action.gasless ? 'Sending the signed Permit2 witness to the relayer.' : 'Submit the Permit2 payment to settlement.')
+      const permit2Payment = {
+        ...permit2,
+        signature,
+      }
+      if (action.gasless) {
+        try {
+          setStatus('Submitting Permit2 payment through the ZamaPay relayer.')
+          const relayed = await submitEvmRelayedPayment(invoiceId, {
+            method: 'permit2',
+            payerAddress,
+            signature,
+          })
+          paymentHash = relayed.chainTxHash as HexValue
+        } catch (caught) {
+          setStatus(`Relayer unavailable (${readableError(caught)}). Confirm settlement directly in your wallet.`)
+        }
+      }
+      if (!paymentHash) {
+        const gas = await estimateSettlementGas('permit2', () =>
+          publicClient.estimateContractGas({
+            account: payerAddress,
+            address: settlement,
+            abi: evmCheckoutSettlementAbi,
+            functionName: 'payWithPermit2',
+            args: [paymentParams, permit2Payment],
+          }),
+        )
+        paymentHash = await walletClient.writeContract({
+          account: payerAddress,
+          address: settlement,
+          abi: evmCheckoutSettlementAbi,
+          functionName: 'payWithPermit2',
+          gas,
+          args: [paymentParams, permit2Payment],
+          chain: null,
+        })
+      }
+    } else if (action.method === 'erc2612') {
+      const permitTemplate = normalizeTypedData(action)
+      const nonce = await publicClient.readContract({
+        address: token,
+        abi: erc20PermitNonceAbi,
+        functionName: 'nonces',
+        args: [payerAddress],
+      })
+      setStatus('Sign the token permit for this checkout.')
+      const message = { ...permitTemplate.message, nonce }
+      const signature = await walletClient.signTypedData({
+        account: payerAddress,
+        domain: permitTemplate.domain,
+        message,
+        primaryType: permitTemplate.primaryType,
+        types: permitTemplate.types,
+      })
+      const split = hexToSignature(signature)
+      setStatus('Submit the permitted payment to settlement.')
+      const permit = {
+        deadline: BigInt(permitTemplate.message.deadline),
+        v: Number(split.v),
+        r: split.r,
+        s: split.s,
+      }
+      const gas = await estimateSettlementGas('erc2612', () =>
+        publicClient.estimateContractGas({
+          account: payerAddress,
+          address: settlement,
+          abi: evmCheckoutSettlementAbi,
+          functionName: 'payWithPermit',
+          args: [paymentParams, permit],
+        }),
+      )
+      paymentHash = await walletClient.writeContract({
+        account: payerAddress,
+        chain: null,
+        address: settlement,
+        abi: evmCheckoutSettlementAbi,
+        functionName: 'payWithPermit',
+        gas,
+        args: [paymentParams, permit],
+      })
+    } else {
+      setStatus(`Approve ${amountLabel} ${evmPaymentIntent.tokenSymbol} for settlement.`)
+      const approveHash = await walletClient.writeContract({
+        account: payerAddress,
+        chain: null,
+        address: token,
+        abi: erc20ApproveAbi,
+        functionName: 'approve',
+        args: [settlement, BigInt(evmPaymentIntent.expectedAmountMinorUnits)],
+      })
+
+      await publicClient.waitForTransactionReceipt({ hash: approveHash })
+      setStatus('Confirm settlement payment.')
+      const payArgs = [
         evmPaymentIntent.settlementIntentId as HexValue,
         evmPaymentIntent.settlementProjectId as HexValue,
         token,
@@ -381,8 +513,30 @@ export function CheckoutPaymentCard({
         BigInt(evmPaymentIntent.merchantNetMinorUnits),
         BigInt(evmPaymentIntent.platformFeeMinorUnits),
         BigInt(Math.floor(new Date(evmPaymentIntent.expiresAt).getTime() / 1000)),
-      ],
-    })
+      ] as const
+      const gas = await estimateSettlementGas('approve_pay', () =>
+        publicClient.estimateContractGas({
+          account: payerAddress,
+          address: settlement,
+          abi: evmCheckoutSettlementAbi,
+          functionName: 'pay',
+          args: payArgs,
+        }),
+      )
+      paymentHash = await walletClient.writeContract({
+        account: payerAddress,
+        chain: null,
+        address: settlement,
+        abi: evmCheckoutSettlementAbi,
+        functionName: 'pay',
+        gas,
+        args: payArgs,
+      })
+    }
+
+    if (!paymentHash) {
+      throw new Error('Payment submission did not return a settlement transaction hash.')
+    }
 
     await publicClient.waitForTransactionReceipt({ hash: paymentHash })
     setStatus('Payment accepted by settlement. Waiting for indexer confirmations...')
@@ -452,6 +606,7 @@ export function CheckoutPaymentCard({
                 value={evmPaymentIntent?.settlementContract ?? 'Unavailable'}
               />
               <CheckoutDetail label="Status" value={formatIntentStatus(evmPaymentIntent?.status)} />
+              <CheckoutDetail label="Funding method" value={formatFundingMethod(selectedFundingMethod)} />
               <CheckoutDetail label="Expires" value={formatDateTime(evmPaymentIntent?.expiresAt)} />
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -575,247 +730,5 @@ function paymentButtonLabel({
     return 'Payment unavailable'
   }
 
-  return paymentRail === 'evm_erc20' ? 'Pay through settlement' : 'Pay confidentially'
-}
-
-async function waitForPaymentProjection(input: { invoiceId: string; projectPayment: Promise<void> }): Promise<boolean> {
-  try {
-    await input.projectPayment
-    return true
-  } catch (caught) {
-    if (await isProjectedPaid(input.invoiceId)) {
-      return true
-    }
-
-    throw caught
-  }
-}
-
-async function isProjectedPaid(invoiceId: string): Promise<boolean> {
-  const invoice = await getInvoiceRecord(invoiceId).catch(() => null)
-  return Boolean(invoice && isPaymentComplete(invoice.snapshot.paymentTruth, invoice.snapshot.finalityStatus))
-}
-
-async function waitForEvmPaymentProjection(invoiceId: string): Promise<boolean> {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    await delay(2_500)
-    if (await isProjectedPaid(invoiceId)) {
-      return true
-    }
-  }
-
-  return false
-}
-
-function delay(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
-}
-
-async function copyEvmAddress(address: string | null | undefined, setStatus: (status: string) => void) {
-  if (!address) {
-    setStatus('No settlement contract is available.')
-    return
-  }
-
-  try {
-    await navigator.clipboard.writeText(address)
-    setStatus('Settlement contract copied.')
-  } catch {
-    setStatus('Clipboard permission denied. Select the settlement contract and copy it manually.')
-  }
-}
-
-function evmAssetWalletChain(asset: SupportedEvmAsset): WalletChain {
-  return {
-    id: asset.chainId,
-    name: asset.network,
-    nativeCurrency: {
-      decimals: 18,
-      name: asset.nativeSymbol,
-      symbol: asset.nativeSymbol,
-    },
-    rpcUrls: [asset.rpcUrl],
-  }
-}
-
-function formatIntentStatus(status: EvmPaymentIntent['status'] | undefined) {
-  switch (status) {
-    case 'confirmed':
-      return 'Confirmed'
-    case 'detected':
-      return 'Detected'
-    case 'underpaid':
-      return 'Underpaid'
-    case 'overpaid':
-      return 'Overpaid'
-    case 'expired':
-      return 'Expired'
-    case 'failed':
-      return 'Failed'
-    case 'requires_payment':
-      return 'Awaiting settlement'
-    default:
-      return 'Unavailable'
-  }
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) {
-    return 'Unavailable'
-  }
-  return new Intl.DateTimeFormat('en-US', {
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    month: 'short',
-    timeZoneName: 'short',
-    timeZone: 'UTC',
-    year: 'numeric',
-  }).format(new Date(value))
-}
-
-function shortInvoiceId(invoiceId: string) {
-  return invoiceId.length > 16 ? `${invoiceId.slice(0, 10)}...${invoiceId.slice(-6)}` : invoiceId
-}
-
-function scheduleReturnToMerchant(fallback: () => void) {
-  return window.setTimeout(() => {
-    const returnUrl = safeReferrerUrl()
-    if (returnUrl) {
-      window.location.assign(returnUrl)
-      return
-    }
-
-    fallback()
-  }, 1_250)
-}
-
-function safeReferrerUrl() {
-  if (!document.referrer) {
-    return null
-  }
-
-  try {
-    const referrer = new URL(document.referrer)
-    const current = new URL(window.location.href)
-    if (referrer.href === current.href || referrer.origin === current.origin) {
-      return null
-    }
-
-    return referrer.protocol === 'http:' || referrer.protocol === 'https:' ? referrer.toString() : null
-  } catch {
-    return null
-  }
-}
-
-function readPreferredPayerFromLocation(): HexAddress | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  const current = new URL(window.location.href)
-  return normalizeAddress(current.hash.replace(/^#/, ''), 'payer') ?? normalizeAddress(current.search, 'preferredPayer')
-}
-
-function normalizeAddress(paramsText: string, key: string): HexAddress | null {
-  const raw = new URLSearchParams(paramsText).get(key)
-  if (!raw) {
-    return null
-  }
-
-  try {
-    return getAddress(raw) as HexAddress
-  } catch {
-    return null
-  }
-}
-
-function removePreferredPayerFromLocation() {
-  const current = new URL(window.location.href)
-  const hash = new URLSearchParams(current.hash.replace(/^#/, ''))
-  hash.delete('payer')
-  current.hash = hash.toString()
-  window.history.replaceState(null, '', current.toString())
-}
-
-async function resolvePayerAddress({
-  preferredPayerAddress,
-  provider,
-  setStatus,
-}: {
-  preferredPayerAddress: HexAddress | null
-  provider: ReturnType<typeof ensureEthereumProvider>
-  setStatus: (status: string) => void
-}): Promise<HexAddress> {
-  if (preferredPayerAddress) {
-    return resolvePreferredPayerAddress(provider, preferredPayerAddress, setStatus)
-  }
-
-  return resolveSelectedPayerAddress(provider)
-}
-
-async function resolvePreferredPayerAddress(
-  provider: ReturnType<typeof ensureEthereumProvider>,
-  preferredPayerAddress: HexAddress,
-  setStatus: (status: string) => void,
-): Promise<HexAddress> {
-  const initialAccounts = normalizedWalletAccounts(await provider.request({ method: 'eth_accounts' }))
-  if (hasWalletAccount(initialAccounts, preferredPayerAddress)) {
-    return preferredPayerAddress
-  }
-
-  setStatus(`Select CardForge wallet ${shortHex(preferredPayerAddress)} in MetaMask.`)
-  await provider.request({
-    method: 'wallet_requestPermissions',
-    params: [{ eth_accounts: {} }],
-  })
-  const accounts = normalizedWalletAccounts(await provider.request({ method: 'eth_accounts' }))
-  if (hasWalletAccount(accounts, preferredPayerAddress)) {
-    return preferredPayerAddress
-  }
-
-  const selected = accounts[0] ? ` Current wallet is ${shortHex(accounts[0])}.` : ''
-  throw new Error(`Select CardForge wallet ${shortHex(preferredPayerAddress)} to pay from the demo balance.${selected}`)
-}
-
-async function resolveSelectedPayerAddress(provider: ReturnType<typeof ensureEthereumProvider>): Promise<HexAddress> {
-  const accounts = normalizedWalletAccounts(await provider.request({ method: 'eth_requestAccounts' }))
-  const selected = accounts[0]
-  if (!selected) {
-    throw new Error('MetaMask returned no selected account.')
-  }
-
-  return selected
-}
-
-function normalizedWalletAccounts(value: unknown): HexAddress[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-
-  return value.flatMap((account) => {
-    if (typeof account !== 'string') {
-      return []
-    }
-
-    try {
-      return [getAddress(account) as HexAddress]
-    } catch {
-      return []
-    }
-  })
-}
-
-function hasWalletAccount(accounts: HexAddress[], address: HexAddress) {
-  return accounts.some((account) => account.toLowerCase() === address.toLowerCase())
-}
-
-function shortHex(value: string) {
-  return value.length > 14 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value
-}
-
-function randomNonce(): HexValue {
-  const bytes = new Uint8Array(32)
-  crypto.getRandomValues(bytes)
-  return bytesToHex(bytes)
+  return paymentRail === 'evm_erc20' ? 'Pay with best available method' : 'Pay confidentially'
 }

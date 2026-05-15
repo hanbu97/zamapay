@@ -19,6 +19,13 @@ export type SepoliaServerBridgeInput = {
   requestUrl: string
 }
 
+export type EvmRelayerGateInput = {
+  contractEnv?: string
+  enableRelayer?: string
+  nodeEnv?: string
+  requestUrl: string
+}
+
 export function isLocalRequestUrl(requestUrl: string): boolean {
   const host = new URL(requestUrl).hostname
   return host === '127.0.0.1' || host === 'localhost'
@@ -47,6 +54,19 @@ export function canUseSepoliaServerBridge(input: SepoliaServerBridgeInput): bool
   }
 
   return bearerToken(input.authorizationHeader) !== null
+}
+
+export function canUseEvmRelayer(input: EvmRelayerGateInput): boolean {
+  const explicit = input.enableRelayer === '1'
+  if (explicit) {
+    return safeContractEnvironment(input.contractEnv) !== 'invalid'
+  }
+
+  return canUseLocalDevServerBridge({
+    contractEnv: input.contractEnv,
+    nodeEnv: input.nodeEnv,
+    requestUrl: input.requestUrl,
+  })
 }
 
 export function bearerToken(headerValue: string | null | undefined): string | null {

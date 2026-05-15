@@ -413,6 +413,10 @@ pub struct EvmChain {
     pub enabled: bool,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EvmChainToken {
@@ -423,6 +427,20 @@ pub struct EvmChainToken {
     pub contract_address: String,
     pub decimals: u8,
     pub min_amount_minor_units: u64,
+    #[serde(default)]
+    pub supports_eip3009: bool,
+    #[serde(default)]
+    pub supports_permit2: bool,
+    #[serde(default)]
+    pub supports_erc2612_permit: bool,
+    #[serde(default = "default_true")]
+    pub requires_standard_approve: bool,
+    #[serde(default)]
+    pub permit2_contract: Option<String>,
+    #[serde(default)]
+    pub eip712_domain_name: Option<String>,
+    #[serde(default)]
+    pub eip712_domain_version: Option<String>,
     pub enabled: bool,
 }
 
@@ -557,6 +575,73 @@ pub struct SupportedEvmAsset {
     pub finality_threshold: u64,
     pub rpc_url: String,
     pub settlement_contract: String,
+    #[serde(default)]
+    pub funding_capabilities: Vec<EvmFundingCapability>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvmFundingMethod {
+    Eip3009,
+    Permit2,
+    Erc2612,
+    ApprovePay,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmFundingCapability {
+    pub method: EvmFundingMethod,
+    pub rank: u8,
+    #[serde(default)]
+    pub permit2_contract: Option<String>,
+    #[serde(default)]
+    pub eip712_domain_name: Option<String>,
+    #[serde(default)]
+    pub eip712_domain_version: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmPaymentActionsRequest {
+    pub payer_address: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmPaymentActionsResponse {
+    pub checkout_id: String,
+    pub intent_id: String,
+    pub chain_id: u64,
+    pub settlement_contract: String,
+    pub token_contract: String,
+    pub expected_amount_minor_units: u64,
+    pub actions: Vec<EvmFundingAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmFundingAction {
+    pub method: EvmFundingMethod,
+    pub rank: u8,
+    pub title: String,
+    pub description: String,
+    pub button_label: String,
+    pub contract_function: String,
+    pub gasless: bool,
+    pub requires_wallet_signature: bool,
+    pub requires_transaction: bool,
+    pub requires_token_approval: bool,
+    pub approval_target: Option<String>,
+    pub disabled_reason: Option<String>,
+    pub authorization: Option<EvmFundingAuthorization>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvmFundingAuthorization {
+    pub typed_data: serde_json::Value,
+    pub settlement_args: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

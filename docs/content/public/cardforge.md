@@ -47,7 +47,7 @@ Use the browser-created project path when validating merchant-wallet withdraw be
 
 ```bash
 just verify-local
-just verify-evm-local
+just verify-evm-local --funding-method all
 ```
 
-Manual proof should capture the checkout id, payment intent id, settlement tx hash, webhook delivery id, order release state, project balance row, withdrawal id, and withdrawal receipt.
+Manual proof should capture the checkout id, payment intent id, funding method, settlement tx hash, webhook delivery id, order release state, project balance row, withdrawal id, and withdrawal receipt.

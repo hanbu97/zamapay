@@ -50,6 +50,10 @@ async function main() {
   const standardUsdc = await standardErc20Factory.deploy('Local USDC', 'USDC', 6)
   await standardUsdc.waitForDeployment()
 
+  const permit2Factory = await ethers.getContractFactory('Permit2SignatureTransferMock')
+  const permit2 = await permit2Factory.deploy()
+  await permit2.waitForDeployment()
+
   const evmCheckoutFactory = await ethers.getContractFactory('EvmCheckoutSettlement')
   const evmCheckout = await evmCheckoutFactory.deploy(evmWithdrawAuthorizer, platformFeeWallet)
   await evmCheckout.waitForDeployment()
@@ -66,6 +70,7 @@ async function main() {
       PrivateSubscriptionRegistry: await subscriptionRegistry.getAddress(),
       PrivateCheckoutSettlement: await privateCheckout.getAddress(),
       EvmCheckoutSettlement: await evmCheckout.getAddress(),
+      Permit2: await permit2.getAddress(),
     },
     billing,
     testTokenFaucet: {
@@ -102,6 +107,7 @@ async function main() {
       PrivateSubscriptionRegistry: await hre.artifacts.readArtifact('PrivateSubscriptionRegistry'),
       PrivateCheckoutSettlement: await hre.artifacts.readArtifact('PrivateCheckoutSettlement'),
       EvmCheckoutSettlement: await hre.artifacts.readArtifact('EvmCheckoutSettlement'),
+      Permit2: await hre.artifacts.readArtifact('Permit2SignatureTransferMock'),
     },
     manifest,
   )
