@@ -11,6 +11,7 @@ import {
   KeyRoundIcon,
   ReceiptTextIcon,
   ShieldCheckIcon,
+  TerminalIcon,
   WebhookIcon,
   type LucideIcon,
 } from "lucide-react"
@@ -54,6 +55,7 @@ const iconByKey = {
   key: KeyRoundIcon,
   receipt: ReceiptTextIcon,
   shield: ShieldCheckIcon,
+  terminal: TerminalIcon,
   webhook: WebhookIcon,
 } satisfies Record<string, LucideIcon>
 
@@ -121,13 +123,38 @@ export type DocsManifestPage = {
   title: string
 }
 
+export type DocsInstallSurface = {
+  agentPageUrl: string
+  cliInstallUrl: string
+  cliNpmPackage: string
+  serverSdkPackage: string
+  skillIndexUrl: string
+  skillInstallUrl: string
+}
+
 export type DocsManifest = {
   generatedAt: string
+  install: DocsInstallSurface
   llmsFullUrl: string
   llmsUrl: string
   pages: DocsManifestPage[]
   rules: string[]
   skillUrl: string
+}
+
+export type ZamaPayIntegrationManifest = {
+  docsManifestUrl: string
+  docsUrl: string
+  install: DocsInstallSurface
+  llmsFullUrl: string
+  llmsUrl: string
+  name: string
+  rules: string[]
+  skillUrl: string
+  status: {
+    cliPrebuiltRelease: "planned"
+    serverSdk: "preview"
+  }
 }
 
 type MarkdocNode = {
@@ -374,6 +401,12 @@ function buildDocsEntryPoints(): DocsEntryPoint[] {
       title: "Accept a hosted payment",
     },
     {
+      action: "Install tools",
+      description: "Install the CLI, server SDK preview, and ZamaPay agent skill from one place.",
+      page: pageBySlug("install"),
+      title: "Set up CLI and agents",
+    },
+    {
       action: "Use the SDK",
       description: "Call ZamaPay from a merchant backend with explicit rail selection and project-secret auth.",
       page: pageBySlug("server-sdk-preview"),
@@ -418,7 +451,7 @@ function buildDocsBrowseSections(): DocsBrowseSection[] {
     },
     {
       description: "Server SDK, raw HTTP fallback, merchant API contracts, and local workflow.",
-      pages: pagesBySlug(["server-sdk-preview", "raw-http-fallback", "api-reference", "development"]),
+      pages: pagesBySlug(["install", "server-sdk-preview", "raw-http-fallback", "api-reference", "development"]),
       title: "Developer tools",
     },
     {
@@ -463,8 +496,11 @@ export function buildLlmsTxt(baseUrl: string): string {
     "",
     "## Machine-readable index",
     `- [Docs manifest](${origin}/docs/manifest.json)`,
+    `- [Integration manifest](${origin}/.well-known/zamapay.json)`,
     `- [Full docs corpus](${origin}/llms-full.txt)`,
     `- [ZamaPay Skill](${origin}/.well-known/skills/zamapay)`,
+    `- [ZamaPay skill installer](${origin}/.well-known/skills/zamapay/install.sh)`,
+    `- [ZamaPay CLI installer](${origin}/install.sh)`,
     "",
   ]
   return `${lines.join("\n")}\n`
@@ -480,6 +516,7 @@ export function buildDocsManifest(baseUrl: string): DocsManifest {
   const origin = cleanBaseUrl(baseUrl)
   return {
     generatedAt: "static",
+    install: buildInstallSurface(origin),
     llmsFullUrl: `${origin}/llms-full.txt`,
     llmsUrl: `${origin}/llms.txt`,
     pages: docsPages.map((page) => ({
@@ -494,6 +531,36 @@ export function buildDocsManifest(baseUrl: string): DocsManifest {
     })),
     rules: aiIntegrationRules,
     skillUrl: `${origin}/.well-known/skills/zamapay`,
+  }
+}
+
+export function buildInstallSurface(baseUrl: string): DocsInstallSurface {
+  const origin = cleanBaseUrl(baseUrl)
+  return {
+    agentPageUrl: `${origin}/agents`,
+    cliInstallUrl: `${origin}/install.sh`,
+    cliNpmPackage: "@zamapay/cli",
+    serverSdkPackage: "@zamapay/server",
+    skillIndexUrl: `${origin}/.well-known/skills/index.json`,
+    skillInstallUrl: `${origin}/.well-known/skills/zamapay/install.sh`,
+  }
+}
+
+export function buildIntegrationManifest(baseUrl: string): ZamaPayIntegrationManifest {
+  const origin = cleanBaseUrl(baseUrl)
+  return {
+    docsManifestUrl: `${origin}/docs/manifest.json`,
+    docsUrl: `${origin}/docs`,
+    install: buildInstallSurface(origin),
+    llmsFullUrl: `${origin}/llms-full.txt`,
+    llmsUrl: `${origin}/llms.txt`,
+    name: "ZamaPay",
+    rules: aiIntegrationRules,
+    skillUrl: `${origin}/.well-known/skills/zamapay`,
+    status: {
+      cliPrebuiltRelease: "planned",
+      serverSdk: "preview",
+    },
   }
 }
 

@@ -4,6 +4,7 @@ mod common;
 mod config;
 mod control_ops;
 mod merchant_ops;
+mod setup_ops;
 
 use std::path::PathBuf;
 
@@ -38,6 +39,8 @@ pub enum Command {
     Init(InitArgs),
     /// Check local CLI, API, and project-secret readiness.
     Doctor(DoctorArgs),
+    /// Install local developer and agent integration helpers.
+    Setup(SetupArgs),
     /// Manage merchant projects.
     Project(ProjectArgs),
     /// Enable, disable, or list project payment rails.
@@ -122,6 +125,34 @@ pub struct DoctorArgs {
     pub api_url: Option<String>,
     #[arg(long, env = "ZAMAPAY_SECRET_KEY")]
     pub secret_key: Option<String>,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct SetupArgs {
+    #[command(subcommand)]
+    pub command: SetupCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SetupCommand {
+    /// Install the ZamaPay Codex skill from the public endpoint or a local file.
+    Agent(SetupAgentArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct SetupAgentArgs {
+    #[arg(long)]
+    pub source_file: Option<PathBuf>,
+    #[arg(long, default_value = "https://zamapay.org/.well-known/skills/zamapay")]
+    pub source_url: String,
+    #[arg(long)]
+    pub target_dir: Option<PathBuf>,
+    #[arg(long)]
+    pub print: bool,
+    #[arg(long)]
+    pub yes: bool,
     #[arg(long)]
     pub json: bool,
 }
@@ -526,6 +557,7 @@ pub async fn run(cli: Cli) -> Result<()> {
         Command::Status(args) => control_ops::status(args).await,
         Command::Init(args) => control_ops::init(args).await,
         Command::Doctor(args) => control_ops::doctor(args).await,
+        Command::Setup(args) => setup_ops::setup(args).await,
         Command::Project(args) => control_ops::project(args).await,
         Command::Rail(args) => control_ops::rail(args).await,
         Command::Secret(args) => control_ops::secret(args).await,

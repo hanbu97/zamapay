@@ -13,6 +13,7 @@ const deprecatedCredentialExports = [
 ]
 
 const docs = await import("../apps/web/app/docs/docs-content.ts")
+const installScripts = await import("../apps/web/app/install-scripts.ts")
 
 const markdownFiles = fs
   .readdirSync(docsRoot)
@@ -31,6 +32,7 @@ assert.deepEqual(new Set(docs.docsPages.map((page) => page.order)).size, docs.do
 assert.deepEqual([...fileSlugs].sort(), [...pageSlugs].sort(), "every public markdown file must load as a docs page")
 assert.ok(docs.featuredDocs.length >= 4, "docs home needs at least four featured guides")
 assert.ok(docs.docsGroups.length >= 3, "docs home should keep grouped navigation")
+assert.ok(docs.docsBySlug.has("install"), "docs must expose install guidance")
 
 for (const page of docs.docsPages) {
   assert.ok(page.title.trim(), `${page.slug} title is required`)
@@ -54,11 +56,31 @@ const baseUrl = "https://docs.example.test"
 const llms = docs.buildLlmsTxt(baseUrl)
 const full = docs.buildLlmsFullTxt(baseUrl)
 const manifest = docs.buildDocsManifest(baseUrl)
+const integrationManifest = docs.buildIntegrationManifest(baseUrl)
 assert.ok(llms.includes("/llms-full.txt"), "llms.txt must link the full docs corpus")
 assert.ok(llms.includes("/docs/quickstart.md"), "llms.txt must link per-page markdown")
+assert.ok(llms.includes("/install.sh"), "llms.txt must link CLI install script")
+assert.ok(llms.includes("/.well-known/zamapay.json"), "llms.txt must link integration manifest")
 assert.ok(full.includes("# Quickstart"), "llms-full.txt must include public docs content")
+assert.ok(full.includes("# Install ZamaPay"), "llms-full.txt must include install docs")
 assert.equal(manifest.pages.length, docs.docsPages.length, "docs manifest must cover every docs page")
 assert.deepEqual(manifest.rules, docs.aiIntegrationRules, "docs manifest rules must match the AI guardrails")
+assert.equal(manifest.install.serverSdkPackage, "@zamapay/server", "manifest must expose server SDK package")
+assert.equal(manifest.install.cliNpmPackage, "@zamapay/cli", "manifest must reserve CLI npm package")
+assert.equal(
+  integrationManifest.install.skillInstallUrl,
+  `${baseUrl}/.well-known/skills/zamapay/install.sh`,
+  "integration manifest must expose skill installer",
+)
+
+const cliInstallScript = installScripts.buildCliInstallScript(baseUrl)
+const skillInstallScript = installScripts.buildSkillInstallScript(baseUrl)
+assert.ok(cliInstallScript.includes("--from-source"), "CLI installer must support source mode")
+assert.ok(
+  cliInstallScript.includes("Prebuilt ZamaPay CLI releases are not published yet."),
+  "CLI installer must not claim unpublished binaries exist",
+)
+assert.ok(skillInstallScript.includes("skills/zamapay"), "skill installer must target the ZamaPay skill")
 
 const skill = fs.readFileSync(skillPath, "utf8")
 for (const required of [
@@ -67,6 +89,8 @@ for (const required of [
   "raw request body",
   "evm_erc20",
   "zama_private",
+  "zamapay setup agent",
+  "/.well-known/skills/zamapay/install.sh",
   "Withdrawals, delivery resend, project secret revoke, and webhook secret rotation require explicit human confirmation",
 ]) {
   assert.ok(skill.includes(required), `ZamaPay skill must include guardrail: ${required}`)

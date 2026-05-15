@@ -9,6 +9,20 @@ metadata:
 
 Use this skill when adding ZamaPay to a merchant server, fixing a ZamaPay integration, or generating test code for checkout and webhooks.
 
+## Install
+
+Preferred public installer:
+
+```bash
+bash <(curl -fsSL https://zamapay.org/.well-known/skills/zamapay/install.sh) --yes
+```
+
+Local source checkout:
+
+```bash
+zamapay setup agent --source-file skills/zamapay/SKILL.md --target-dir .codex/skills/zamapay --yes
+```
+
 ## Hard Rules
 
 - Keep `ZAMAPAY_SECRET_KEY` and `whsec_...` values on the merchant server only. Never put them in browser code, mobile bundles, or `NEXT_PUBLIC_*`.
@@ -40,6 +54,7 @@ Use the Rust CLI for deterministic local actions:
 ```bash
 zamapay doctor
 zamapay login --private-key-stdin
+zamapay setup agent --yes
 zamapay project create --name "CardForge local" --link --create-secret
 zamapay rail enable --payment-rail evm_erc20
 zamapay webhook create --url http://127.0.0.1:8092/api/zamapay/webhook --export-env

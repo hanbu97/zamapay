@@ -8,6 +8,9 @@ apps/web/app
 |-- page.tsx                # Public ZamaPay website home with session-aware login/console entry and footer navigation
 |-- llms.txt/route.ts       # Compact AI-readable docs index generated from public Markdoc content
 |-- llms-full.txt/route.ts  # Full AI-readable docs corpus generated from public Markdoc content
+|-- install-scripts.ts      # Shared public CLI and skill installer script builders
+|-- install.sh/route.ts     # Public CLI installer endpoint; source mode until prebuilt releases exist
+|-- agents/page.tsx         # Public agent integration entrypoint for installers, manifests, and llms surfaces
 |-- login/page.tsx          # Dedicated wallet sign-in page for missing or expired sessions
 |-- pricing/page.tsx        # Public pricing strategy and fee schedule
 |-- checkout/[invoiceId]/page.tsx # Standalone buyer hosted checkout
@@ -31,6 +34,8 @@ apps/web/app
 - `/login` is standalone so expired or anonymous sessions get a focused wallet sign-in page rather than merchant console chrome.
 - `/pricing` publishes the adopted hybrid pricing model from `research/pricing.md`; plan fees and prices are rendered from the generated contract manifest so Solidity remains the fee source of truth.
 - `/llms.txt` and `/llms-full.txt` expose the public docs in AI-readable form without creating a second documentation source.
+- `/install.sh` and `/.well-known/skills/zamapay/install.sh` reserve stable install URLs before binary/package publishing; source mode remains explicit so docs do not lie about release artifacts.
+- `/agents` is the human landing page for coding-agent entrypoints: install scripts, llms files, skill discovery, and the well-known integration manifest.
 - `/.well-known/skills/zamapay` publishes the committed ZamaPay Skill so coding agents inherit the same integration guardrails as the docs.
 - `components/marketing` owns public quick navigation, Zama references, and placeholder social entrances so public routes share one compact navbar/footer contract.
 - `/docs` is the public developer documentation system for quickstart, API, webhooks, CardForge, and environment proof.

@@ -20,6 +20,8 @@ The preview package is private in this repository today. Once published, merchan
 npm install @zamapay/server
 ```
 
+The shared install and agent setup entrypoint is documented in [Install ZamaPay](/docs/install).
+
 Inside this repository, build and validate the preview package before using it from install-shape test projects:
 
 ```bash

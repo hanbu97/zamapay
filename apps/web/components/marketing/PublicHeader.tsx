@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { ArrowRightIcon, BookOpenIcon, LayoutDashboardIcon, PlayCircleIcon } from "lucide-react"
+import { ArrowRightIcon, BotIcon, BookOpenIcon, LayoutDashboardIcon, PlayCircleIcon } from "lucide-react"
 
 import { docsEntryPoints, docsTopCategories } from "@/app/docs/docs-content"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -146,6 +146,10 @@ export function PublicHeader({ isAuthenticated }: PublicHeaderProps) {
 
             <Button className="hidden md:inline-flex" nativeButton={false} render={<Link href="/pricing" />} size="sm" variant="ghost">
               Pricing
+            </Button>
+            <Button className="hidden md:inline-flex" nativeButton={false} render={<Link href="/agents" />} size="sm" variant="ghost">
+              <BotIcon data-icon="inline-start" />
+              Agents
             </Button>
           </div>
         </div>

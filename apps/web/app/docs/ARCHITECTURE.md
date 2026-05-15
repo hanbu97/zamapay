@@ -10,7 +10,7 @@ apps/web/app/docs
 |-- CodeBlock.tsx       # Client code block surface with copy, theme-aware chrome, and lightweight syntax highlighting
 |-- MermaidDiagram.tsx  # Client renderer that dynamically loads Mermaid for docs diagrams
 |-- code-highlighting.ts # Dependency-free tokenizer for common docs snippets
-|-- docs-content.ts     # Server-side Markdoc loader for docs/content/public/*.md; no prose lives here
+|-- docs-content.ts     # Server-side Markdoc loader, docs manifest, integration manifest, and install surface metadata; no prose lives here
 |-- markdoc-rendering.ts # Markdoc React renderer glue for mapping every tag, including lowercase HTML tags, to local components
 |-- request-origin.ts   # Host/proxy-aware origin helper for generated AI-readable URLs
 |-- manifest.json/route.ts # AI-readable docs manifest generated from the same Markdoc source

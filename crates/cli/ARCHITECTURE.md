@@ -14,7 +14,8 @@ crates/cli
     |-- control_ops.rs  # Login, project, rail, and project-secret control-plane commands
     |-- lib.rs          # Clap command contract and top-level dispatch
     |-- main.rs         # Thin async clap entrypoint
-    `-- merchant_ops.rs # Webhook, checkout, event, delivery, balance, and withdraw commands
+    |-- merchant_ops.rs # Webhook, checkout, event, delivery, balance, and withdraw commands
+    `-- setup_ops.rs   # Local helper installation, including Codex skill setup
 ```
 
 ## Decisions
@@ -24,4 +25,5 @@ crates/cli
 - Webhook commands reuse `webhook-verifier`; raw-body HMAC logic must not be copied.
 - Control-plane commands use the existing wallet nonce protocol. The CLI signs the nonce locally with an EVM private key and stores only the resulting ZamaPay session id in `~/.zamapay/config.json`.
 - Project-secret commands remain separate from control-plane commands. `ZAMAPAY_SECRET_KEY` creates checkout sessions; the wallet session manages projects, rails, endpoint secrets, deliveries, balances, and withdrawal projections.
+- Setup commands are local bootstrap helpers. They may install docs/skill material, but they must not authenticate, mutate projects, or read merchant secrets.
 - Webhook secret rotation, delivery resend, project-secret revoke, and withdraw commands exist, but each requires `--yes`. The CLI must never move money or rotate verifier material silently.

@@ -5,6 +5,7 @@ import { highlightCode } from '../app/docs/code-highlighting.ts'
 import {
   aiIntegrationRules,
   buildDocsManifest,
+  buildIntegrationManifest,
   buildLlmsFullTxt,
   buildLlmsTxt,
   docsBrowseSections,
@@ -17,6 +18,7 @@ import {
   featuredDocs,
   markdownForDocsPage,
 } from '../app/docs/docs-content.ts'
+import { buildCliInstallScript, buildSkillInstallScript } from '../app/install-scripts.ts'
 import { resolveDocsTagName } from '../app/docs/markdoc-rendering.ts'
 import { requestOrigin } from '../app/docs/request-origin.ts'
 
@@ -24,6 +26,7 @@ test('public docs load from Markdoc files with stable route metadata', () => {
   assert.ok(docsPages.length >= 10)
   assert.equal(docsPages[0].slug, 'quickstart')
   assert.ok(docsBySlug.has('development'))
+  assert.ok(docsBySlug.has('install'))
   assert.ok(docsBySlug.has('webhooks'))
   assert.ok(featuredDocs.length >= 4)
   assert.ok(docsGroups.some((group) => group.title === 'Build'))
@@ -105,12 +108,16 @@ test('AI-readable docs expose llms index, full corpus, per-page markdown, and ma
   const llms = buildLlmsTxt(baseUrl)
   const full = buildLlmsFullTxt(baseUrl)
   const manifest = buildDocsManifest(baseUrl)
+  const integrationManifest = buildIntegrationManifest(baseUrl)
   const quickstart = markdownForDocsPage('quickstart', baseUrl)
 
   assert.ok(llms.includes('/llms-full.txt'))
   assert.ok(llms.includes('/docs/quickstart.md'))
+  assert.ok(llms.includes('/install.sh'))
+  assert.ok(llms.includes('/.well-known/zamapay.json'))
   assert.ok(full.includes('# Quickstart'))
   assert.ok(full.includes('# Webhooks'))
+  assert.ok(full.includes('# Install ZamaPay'))
   assert.ok(quickstart.startsWith('# Quickstart'))
   assert.equal(quickstart.includes('---\ntitle:'), false)
   assert.equal(quickstart.includes('{% callout'), false)
@@ -121,7 +128,23 @@ test('AI-readable docs expose llms index, full corpus, per-page markdown, and ma
     aiIntegrationRules,
     'manifest rules must match the agent-facing integration guardrails',
   )
+  assert.equal(manifest.install.serverSdkPackage, '@zamapay/server')
+  assert.equal(manifest.install.cliNpmPackage, '@zamapay/cli')
+  assert.equal(manifest.install.skillInstallUrl, `${baseUrl}/.well-known/skills/zamapay/install.sh`)
+  assert.equal(integrationManifest.install.cliInstallUrl, `${baseUrl}/install.sh`)
+  assert.equal(integrationManifest.status.cliPrebuiltRelease, 'planned')
   assert.deepEqual(docsMarkdownSlugs().map((entry) => entry.slug), docsPages.map((page) => page.slug))
+})
+
+test('install scripts expose preview-safe CLI and skill setup paths', () => {
+  const cliScript = buildCliInstallScript('https://docs.example.test/')
+  const skillScript = buildSkillInstallScript('https://docs.example.test/')
+
+  assert.ok(cliScript.includes('--from-source'))
+  assert.ok(cliScript.includes('Prebuilt ZamaPay CLI releases are not published yet.'))
+  assert.ok(cliScript.includes('/.well-known/skills/zamapay/install.sh'))
+  assert.ok(skillScript.includes('${CODEX_HOME:-${HOME}/.codex}/skills/zamapay'))
+  assert.ok(skillScript.includes('/.well-known/skills/zamapay'))
 })
 
 test('AI-readable docs use forwarded host when generating absolute URLs', () => {

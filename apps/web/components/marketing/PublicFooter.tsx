@@ -11,7 +11,9 @@ const productLinks = [
 
 const resourceLinks = [
   { href: "/docs", label: "Docs home" },
+  { href: "/agents", label: "Agents" },
   { href: "/docs/quickstart", label: "Quickstart" },
+  { href: "/docs/install", label: "Install" },
   { href: "/docs/api-reference", label: "API reference" },
   { href: "/docs/webhooks", label: "Webhooks" },
 ]

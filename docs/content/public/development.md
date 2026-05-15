@@ -62,10 +62,14 @@ The docs route also exposes AI-readable integration surfaces from the same sourc
 /llms-full.txt
 /docs/manifest.json
 /docs/{slug}.md
+/.well-known/zamapay.json
+/.well-known/skills/index.json
 /.well-known/skills/zamapay
+/.well-known/skills/zamapay/install.sh
+/install.sh
 ```
 
-`/llms.txt` is the compact agent entrypoint. `/llms-full.txt` is the full corpus. `/docs/{slug}.md` strips frontmatter and Markdoc-only UI tags so coding agents can cite one guide at a time. The skill endpoint mirrors `skills/zamapay/SKILL.md` and must keep the server-only secret, explicit `paymentRail`, raw-body webhook, rail-truth, and human-confirmation rules intact.
+`/llms.txt` is the compact agent entrypoint. `/llms-full.txt` is the full corpus. `/docs/{slug}.md` strips frontmatter and Markdoc-only UI tags so coding agents can cite one guide at a time. The well-known integration manifest points agents to docs, package names, install scripts, and skill URLs. The skill endpoint mirrors `skills/zamapay/SKILL.md` and must keep the server-only secret, explicit `paymentRail`, raw-body webhook, rail-truth, and human-confirmation rules intact.
 
 ```bash
 just docs-check
@@ -82,7 +86,11 @@ Use these URLs when asking an agent to integrate ZamaPay into a merchant app:
 | `/llms-full.txt` | Use when the agent needs the whole public docs corpus in one fetch. |
 | `/docs/manifest.json` | Use for structured navigation, page groups, Markdown URLs, and required guardrails. |
 | `/docs/{slug}.md` | Use for one clean guide without Markdoc frontmatter or UI-only tags. |
+| `/.well-known/zamapay.json` | Use for package names, install URLs, skill URLs, and top-level integration status. |
+| `/.well-known/skills/index.json` | Use for skill discovery. |
 | `/.well-known/skills/zamapay` | Use as the executable integration policy for skill-aware agents. |
+| `/.well-known/skills/zamapay/install.sh` | Use for one-command Codex skill installation. |
+| `/install.sh` | Use for CLI installation; source mode is active until prebuilt releases are published. |
 
 The manifest guardrails are part of the contract. They must continue to say that project secrets stay server-side, checkout creation names `paymentRail`, webhooks verify raw bytes, EVM and Zama truth sources stay separate, and withdraw or secret rotation needs explicit human confirmation.
 
@@ -93,7 +101,10 @@ just build-web
 npm --workspace apps/web run start -- --hostname 127.0.0.1 --port 3011
 curl -fsS http://127.0.0.1:3011/llms.txt
 curl -fsS http://127.0.0.1:3011/docs/manifest.json
+curl -fsS http://127.0.0.1:3011/.well-known/zamapay.json
 curl -fsS http://127.0.0.1:3011/.well-known/skills/index.json
+curl -fsS http://127.0.0.1:3011/.well-known/skills/zamapay/install.sh
+curl -fsS http://127.0.0.1:3011/install.sh
 ```
 
 ## CLI workflow {% #cli-workflow %}
@@ -107,6 +118,7 @@ The Rust `zamapay` CLI is the merchant control-plane for local and scripted conf
 just build-cli
 just verify-cli
 cargo run -p zamapay-cli -- login --private-key-stdin
+cargo run -p zamapay-cli -- setup agent --source-file skills/zamapay/SKILL.md --target-dir .codex/skills/zamapay --yes
 cargo run -p zamapay-cli -- project create --name "CardForge local" --link --create-secret
 cargo run -p zamapay-cli -- rail enable --payment-rail evm_erc20
 cargo run -p zamapay-cli -- webhook create --url http://127.0.0.1:8092/api/zamapay/webhook --export-env

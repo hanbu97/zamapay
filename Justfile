@@ -104,6 +104,9 @@ verify-cli:
 verify-cli-shape:
     cargo run -p zamapay-cli -- --help >/dev/null
     cargo run -p zamapay-cli -- login --help >/dev/null
+    cargo run -p zamapay-cli -- setup --help >/dev/null
+    cargo run -p zamapay-cli -- setup agent --help >/dev/null
+    cargo run -p zamapay-cli -- setup agent --source-file skills/zamapay/SKILL.md --print >/dev/null
     cargo run -p zamapay-cli -- project --help >/dev/null
     cargo run -p zamapay-cli -- project create --help >/dev/null
     cargo run -p zamapay-cli -- rail --help >/dev/null
